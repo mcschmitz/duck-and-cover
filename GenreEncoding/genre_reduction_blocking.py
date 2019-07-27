@@ -1,7 +1,8 @@
+import itertools
+
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-import itertools
 
 
 def score(correlation_matrix):
@@ -107,4 +108,4 @@ print('Best score:', current_score)
 print('Cluster     [variables assigned to this cluster]')
 print('------------------------------------------------')
 for cluster in range(n_clusters):
-    print('Cluster %02d  %s' % (cluster + 1, current_ordering[cluster*cluster_size:(cluster+1)*cluster_size]))
+    print('Cluster %02d  %s' % (cluster + 1, current_ordering[cluster * cluster_size:(cluster + 1) * cluster_size]))

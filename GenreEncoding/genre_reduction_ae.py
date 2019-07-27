@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from keras import Model
 from keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -5,8 +6,6 @@ from keras.layers import *
 from keras.models import load_model
 from keras.optimizers import Adam
 from keras.regularizers import l1
-import numpy as np
-
 
 # General Parameters
 GENRE_DF_PATH = "data/GenreEncoder/genre_data.h5"
@@ -40,7 +39,7 @@ autoencoder = Model(genre_input, decoded_genre)
 autoencoder.compile(optimizer=Adam(10e-6), loss=[weighted_binary_crossentropy])
 
 model_checkpoint = ModelCheckpoint(filepath="GenreEncoder/autoencoder/autoencoder.hdf5", save_best_only=True)
-early_stopping = EarlyStopping(patience=EPOCHS//10)
+early_stopping = EarlyStopping(patience=EPOCHS // 10)
 
 autoencoder.fit(genre_df.values, genre_df.values, epochs=EPOCHS, batch_size=BATCH_SIZE,
                 callbacks=[model_checkpoint, early_stopping],

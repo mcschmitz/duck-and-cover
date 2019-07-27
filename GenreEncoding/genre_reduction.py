@@ -1,12 +1,6 @@
-import keras.backend as K
 import pandas as pd
 import seaborn as sns
-from keras import Model
-from keras.callbacks import ModelCheckpoint
 from keras.layers import *
-from keras.models import load_model
-from keras.optimizers import Adadelta
-from keras.regularizers import l1
 
 # General Parameters
 GENRE_DF_PATH = "data/GenreEncoder/genre_data.h5"
@@ -40,5 +34,3 @@ b = ease(genre_df.values, 3000)
 BATCH_SIZE = 256
 EPOCHS = 150
 VALIDATION_SPLIT = .125
-
-

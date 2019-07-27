@@ -3,7 +3,7 @@ import json
 import pandas as pd
 from sklearn.preprocessing import MultiLabelBinarizer
 
-with open("data/artist_album_data.json", "r", encoding="utf-8") as file:
+with open("data/artist_data/artist_data.json", "r", encoding="utf-8") as file:
     artists = json.load(file)
 
 artist_genres = {a: artists[a]["genres"] for a in artists}

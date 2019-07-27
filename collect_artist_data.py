@@ -21,6 +21,18 @@ class SpotifyInfoCollector:
         self.artists = artists if artists is not None else {}
         self.remaining_genres = []
 
+    def generate_new_token(self, client_id, client_secret):
+        """
+        @ Todo
+        Args:
+            client_id:
+            client_secret:
+
+        Returns:
+
+        """
+        self.token = util.oauth2.SpotifyClientCredentials(client_id, client_secret).get_access_token()
+
     def generate_spotify_session(self):
         """
         Generates a new Spotify session object based on the provided token and returns it
@@ -58,7 +70,7 @@ class SpotifyInfoCollector:
         spotify_session = self.generate_spotify_session()
 
         for idx, genre in tqdm(enumerate(genres)):
-            result = spotify_session.search("genre:{}".format(genre), type="artist", limit=50)
+            result = spotify_session.search('genre:"{}"'.format(genre), type="artist", limit=50)
             result_artists = result["artists"]["items"]
             for ra in result_artists:
                 self.get_artist_genre(ra, genre)
@@ -75,7 +87,9 @@ class SpotifyInfoCollector:
                     json.dump(self.artists, file)
                     self.remaining_genres = genres[idx:]
 
-        return self.artists
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(self.artists, file)
+            self.remaining_genres = genres[idx:]
 
 
 client_id = get_client_id()
@@ -85,4 +99,11 @@ token = util.oauth2.SpotifyClientCredentials(client_id=client_id, client_secret=
 genres = [line.rstrip("\n") for line in open("data/genres.txt")]
 
 artist_info_collector = SpotifyInfoCollector(token)
-artists = artist_info_collector.get_top_genre_artists(save_on=5, path="data/artist_data.json", genres=genres)
+artist_info_collector.get_top_genre_artists(genres, 100, "data/artist_data/artist_data.json")
+
+# rerun remaining genres
+while len(artist_info_collector.remaining_genres) > 0:
+    artist_info_collector.generate_new_token(client_id, client_secret)
+    artist_info_collector.generate_spotify_session()
+    artist_info_collector.get_top_genre_artists(artist_info_collector.remaining_genres, 100,
+                                                "data/artist_data/artist_data.json")

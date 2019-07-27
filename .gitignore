@@ -1,4 +1,5 @@
-data
+data/artist_data
+data/remaining_genres.txt
 
 spotify_client.py
 .idea

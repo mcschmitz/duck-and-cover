@@ -53,14 +53,15 @@ class SpotifyInfoCollector:
         ra_genres = artist["genres"] if len(artist["genres"]) else [fall_back_genre]
         self.artists[artist_id] = {"name": ra_name, "genres": ra_genres}
 
-    def get_top_genre_artists(self, genres, save_on: int = 100, path: str = None):
+    def get_top_genre_artists(self, genres, save_on: int = 100, result_path: str = None, remaining_path: str = None):
         """
         Collects top artists for a list of genres and their recommended artists
 
         Args:
             genres: List of genres
             save_on: Save result after 'save_on' iterations. Ignored if path is None
-            path: Where to save the result
+            result_path: Where to save the result
+            remaining_path: Where to save the list of the remaining genres
 
         """
         self.remaining_genres = genres
@@ -94,23 +95,23 @@ class SpotifyInfoCollector:
             if idx % 100 == 0:
                 spotify_session = self.generate_spotify_session()
 
-            if idx % save_on == 0 and path is not None:
-                with open(path, "w", encoding="utf-8") as file:
+            if idx % save_on == 0 and result_path is not None:
+                with open(result_path, "w", encoding="utf-8") as file:
                     json.dump(self.artists, file)
 
                 self.remaining_genres = genres[idx:]
-                with open("tmp/remaining_genres.txt", "w", encoding="utf-8") as file:
+                with open(remaining_path, "w", encoding="utf-8") as file:
                     for g in self.remaining_genres:
                         file.write("%s\n" % g)
 
-        with open(path, "w", encoding="utf-8") as file:
+        with open(result_path, "w", encoding="utf-8") as file:
             json.dump(self.artists, file)
             self.remaining_genres = []
 
 
+ARTIST_DATA_PATH = "data/artist_data/artist_data.json"
 GENRES_PATH = "data/genres.txt"
 REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
-ARTIST_DATA_PATH = "data/artist_data/artist_data.json"
 
 if __name__ == "__main__":
     client_id = get_client_id()
@@ -128,4 +129,4 @@ if __name__ == "__main__":
         genres = [line.rstrip("\n") for line in open(GENRES_PATH)]
 
     artist_info_collector = SpotifyInfoCollector(client_id=client_id, client_secret=client_secret, artists=artists)
-    artist_info_collector.get_top_genre_artists(genres, 100, ARTIST_DATA_PATH)
+    artist_info_collector.get_top_genre_artists(genres, 100, ARTIST_DATA_PATH, REMAINING_GENRES_PATH)

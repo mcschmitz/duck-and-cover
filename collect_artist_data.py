@@ -1,4 +1,5 @@
 import json
+import os
 
 import spotipy
 import spotipy.util as util
@@ -13,7 +14,8 @@ class SpotifyInfoCollector:
         """
         Collector that gathers information about artists via the spotify API
         Args:
-            @Todo
+            client_id: Spotify API client ID
+            client_secret: Spotify API Client secret
             artists: Dictionary with existing artist information. None by default to create a new information
                 dictionary
         """
@@ -26,18 +28,13 @@ class SpotifyInfoCollector:
 
     def generate_new_token(self):
         """
-        @ Todo
-
-        Returns:
-
+        Generates a new token for the Spotify API from the class object client id and client secret
         """
         self.token = util.oauth2.SpotifyClientCredentials(self.client_id, self.client_secret).get_access_token()
 
     def generate_spotify_session(self):
         """
         Generates a new Spotify session object based on the provided token and returns it
-        Returns:
-
         """
         return spotipy.Spotify(self.token)
 
@@ -111,17 +108,24 @@ class SpotifyInfoCollector:
             self.remaining_genres = []
 
 
-client_id = get_client_id()
-client_secret = get_client_secret()
+GENRES_PATH = "data/genres.txt"
+REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
+ARTIST_DATA_PATH = "data/artist_data/artist_data.json"
 
-genres = [line.rstrip("\n") for line in open("data/genres.txt")]
+if __name__ == "__main__":
+    client_id = get_client_id()
+    client_secret = get_client_secret()
 
-# artist_info_collector = SpotifyInfoCollector(client_id=client_id, client_secret=client_secret)
-# artist_info_collector.get_top_genre_artists(genres, 100, "data/artist_data/artist_data.json")
+    if os.path.isfile(ARTIST_DATA_PATH):
+        with open("data/artist_data/artist_data.json", "r", encoding="utf-8") as file:
+            artists = json.load(file)
+    else:
+        artists = None
 
-with open("data/artist_data/artist_data.json", "r", encoding="utf-8") as file:
-    artists = json.load(file)
-genres = [line.rstrip("\n") for line in open("tmp/remaining_genres.txt")]
-artist_info_collector = SpotifyInfoCollector(client_id=client_id, client_secret=client_secret, artists=artists)
-artist_info_collector.get_top_genre_artists(genres, 100, "data/artist_data/artist_data.json")
+    if os.path.isfile(REMAINING_GENRES_PATH):
+        genres = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
+    else:
+        genres = [line.rstrip("\n") for line in open(GENRES_PATH)]
 
+    artist_info_collector = SpotifyInfoCollector(client_id=client_id, client_secret=client_secret, artists=artists)
+    artist_info_collector.get_top_genre_artists(genres, 100, ARTIST_DATA_PATH)

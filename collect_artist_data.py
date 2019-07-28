@@ -10,18 +10,19 @@ from spotify_client import get_client_id, get_client_secret
 
 class SpotifyInfoCollector:
 
-    def __init__(self, client_id: str, client_secret: str, artists: dict = None):
+    def __init__(self, spotify_id: str, spotify_secret: str, artists: dict = None):
         """
         Collector that gathers information about artists via the spotify API
         Args:
-            client_id: Spotify API client ID
-            client_secret: Spotify API Client secret
+            spotify_id: Spotify API client ID
+            spotify_secret: Spotify API Client secret
             artists: Dictionary with existing artist information. None by default to create a new information
                 dictionary
         """
-        self.client_id = client_id
-        self.client_secret = client_secret
+        self.client_id = spotify_id
+        self.client_secret = spotify_secret
         self.token = None
+        self.generate_new_token()
         self.generate_spotify_session()
         self.artists = artists if artists is not None else {}
         self.remaining_genres = []
@@ -50,7 +51,7 @@ class SpotifyInfoCollector:
         """
         artist_id = artist["id"]
         ra_name = artist["name"]
-        ra_genres = artist["genres"] if len(artist["genres"]) else [fall_back_genre]
+        ra_genres = artist["genres"] if artist["genres"] else [fall_back_genre]
         self.artists[artist_id] = {"name": ra_name, "genres": ra_genres}
 
     def get_top_genre_artists(self, genres, save_on: int = 100, result_path: str = None, remaining_path: str = None):
@@ -70,21 +71,23 @@ class SpotifyInfoCollector:
         for idx, genre in tqdm(enumerate(genres)):
             try:
                 result = spotify_session.search('genre:"{}"'.format(genre), type="artist", limit=50)
-            except:
+            except Exception as ex:
+                print(ex)
                 print("Generating new token")
                 self.generate_new_token()
                 spotify_session = self.generate_spotify_session()
                 result = spotify_session.search('genre:"{}"'.format(genre), type="artist", limit=50)
 
             result_artists = result["artists"]["items"]
-            for ra in result_artists:
-                artist_id = ra["id"]
+            for result_artist in result_artists:
+                artist_id = result_artist["id"]
                 if artist_id in self.artists:
                     continue
-                self.get_artist_genre(ra, genre)
+                self.get_artist_genre(result_artist, genre)
                 try:
                     related_artists = spotify_session.artist_related_artists(artist_id)["artists"]
                 except:
+                    # @ TODO ExceptionType
                     print("Generating new token")
                     self.generate_new_token()
                     spotify_session = self.generate_spotify_session()
@@ -96,16 +99,16 @@ class SpotifyInfoCollector:
                 spotify_session = self.generate_spotify_session()
 
             if idx % save_on == 0 and result_path is not None:
-                with open(result_path, "w", encoding="utf-8") as file:
-                    json.dump(self.artists, file)
+                with open(result_path, "w", encoding="utf-8") as result_file:
+                    json.dump(self.artists, result_file)
 
                 self.remaining_genres = genres[idx:]
-                with open(remaining_path, "w", encoding="utf-8") as file:
-                    for g in self.remaining_genres:
-                        file.write("%s\n" % g)
+                with open(remaining_path, "w", encoding="utf-8") as remaining_file:
+                    for remaining_genre in self.remaining_genres:
+                        remaining_file.write("%s\n" % remaining_genre)
 
-        with open(result_path, "w", encoding="utf-8") as file:
-            json.dump(self.artists, file)
+        with open(result_path, "w", encoding="utf-8") as remaining_file:
+            json.dump(self.artists, remaining_file)
             self.remaining_genres = []
 
 
@@ -114,19 +117,20 @@ GENRES_PATH = "data/genres.txt"
 REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
 
 if __name__ == "__main__":
-    client_id = get_client_id()
-    client_secret = get_client_secret()
+    CLIENT_ID = get_client_id()
+    CLIENT_SECRET = get_client_secret()
 
     if os.path.isfile(ARTIST_DATA_PATH):
         with open("data/artist_data/artist_data.json", "r", encoding="utf-8") as file:
-            artists = json.load(file)
+            EXISTING_ARTISTS = json.load(file)
     else:
-        artists = None
+        EXISTING_ARTISTS = None
 
     if os.path.isfile(REMAINING_GENRES_PATH):
-        genres = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
+        GENRES_TO_PROCESS = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
     else:
-        genres = [line.rstrip("\n") for line in open(GENRES_PATH)]
+        GENRES_TO_PROCESS = [line.rstrip("\n") for line in open(GENRES_PATH)]
 
-    artist_info_collector = SpotifyInfoCollector(client_id=client_id, client_secret=client_secret, artists=artists)
-    artist_info_collector.get_top_genre_artists(genres, 100, ARTIST_DATA_PATH, REMAINING_GENRES_PATH)
+    ARTIST_INFO_COLLECTOR = SpotifyInfoCollector(spotify_id=CLIENT_ID, spotify_secret=CLIENT_SECRET,
+                                                 artists=EXISTING_ARTISTS)
+    ARTIST_INFO_COLLECTOR.get_top_genre_artists(GENRES_TO_PROCESS, 100, ARTIST_DATA_PATH, REMAINING_GENRES_PATH)

@@ -3,5 +3,5 @@ data/remaining_genres.txt
 
 spotify_client.py
 .idea
-
+.pylintrc
 tmp

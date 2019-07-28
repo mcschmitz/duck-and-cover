@@ -54,7 +54,7 @@ class SpotifyInfoCollector:
         ra_genres = artist["genres"] if artist["genres"] else [fall_back_genre]
         self.artists[artist_id] = {"name": ra_name, "genres": ra_genres}
 
-    def get_top_genre_artists(self, genres, save_on: int = 100, result_path: str = None, remaining_path: str = None):
+    def get_genre_artists(self, genres, save_on: int = 100, result_path: str = None, remaining_path: str = None):
         """
         Collects top artists for a list of genres and their recommended artists
 
@@ -117,20 +117,20 @@ GENRES_PATH = "data/genres.txt"
 REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
 
 if __name__ == "__main__":
-    CLIENT_ID = get_client_id()
-    CLIENT_SECRET = get_client_secret()
+    client_id = get_client_id()
+    client_secret = get_client_secret()
 
     if os.path.isfile(ARTIST_DATA_PATH):
         with open("data/artist_data/artist_data.json", "r", encoding="utf-8") as file:
-            EXISTING_ARTISTS = json.load(file)
+            existing_artists = json.load(file)
     else:
-        EXISTING_ARTISTS = None
+        existing_artists = None
 
     if os.path.isfile(REMAINING_GENRES_PATH):
-        GENRES_TO_PROCESS = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
+        genres_to_process = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
     else:
-        GENRES_TO_PROCESS = [line.rstrip("\n") for line in open(GENRES_PATH)]
+        genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
 
-    ARTIST_INFO_COLLECTOR = SpotifyInfoCollector(spotify_id=CLIENT_ID, spotify_secret=CLIENT_SECRET,
-                                                 artists=EXISTING_ARTISTS)
-    ARTIST_INFO_COLLECTOR.get_top_genre_artists(GENRES_TO_PROCESS, 100, ARTIST_DATA_PATH, REMAINING_GENRES_PATH)
+    artist_info_collector = SpotifyInfoCollector(spotify_id=client_id, spotify_secret=client_secret,
+                                                 artists=existing_artists)
+    artist_info_collector.get_genre_artists(genres_to_process, 100, ARTIST_DATA_PATH, REMAINING_GENRES_PATH)

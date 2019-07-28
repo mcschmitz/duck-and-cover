@@ -5,20 +5,25 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from collect_artist_data import ARTIST_DATA_PATH
 
-with open(ARTIST_DATA_PATH, "r", encoding="utf-8") as file:
-    artists = json.load(file)
+ARTIST_GENRE_PATH = "data/artist_data/artist_genre.h5"
+ARTIST_GENRE_CORR_PATH = "data/artist_data/artist_genre_correlation.h5"
 
-artist_genres = {a: artists[a]["genres"] for a in artists}
+if __name__ == "__main__":
+    with open(ARTIST_DATA_PATH, "r", encoding="utf-8") as file:
+        artists = json.load(file)
+        file.close()
 
-genres = [artist_genres[a] for a in artist_genres]
+    artist_genres = {a: artists[a]["genres"] for a in artists}
 
-mlb = MultiLabelBinarizer()
-mlb.fit(genres)
+    genres = [artist_genres[a] for a in artist_genres]
+    ids = [a for a in artist_genres]
 
-df = pd.DataFrame(mlb.transform(genres), columns=mlb.classes_)
+    mlb = MultiLabelBinarizer()
+    mlb.fit(genres)
 
-df.to_hdf("data/GenreEncoder/genre_data.h5", index=False, key="df", format="fixed", complib="blosc:lz4", complevel=9)
+    df = pd.DataFrame(mlb.transform(genres), columns=mlb.classes_, index=ids)
 
-correlation = df.corr()
-correlation.to_hdf("data/GenreEncoder/genre_correlation.h5", index=False, key="df", format="fixed", complib="blosc:lz4",
-                   complevel=9)
+    df.to_hdf(ARTIST_GENRE_PATH, index=False, key="df", format="fixed", complib="blosc:lz4", complevel=9)
+
+    correlation = df.corr()
+    correlation.to_hdf(ARTIST_GENRE_CORR_PATH, index=False, key="df", format="fixed", complib="blosc:lz4", complevel=9)

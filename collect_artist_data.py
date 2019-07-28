@@ -114,7 +114,7 @@ class SpotifyInfoCollector:
         with open(result_path, "w", encoding="utf-8") as result_file:
             json.dump(self.artists, result_file, indent=4)
             result_file.close()
-        self.remaining_genres = []
+        os.remove(remaining_path)
 
 
 ARTIST_DATA_PATH = "data/artist_data/artist_data.json"

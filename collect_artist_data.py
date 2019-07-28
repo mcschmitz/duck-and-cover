@@ -10,10 +10,11 @@ from spotify_client import get_client_id, get_client_secret
 
 class SpotifyInfoCollector:
 
-    def __init__(self, spotify_id: str, spotify_secret: str, artists: dict = None):
+    def __init__(self, token: str, spotify_id: str, spotify_secret: str, artists: dict = None):
         """
         Collector that gathers information about artists via the spotify API
         Args:
+            token: Spotify API Token. Automatically generated if not provided
             spotify_id: Spotify API client ID
             spotify_secret: Spotify API Client secret
             artists: Dictionary with existing artist information. None by default to create a new information
@@ -21,8 +22,7 @@ class SpotifyInfoCollector:
         """
         self.client_id = spotify_id
         self.client_secret = spotify_secret
-        self.token = None
-        self.generate_new_token()
+        self.token = token if token else self.generate_new_token()
         self.generate_spotify_session()
         self.artists = artists if artists is not None else {}
         self.remaining_genres = []
@@ -31,7 +31,7 @@ class SpotifyInfoCollector:
         """
         Generates a new token for the Spotify API from the class object client id and client secret
         """
-        self.token = util.oauth2.SpotifyClientCredentials(self.client_id, self.client_secret).get_access_token()
+        return util.oauth2.SpotifyClientCredentials(self.client_id, self.client_secret).get_access_token()
 
     def generate_spotify_session(self):
         """
@@ -72,9 +72,10 @@ class SpotifyInfoCollector:
             try:
                 result = spotify_session.search('genre:"{}"'.format(genre), type="artist", limit=50)
             except Exception as ex:
+                # @ TODO ExceptionType
                 print(ex)
                 print("Generating new token")
-                self.generate_new_token()
+                self.token = self.generate_new_token()
                 spotify_session = self.generate_spotify_session()
                 result = spotify_session.search('genre:"{}"'.format(genre), type="artist", limit=50)
 
@@ -86,10 +87,11 @@ class SpotifyInfoCollector:
                 self.get_artist_genre(result_artist, genre)
                 try:
                     related_artists = spotify_session.artist_related_artists(artist_id)["artists"]
-                except:
+                except Exception as ex:
                     # @ TODO ExceptionType
+                    print(ex)
                     print("Generating new token")
-                    self.generate_new_token()
+                    self.token = self.generate_new_token()
                     spotify_session = self.generate_spotify_session()
                     related_artists = spotify_session.artist_related_artists(artist_id)["artists"]
                 for rel_a in related_artists:
@@ -100,16 +102,19 @@ class SpotifyInfoCollector:
 
             if idx % save_on == 0 and result_path is not None:
                 with open(result_path, "w", encoding="utf-8") as result_file:
-                    json.dump(self.artists, result_file)
+                    json.dump(self.artists, result_file, indent=4)
+                    result_file.close()
 
                 self.remaining_genres = genres[idx:]
                 with open(remaining_path, "w", encoding="utf-8") as remaining_file:
                     for remaining_genre in self.remaining_genres:
                         remaining_file.write("%s\n" % remaining_genre)
+                    remaining_file.close()
 
-        with open(result_path, "w", encoding="utf-8") as remaining_file:
-            json.dump(self.artists, remaining_file)
-            self.remaining_genres = []
+        with open(result_path, "w", encoding="utf-8") as result_file:
+            json.dump(self.artists, result_file, indent=4)
+            result_file.close()
+        self.remaining_genres = []
 
 
 ARTIST_DATA_PATH = "data/artist_data/artist_data.json"
@@ -131,6 +136,7 @@ if __name__ == "__main__":
     else:
         genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
 
-    artist_info_collector = SpotifyInfoCollector(spotify_id=client_id, spotify_secret=client_secret,
+    token = util.oauth2.SpotifyClientCredentials(client_id, client_secret).get_access_token()
+    artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
                                                  artists=existing_artists)
     artist_info_collector.get_genre_artists(genres_to_process, 100, ARTIST_DATA_PATH, REMAINING_GENRES_PATH)

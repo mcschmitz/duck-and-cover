@@ -19,7 +19,8 @@ class SpotifyInfoCollector:
             spotify_token: Spotify API Token. Automatically generated if not provided
             spotify_id: Spotify API client ID
             spotify_secret: Spotify API Client secret
-            @TODO cover_frame, artist_genres_map
+            artist_genres_map: Already collected artist IDs and genres
+            cover_frame: Dataframe of already collected album information
         """
         self.client_id = spotify_id
         self.client_secret = spotify_secret
@@ -139,11 +140,10 @@ class SpotifyInfoCollector:
         Builds a dataframe containing all albums, their release date and an url to their cover for a given set of
         artists
         Args:
-            @TODO
-            artists:
-            save_on:
-            result_path:
-            remaining_path:
+            artists: Dictionary of Spotify artist Ids and their gernes
+            save_on: ave result after 'save_on' iterations. Ignored if path is None
+            result_path: Where to save the result
+            remaining_path: Where to save the list of the remaining genres
         """
         self.spotify_session = self.create_spotify_session()
         self.remaining_artists = artists.copy()
@@ -175,18 +175,18 @@ class SpotifyInfoCollector:
 
     def get_artist_album_data(self, artist: str = None, genre: list = None):
         """
-        @TODO
+        Collects essential information about all  albums released by the given artist
         Args:
-            artist:
-
+            artist: Spotify artist Id
+            genre: Genre of the artist
         Returns:
-
+            List of summarizing dictionaries of all albums released by an artist
         """
 
-        album_data = self.spotify_session.artist_albums(artist, album_type="album", limit=50)["items"]
+        albums = self.spotify_session.artist_albums(artist, album_type="album", limit=50)["items"]
         result = []
-        if len(album_data) > 0:
-            for album in album_data:
+        if len(albums) > 0:
+            for album in albums:
                 if not album["images"] or album["type"] != "album":
                     continue
                 else:
@@ -230,6 +230,9 @@ if __name__ == "__main__":
         with open(REMAINING_ARTISTS, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
             file.close()
+        album_data = pd.read_hdf(ALBUM_DATA_PATH, "df")
+        artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
+                                                     cover_frame=album_data)
     else:
         with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)

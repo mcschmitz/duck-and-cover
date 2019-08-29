@@ -1,12 +1,13 @@
 import json
 import os
+import shutil
 
 import pandas as pd
 import spotipy
 import spotipy.util as util
 from tqdm import tqdm
 
-from spotify_client import get_client_id, get_client_secret
+from credentials import get_client_id, get_client_secret
 
 
 class SpotifyInfoCollector:
@@ -30,7 +31,7 @@ class SpotifyInfoCollector:
         self.remaining_genres = list()
         self.remaining_artists = list()
         self.spotify_session = self.create_spotify_session()
-        if cover_frame:
+        if cover_frame is not None:
             self.cover_frame = cover_frame
         else:
             self.cover_frame = pd.DataFrame([], columns=["artist_id", "artist_name", "artist_genre",
@@ -166,11 +167,17 @@ class SpotifyInfoCollector:
                 self.spotify_session = self.create_spotify_session()
 
             if idx % save_on == 0 and result_path is not None:
-                self.cover_frame.to_hdf(result_path, index=False, key="df", format="fixed", complib="blosc:lz4",
-                                        complevel=9)
+                if os.path.isfile(result_path):
+                    source = result_path
+                    name, ext = os.path.splitext(result_path)
+                    name += "_copy"
+                    target = name + ext
+                    shutil.copyfile(source, target)
+                self.cover_frame.to_json(result_path, lines=True, orient="records")
                 self.write_to_json(self.remaining_artists, remaining_path)
 
         self.write_to_json(self.remaining_artists, remaining_path)
+        self.cover_frame.to_json(result_path, lines=True, orient="records")
         os.remove(remaining_path)
 
     def get_artist_album_data(self, artist: str = None, genre: list = None):
@@ -183,58 +190,62 @@ class SpotifyInfoCollector:
             List of summarizing dictionaries of all albums released by an artist
         """
 
-        albums = self.spotify_session.artist_albums(artist, album_type="album", limit=50)["items"]
-        result = []
-        if len(albums) > 0:
-            for album in albums:
-                if not album["images"] or album["type"] != "album":
-                    continue
-                else:
-                    images = album["images"]
-                    cover_url = [i["url"] for i in images if i["height"] == 300]
-                    if len(cover_url) > 0:
-                        release_year = int(album["release_date"][:4])
-                        album_summary = {"artist_id": artist, "artist_name": album["artists"][0]["name"],
-                                         "artist_genre": genre,
-                                         "album_id": album["id"], "album_name": album["name"],
-                                         "album_release": release_year,
-                                         "album_cover_url": cover_url[0]}
-                        result.append(album_summary)
-        return result
+        albums = self.spotify_session.artist_albums(artist, album_type="album", limit=50)
+        if albums:
+            albums = albums["items"]
+            result = []
+            if len(albums) > 0:
+                for album in albums:
+                    if not album["images"] or album["type"] != "album":
+                        continue
+                    else:
+                        images = album["images"]
+                        cover_url = [i["url"] for i in images if i["height"] == 300]
+                        if len(cover_url) > 0:
+                            release_year = int(album["release_date"][:4])
+                            album_summary = {"artist_id": artist, "artist_name": album["artists"][0]["name"],
+                                             "artist_genre": genre,
+                                             "album_id": album["id"], "album_name": album["name"],
+                                             "album_release": release_year,
+                                             "album_cover_url": cover_url[0]}
+                            result.append(album_summary)
+            return result
+        else:
+            return []
 
 
 ARTISTS_FILE = "data/artist_ids.json"
 GENRES_PATH = "data/genres.txt"
 REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
 REMAINING_ARTISTS = "tmp/remaining_artists.json"
-ALBUM_DATA_PATH = "data/album_data_frame.h5"
+ALBUM_DATA_PATH = "data/album_data_frame.json"
 
 if __name__ == "__main__":
     client_id = get_client_id()
     client_secret = get_client_secret()
     token = util.oauth2.SpotifyClientCredentials(client_id, client_secret).get_access_token()
     artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret)
-
-    if os.path.isfile(REMAINING_GENRES_PATH):
-        genres_to_process = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
-        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
-            artist_genres = json.load(file)
-            file.close()
-            artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
-                                                         artist_genres_map=artist_genres)
-    else:
-        genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
-    artist_info_collector.get_genre_artists(genres_to_process, 100, ARTISTS_FILE, REMAINING_GENRES_PATH)
+    #
+    # if os.path.isfile(REMAINING_GENRES_PATH):
+    #     genres_to_process = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
+    #     with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
+    #         artist_genres = json.load(file)
+    #         file.close()
+    #         artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
+    #                                                      artist_genres_map=artist_genres)
+    # else:
+    #     genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
+    # artist_info_collector.get_genre_artists(genres_to_process, 100, ARTISTS_FILE, REMAINING_GENRES_PATH)
 
     if os.path.isfile(REMAINING_ARTISTS):
         with open(REMAINING_ARTISTS, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
             file.close()
-        album_data = pd.read_hdf(ALBUM_DATA_PATH, "df")
+        album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
         artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
                                                      cover_frame=album_data)
     else:
         with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
             file.close()
-    artist_info_collector.build_cover_data_frame(artists_to_process, 100, ALBUM_DATA_PATH, REMAINING_ARTISTS)
+    artist_info_collector.build_cover_data_frame(artists_to_process, 1000, ALBUM_DATA_PATH, REMAINING_ARTISTS)

@@ -8,6 +8,6 @@
 additional information like the genre and the release year of your
 artificial performer.**
 
-Duck and Cover uses data from over 100000 top artists of over
-[3000 genres](data/genres.txt) to learn about the structure and
+Duck and Cover uses data from over 100.000 top artists of over
+[3.000 genres](data/genres.txt) to learn about the structure and
 appearance of let's say a thrash metal album cover from 1988.

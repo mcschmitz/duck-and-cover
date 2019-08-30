@@ -1,7 +1,7 @@
 # **Duck and Cover**
 
 <div align="center">
-  <img src="http://cbarks.dk/Digital/seraa196208.JPGhttp://cbarks.dk/Digital/seraa196208.JPG">
+  <img src="http://cbarks.dk/Digital/seraa196208.JPG">
 </div>
 
 **Duck and Cover allows you to create your own album covers based on

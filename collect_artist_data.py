@@ -1,6 +1,8 @@
 import json
 import os
 import shutil
+import urllib.request
+from urllib.error import ContentTooShortError, HTTPError
 
 import pandas as pd
 import spotipy
@@ -8,6 +10,7 @@ import spotipy.util as util
 from tqdm import tqdm
 
 from credentials import get_client_id, get_client_secret
+from utils import create_dir
 
 
 class SpotifyInfoCollector:
@@ -222,12 +225,34 @@ class SpotifyInfoCollector:
         else:
             return []
 
+    def collect_album_cover(self, target_dir: str):
+        for idx, album in tqdm(self.cover_frame.iterrows()):
+            url = album["album_cover_url"]
+            artist_id = album["artist_id"]
+            album_id = album["album_id"]
+            path = os.path.join(target_dir, artist_id)
+            create_dir(path)
 
-def get_artist_genres(spotify_info_collector):
+            file_path = os.path.join(path, album_id + ".jpg")
+            if not os.path.isfile(file_path):
+                try:
+                    urllib.request.urlretrieve(url, file_path)
+                except ContentTooShortError:
+                    urllib.request.urlretrieve(url, file_path)
+
+                except HTTPError:
+                    continue
+
+
+def get_genre_artists(spotify_info_collector, result_path: str, remaining_path: str, spotify_token: str, **kwargs):
     """
     Wrapper to return a dict that contains a set of artists for each given genre and their genres
+
     Args:
         spotify_info_collector: SpotifyInfoCollector instance
+        result_path: where to save the result
+        remaining_path: where to save the remaining genres
+        spotify_token: Spotify API Token. Automatically generated if not provided
 
     Returns:
         Dict of artist IDs and their genres
@@ -237,13 +262,15 @@ def get_artist_genres(spotify_info_collector):
         with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
             artist_genres = json.load(file)
             file.close()
-            spotify_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
-                                                          artist_genres_map=artist_genres)
+            spotify_info_collector = SpotifyInfoCollector(spotify_token=spotify_token, spotify_id=client_id,
+                                                          spotify_secret=client_secret, artist_genres_map=artist_genres)
     else:
         genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
-    artist_genres = spotify_info_collector.get_genre_artists(genres_to_process, 100, ARTISTS_FILE,
-                                                             REMAINING_GENRES_PATH)
+    artist_genres = spotify_info_collector.get_genre_artists(genres=genres_to_process, result_path=result_path,
+                                                             remaining_path=remaining_path,
+                                                             save_on=kwargs.get("save_on"))
     return artist_genres
+
 
 ARTISTS_FILE = "data/artist_ids.json"
 GENRES_PATH = "data/genres.txt"
@@ -258,7 +285,18 @@ if __name__ == "__main__":
     token = util.oauth2.SpotifyClientCredentials(client_id, client_secret).get_access_token()
     artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret)
 
-    # artists_to_process = get_artist_genres(artist_info_collector)
+    if os.path.isfile(REMAINING_GENRES_PATH):
+        genres_to_process = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
+        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
+            artists_to_process = json.load(file)
+            file.close()
+            artist_info_collector = SpotifyInfoCollector(spotify_token=token, spotify_id=client_id,
+                                                         spotify_secret=client_secret,
+                                                         artist_genres_map=artists_to_process)
+    else:
+        genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
+    artists_to_process = artist_info_collector.get_genre_artists(genres=genres_to_process, result_path=ARTISTS_FILE,
+                                                                 remaining_path=REMAINING_GENRES_PATH, save_on=100)
 
     if os.path.isfile(REMAINING_ARTISTS):
         with open(REMAINING_ARTISTS, "r", encoding="utf-8") as file:
@@ -272,3 +310,4 @@ if __name__ == "__main__":
             artists_to_process = json.load(file)
             file.close()
     artist_info_collector.build_cover_data_frame(artists_to_process, 1000, ALBUM_DATA_PATH, REMAINING_ARTISTS)
+    artist_info_collector.collect_album_cover(target_dir="data/covers")

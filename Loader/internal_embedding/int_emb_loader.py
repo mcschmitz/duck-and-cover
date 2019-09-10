@@ -317,14 +317,14 @@ class ImageLoader:
     @TODO
     """
 
-    def __init__(self, root, batch_size, image_size, image_ratio, color_mode: str = "rgb", row_axis: int = 0,
+    def __init__(self, data, batch_size, image_size, image_ratio, color_mode: str = "rgb", row_axis: int = 0,
                  col_axis: int = 1, channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
                  width_shift_range: float = 0.0, shear_range: float = 0.0, zoom_range: tuple = (0.0, 0.0),
                  channel_shift_range: float = 0.0, horizontal_flip: bool = False, vertical_flip: bool = False):
         """
         @TODO
         Args:
-            root:
+            data:
             batch_size:
             image_size:
             image_ratio:
@@ -341,8 +341,8 @@ class ImageLoader:
             horizontal_flip:
             vertical_flip:
         """
-        self.root = root
         # self.__find_classes()
+        self.data = data
         self.batch_size = batch_size
         self.image_shape = (np.int(np.ceil(image_size * image_ratio[1])), np.int(np.ceil(image_size * image_ratio[0])))
         self.color_mode = color_mode
@@ -359,18 +359,6 @@ class ImageLoader:
         self.channel_shift_range = channel_shift_range
         self.horizontal_flip = horizontal_flip
         self.vertical_flip = vertical_flip
-
-    def __find_classes(self):
-        self.classes = {}
-        for root, directories, files in os.walk(self.root):
-            if root == self.root:
-                for subdir in directories:
-                    self.classes[subdir] = []
-            if os.path.split(root)[-1] in list(self.classes.keys()):
-                self.classes[os.path.split(root)[-1]] = {d: 0 for d in directories}
-                for lowest_directoy in directories:
-                    lowest_path = os.path.join(root, lowest_directoy)
-                    self.classes[os.path.split(root)[-1]][lowest_directoy] = len(list_pictures(lowest_path))
 
     def random_transform(self, x, seed=None):
         """Randomly augment a single image tensor.
@@ -455,17 +443,14 @@ class ImageLoader:
 
         return x
 
-    def next(self, specific_class=None):
+    def next(self):
         batch_x = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
         batch_y = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        erosion = np.zeros((self.batch_size,), dtype=K.floatx())
+        genres = list()
         grayscale = self.color_mode == 'grayscale'
 
         for i in range(0, self.batch_size):
-            if specific_class is not None:
-                c = specific_class
-            else:
-                c = list(self.classes.keys())[self._class_iterator]
+            c = list(self.classes.keys())[self._class_iterator]
             class_path = os.path.join(self.root, c)
             seed = np.random.randint(1e8)
             class_transformed = False
@@ -486,12 +471,12 @@ class ImageLoader:
                     batch_y[i] = x
                     erosion_str = file_name.split("_")[1]
                     erosion_float = float(re.sub('.jpg|.png', '', erosion_str))
-                    erosion[i] = erosion_float / self._max_erosion
+                    genres[i] = erosion_float / self._max_erosion
             if i == 0:
                 batch_y[i] = batch_x[i]
-                erosion[i] = 0.0
+                genres[i] = 0.0
             self._class_iterator += 1
             if self._class_iterator >= len(self.classes):
                 self._class_iterator = 0
             self._max_erosion = max(erosion_float, self._max_erosion)
-        return batch_x, batch_y, erosion
+        return batch_x, batch_y, genres

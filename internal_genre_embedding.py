@@ -1,3 +1,4 @@
+import pandas as pd
 from matplotlib import pyplot as plt
 
 from Loader.internal_embedding.int_emb_loader import *
@@ -11,7 +12,9 @@ image_height = 312
 image_ratio = (1, 1)
 image_size = 256
 
-data_loader = ImageLoader(root="data/covers", batch_size=BATCH_SIZE, image_size=image_size, image_ratio=image_ratio)
+covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
+
+data_loader = ImageLoader(data=covers, batch_size=BATCH_SIZE, image_size=image_size, image_ratio=image_ratio)
 
 image_width_compr = data_loader.image_shape[0]
 image_height_compr = data_loader.image_shape[1]
@@ -29,7 +32,7 @@ for epoch in range(0, EPOCH_NUM):
         new_images, old_images, erosion = data_loader.next()
         cum_g_loss, cum_d_acc_img, cum_d_acc_z = caae.train_on_batch(new_images, old_images, erosion)
     caae.adversarial_model.n_epochs += 1
-    img = data_loader.next(specific_class="Eur5Back")[0][0]
+    img = data_loader.next()[0][0]
     img = array_to_img(img)
     final_image = pil_image.new("RGB", (image_width_compr * 6, image_height_compr * 2))
     x_offset = 0
@@ -42,7 +45,7 @@ for epoch in range(0, EPOCH_NUM):
         predicted_img = predicted_img.reshape(image_height_compr, image_width_compr, 3)
         predicted_img = array_to_img(predicted_img)
         final_image.paste(predicted_img, (x_offset, 0))
-    img = data_loader.next(specific_class="Eur5Front")[0][0]
+    img = data_loader.next()[0][0]
     img = array_to_img(img)
     x_offset = 0
     final_image.paste(img, (x_offset, image_height_compr))

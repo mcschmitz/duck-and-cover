@@ -3,7 +3,7 @@ import os
 
 def create_dir(directory_path):
     """
-    Creates a directory to the given path if it does not existö
+    Creates a directory to the given path if it does not exist
     Args:
         directory_path: path directory
     """

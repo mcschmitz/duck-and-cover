@@ -1,8 +1,10 @@
+import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import MultiLabelBinarizer
 
-from Loader.internal_embedding.int_emb_loader import ImageLoader, pil_image
+from Loader.internal_embedding.int_emb_loader import ImageLoader, array_to_img
 from Networks.internal_embedding.int_emb_network import DACInternalGenreEmbedding
 
 BATCH_SIZE = 32
@@ -39,24 +41,23 @@ for epoch in range(0, EPOCH_NUM):
     dac.adversarial_model.n_epochs += 1
 
     d_acc.append(cum_d_acc)
-    fig1 = plt.figure(1)
-    ax = fig1.add_subplot(1, 1, 1)
-    ax.plot(list(range(dac.adversarial_model.n_epochs)), d_acc)
+    ax = sns.lineplot(range(dac.adversarial_model.n_epochs), d_acc)
     plt.ylabel('Discriminator Accucary')
     plt.xlabel('Epochs')
     plt.savefig('learning_progress/internal_embedding/d_acc.png')
     plt.close()
 
     g_loss.append(cum_g_loss)
-    fig1 = plt.figure(1)
-    ax = fig1.add_subplot(1, 1, 1)
-    ax.plot(list(range(dac.adversarial_model.n_epochs)), d_acc)
+    ax = sns.lineplot(range(dac.adversarial_model.n_epochs), g_loss)
     plt.ylabel('Generator Loss')
     plt.xlabel('Epochs')
     plt.savefig('learning_progress/internal_embedding/g_loss.png')
     plt.close()
 
     if epoch % 1 == 0:
-        generated_image = pil_image.new("RGB", (256, 256))
+        noise = np.random.uniform(size=(1, dac.latent_size))
+        genre_noise = np.random.choice([0, 1], size=(1, dac.n_genres), p=[1 - dac.genre_prob, dac.genre_prob])
+        img = dac.generator.predict([noise, genre_noise])[0]
+        img = array_to_img(img)
         prediction_path = 'learning_progress/internal_embedding/epoch{}.png'.format(dac.adversarial_model.n_epochs)
-        generated_image.save(prediction_path)
+        img.save(prediction_path)

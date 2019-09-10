@@ -244,34 +244,6 @@ class SpotifyInfoCollector:
                     continue
 
 
-def get_genre_artists(spotify_info_collector, result_path: str, remaining_path: str, spotify_token: str, **kwargs):
-    """
-    Wrapper to return a dict that contains a set of artists for each given genre and their genres
-
-    Args:
-        spotify_info_collector: SpotifyInfoCollector instance
-        result_path: where to save the result
-        remaining_path: where to save the remaining genres
-        spotify_token: Spotify API Token. Automatically generated if not provided
-
-    Returns:
-        Dict of artist IDs and their genres
-    """
-    if os.path.isfile(REMAINING_GENRES_PATH):
-        genres_to_process = [line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)]
-        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
-            artist_genres = json.load(file)
-            file.close()
-            spotify_info_collector = SpotifyInfoCollector(spotify_token=spotify_token, spotify_id=client_id,
-                                                          spotify_secret=client_secret, artist_genres_map=artist_genres)
-    else:
-        genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
-    artist_genres = spotify_info_collector.get_genre_artists(genres=genres_to_process, result_path=result_path,
-                                                             remaining_path=remaining_path,
-                                                             save_on=kwargs.get("save_on"))
-    return artist_genres
-
-
 ARTISTS_FILE = "data/artist_ids.json"
 GENRES_PATH = "data/genres.txt"
 REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"

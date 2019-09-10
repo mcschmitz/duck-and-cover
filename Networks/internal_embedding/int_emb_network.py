@@ -1,5 +1,3 @@
-import keras.backend as K
-import numpy as np
 from keras import Model
 from keras.layers import *
 from keras.optimizers import Adam, Adadelta

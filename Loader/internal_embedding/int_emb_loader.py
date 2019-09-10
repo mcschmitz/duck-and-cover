@@ -1,13 +1,14 @@
-"""Fairly basic set of tools for real-time data augmentation on image data.
-Can easily be extended to include new transformations,
-new preprocessing methods, etc...
+"""
+Fairly basic set of tools for real-time data augmentation on image data.
+Can easily be extended to include new transformations, new preprocessing methods, etc...
 """
 
 import os
-import re
 
 import keras.backend as K
 import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MultiLabelBinarizer
 
 try:
     from PIL import Image as pil_image
@@ -317,14 +318,17 @@ class ImageLoader:
     @TODO
     """
 
-    def __init__(self, data, batch_size, image_size, image_ratio, color_mode: str = "rgb", row_axis: int = 0,
-                 col_axis: int = 1, channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
+    def __init__(self, data: pd.DataFrame, root: str, binarizer: MultiLabelBinarizer, batch_size: int, image_size: int,
+                 image_ratio: tuple, color_mode: str = "rgb", row_axis: int = 0, col_axis: int = 1,
+                 channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
                  width_shift_range: float = 0.0, shear_range: float = 0.0, zoom_range: tuple = (0.0, 0.0),
                  channel_shift_range: float = 0.0, horizontal_flip: bool = False, vertical_flip: bool = False):
         """
         @TODO
         Args:
             data:
+            root
+            binarizer:
             batch_size:
             image_size:
             image_ratio:
@@ -341,12 +345,14 @@ class ImageLoader:
             horizontal_flip:
             vertical_flip:
         """
-        # self.__find_classes()
         self.data = data
+        self.root = root
+        self.files = self.__get_paths()
+        self.binarizer = binarizer
         self.batch_size = batch_size
         self.image_shape = (np.int(np.ceil(image_size * image_ratio[1])), np.int(np.ceil(image_size * image_ratio[0])))
         self.color_mode = color_mode
-        self._class_iterator = 0
+        self._iterator = 0
         self._max_erosion = 1
         self.row_axis = row_axis
         self.col_axis = col_axis
@@ -359,6 +365,12 @@ class ImageLoader:
         self.channel_shift_range = channel_shift_range
         self.horizontal_flip = horizontal_flip
         self.vertical_flip = vertical_flip
+
+    def __get_paths(self):
+        file_list = []
+        for _, d in self.data.iterrows():
+            file_list.append(os.path.join(self.root, d["artist_id"], d["album_id"]) + ".jpg")
+        return file_list
 
     def random_transform(self, x, seed=None):
         """Randomly augment a single image tensor.
@@ -445,38 +457,20 @@ class ImageLoader:
 
     def next(self):
         batch_x = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        batch_y = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        genres = list()
+        genres = np.zeros((self.batch_size, len(self.binarizer.classes_)))
         grayscale = self.color_mode == 'grayscale'
 
         for i in range(0, self.batch_size):
-            c = list(self.classes.keys())[self._class_iterator]
-            class_path = os.path.join(self.root, c)
             seed = np.random.randint(1e8)
-            class_transformed = False
-            for state_idx, state in enumerate(self.classes[c]):
-                state_path = os.path.join(class_path, state)
-                class_files = list_pictures(state_path)
-                random_idx = np.random.randint(0, len(class_files))
-                file_name = class_files[random_idx]
-                img = load_img(file_name, grayscale=grayscale, target_size=self.image_shape)
-                x = img_to_array(img)
-                if ((np.random.sample() > .5 and state_idx == 0) or class_transformed) and specific_class is None:
-                    x = self.random_transform(x, seed=seed)
-                    class_transformed = True
-                x = x / 255
-                if state == "new":
-                    batch_x[i] = x
-                elif state == "old":
-                    batch_y[i] = x
-                    erosion_str = file_name.split("_")[1]
-                    erosion_float = float(re.sub('.jpg|.png', '', erosion_str))
-                    genres[i] = erosion_float / self._max_erosion
-            if i == 0:
-                batch_y[i] = batch_x[i]
-                genres[i] = 0.0
-            self._class_iterator += 1
-            if self._class_iterator >= len(self.classes):
-                self._class_iterator = 0
-            self._max_erosion = max(erosion_float, self._max_erosion)
-        return batch_x, batch_y, genres
+            file_path = list(self.files)[self._iterator]
+            img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
+            x = img_to_array(img)
+            if np.random.sample() > .5:
+                x = self.random_transform(x, seed=seed)
+            x = x / 255
+            batch_x[i] = x
+            genres[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
+            self._iterator += 1
+            if self._iterator >= len(self.files):
+                self._iterator = 0
+        return batch_x, genres

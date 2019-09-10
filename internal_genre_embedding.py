@@ -1,7 +1,9 @@
+import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from sklearn.preprocessing import MultiLabelBinarizer
 
-from Loader.internal_embedding.int_emb_loader import *
+from Loader.internal_embedding.int_emb_loader import ImageLoader, array_to_img, pil_image, img_to_array, load_img
 from Networks.internal_embedding.int_emb_network import CAAE
 
 BATCH_SIZE = 32
@@ -13,8 +15,14 @@ image_ratio = (1, 1)
 image_size = 256
 
 covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
+covers = covers.sample(frac=1).reset_index(drop=True)
+mlb = MultiLabelBinarizer()
+mlb.fit(covers["artist_genre"].values.tolist())
 
-data_loader = ImageLoader(data=covers, batch_size=BATCH_SIZE, image_size=image_size, image_ratio=image_ratio)
+data_loader = ImageLoader(data=covers, root="data/covers", binarizer=mlb, batch_size=BATCH_SIZE, image_size=image_size,
+                          image_ratio=image_ratio)
+
+imgs, gen = data_loader.next()
 
 image_width_compr = data_loader.image_shape[0]
 image_height_compr = data_loader.image_shape[1]

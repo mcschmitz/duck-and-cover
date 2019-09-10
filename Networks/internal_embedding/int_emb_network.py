@@ -10,6 +10,17 @@ class DACInternalGenreEmbedding:
 
     def __init__(self, img_height: int, img_width: int, n_genres: int, optimizer=Adam(0.0002, 0.5), channels: int = 3,
                  latent_size: int = 64, genre_prob: float = 0.05):
+        """
+        @TODO
+        Args:
+            img_height:
+            img_width:
+            n_genres:
+            optimizer:
+            channels:
+            latent_size:
+            genre_prob:
+        """
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
         self.channels = channels
@@ -39,6 +50,11 @@ class DACInternalGenreEmbedding:
         self.generator_loss = []
 
     def build_generator(self):
+        """
+        @TODO
+        Returns:
+
+        """
         noise_input = Input((self.latent_size,))
         genre_input = Input((self.n_genres,))
         embedded_genre = self.genre_embedder(genre_input)
@@ -64,6 +80,11 @@ class DACInternalGenreEmbedding:
         return generator_model
 
     def build_discriminator(self):
+        """
+        @TODO
+        Returns:
+
+        """
         image_input = Input(self.img_shape)
         x = Conv2D(16, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV1')(image_input)
         x = LeakyReLU()(x)
@@ -92,6 +113,11 @@ class DACInternalGenreEmbedding:
         return discriminative_model
 
     def build_genre_embedder(self):
+        """
+        @TODO
+        Returns:
+
+        """
         genre_input = Input((self.n_genres,))
         emb1 = Dense(1024, activation='relu')(genre_input)
         emb2 = Dense(512, activation='relu')(emb1)
@@ -100,6 +126,15 @@ class DACInternalGenreEmbedding:
         return genre_embedder
 
     def train_on_batch(self, real_images, genre_input):
+        """
+        @TODO
+        Args:
+            real_images:
+            genre_input:
+
+        Returns:
+
+        """
         fake = np.ones(len(genre_input))
         real = np.zeros(len(genre_input))
 
@@ -118,12 +153,23 @@ class DACInternalGenreEmbedding:
         self.generator_loss.append([self.adversarial_model.train_on_batch([noise, genre_noise], real)])
 
         if np.mean(self.discriminator_accuracy) <= .5:
-            self.train_discriminator_img(generated_images, real_images, genre_input)
+            self.train_discriminator(generated_images, real_images, genre_input, genre_noise)
 
         return np.mean(self.discriminator_accuracy), np.mean(self.generator_loss)
 
-    def train_discriminator_img(self, generated_images, image_output, genre_input):
+    def train_discriminator(self, generated_images, real_images, genre_input, genre_noise):
+        """
+        @TODO
+        Args:
+            generated_images:
+            real_images:
+            genre_input:
+            genre_noise:
+
+        Returns:
+
+        """
         fake = np.ones(len(genre_input))
-        valid = np.zeros(len(genre_input))
-        self.discriminator.train_on_batch([generated_images, genre_input], fake)
-        self.discriminator.train_on_batch([image_output, genre_input], valid)
+        real = np.zeros(len(genre_input))
+        self.discriminator.train_on_batch([generated_images, genre_noise], fake)
+        self.discriminator.train_on_batch([real_images, genre_input], real)

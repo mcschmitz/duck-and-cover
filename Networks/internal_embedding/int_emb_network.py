@@ -3,97 +3,70 @@ from keras.layers import *
 from keras.optimizers import Adam, Adadelta
 
 
-class CAAE:
-    def __init__(self, img_height, img_width, optimizer=Adam(0.0002, 0.5), channels=3, latent_size=64):
+class DACInternalGenreEmbedding:
+    """
+    @TODO
+    """
+
+    def __init__(self, img_height: int, img_width: int, n_genres: int, optimizer=Adam(0.0002, 0.5), channels: int = 3,
+                 latent_size: int = 64, genre_prob: float = 0.05):
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
         self.channels = channels
         self.img_shape = (self.img_height, self.img_width, self.channels)
+        self.n_genres = n_genres
         self.latent_size = latent_size
-        self.greatest_common_divisor = 2 ** 6
+        self.genre_prob = genre_prob
 
-        self.discriminative_model_img = self.build_discriminative_model_img()
-        self.discriminative_model_img.compile(loss=['binary_crossentropy'], optimizer=Adadelta(), metrics=['accuracy'])
+        self.genre_embedder = self.build_genre_embedder()
+        self.discriminator = self.build_discriminator()
+        self.discriminator.compile(loss=['binary_crossentropy'], optimizer=Adadelta(), metrics=['accuracy'])
 
-        self.discriminative_model_z = self.build_discriminative_model_z()
-        self.discriminative_model_z.compile(loss=['binary_crossentropy'], optimizer=Adadelta(), metrics=['accuracy'])
+        image_input = Input((self.latent_size,), name="Noise_Input")
+        genre_input = Input((self.n_genres,), name="Genre_Input")
 
-        self.encoder = self.build_encoder()
-        self.decoder = self.build_decoder()
+        self.generator = self.build_generator()
 
-        image_input = Input(self.img_shape, name="Image_Input")
-        erosion_input = Input((1,), name="Erosion_Input")
-        encoded_image = self.encoder(image_input)
-        reconstructed_image = self.decoder([encoded_image, erosion_input])
+        generated_image = self.generator([image_input, genre_input])
 
-        self.generator = Model([image_input, erosion_input], [reconstructed_image])
+        self.discriminator.trainable = False
 
-        self.discriminative_model_img.trainable = False
-        self.discriminative_model_z.trainable = False
-
-        eval_of_gen_image = self.discriminative_model_img([reconstructed_image, erosion_input])
-        eval_of_gen_z = self.discriminative_model_z(encoded_image)
-        self.adversarial_model = Model([image_input, erosion_input],
-                                       [reconstructed_image, eval_of_gen_image, eval_of_gen_z])
-        self.adversarial_model.compile(loss=['mse', 'binary_crossentropy', 'binary_crossentropy'], optimizer=optimizer,
-                                       loss_weights=[0.999, 0.0005, 0.0005])
+        eval_of_gen_image = self.discriminator([generated_image, genre_input])
+        self.adversarial_model = Model([image_input, genre_input], eval_of_gen_image)
+        self.adversarial_model.compile(loss=['binary_crossentropy'], optimizer=optimizer)
         self.adversarial_model.n_epochs = 0
-        self.reconstruction_loss = []
-        self.discriminator_img_accuracy = []
-        self.discriminator_z_accuracy = []
+        self.discriminator_accuracy = []
+        self.generator_loss = []
 
-    def build_encoder(self):
-        image_input = Input(self.img_shape)
-        x = Conv2D(16, kernel_size=(5, 5), activation='relu', strides=(2, 2), padding='same', name='encoder_CONV1')(
-            image_input)
-        x = Conv2D(32, kernel_size=(5, 5), activation='relu', strides=(2, 2), padding='same', name='encoder_CONV2')(x)
-        x = Conv2D(64, kernel_size=(5, 5), activation='relu', strides=(2, 2), padding='same', name='encoder_CONV3')(x)
-        x = Conv2D(128, kernel_size=(5, 5), activation='relu', strides=(2, 2), padding='same', name='encoder_CONV4')(x)
-        x = Conv2D(256, kernel_size=(5, 5), activation='relu', strides=(2, 2), padding='same', name='encoder_CONV5')(x)
-        x = Conv2D(512, kernel_size=(5, 5), activation='relu', strides=(2, 2), padding='same', name='encoder_CONV6')(x)
-        x = Flatten()(x)
-        encoder_output = Dense(self.latent_size, activation='relu')(x)
-        encoder_model = Model(image_input, encoder_output)
-        return encoder_model
-
-    def build_decoder(self):
-        encoded_input = Input((self.latent_size,))
-        erosion_input = Input((1,))
-        x = Concatenate()([encoded_input, erosion_input])
+    def build_generator(self):
+        noise_input = Input((self.latent_size,))
+        genre_input = Input((self.n_genres,))
+        embedded_genre = self.genre_embedder(genre_input)
+        x = Concatenate()([noise_input, embedded_genre])
         x = Dense(8192, name='decoder_DENSE')(x)
         x = Reshape((4, 4, 512))(x)
         x = ReLU()(x)
-        x = Deconv2D(512, kernel_size=(5, 5), strides=(2, 2), padding='same', name='decoder_CONV1')(x)
+        x = Deconv2D(512, kernel_size=(5, 5), strides=(2, 2), padding='same', name='encoder_CONV1')(x)
         x = ReLU()(x)
-        x = Deconv2D(256, kernel_size=(5, 5), strides=(2, 2), padding='same', name='decoder_CONV2')(x)
+        x = Deconv2D(256, kernel_size=(5, 5), strides=(2, 2), padding='same', name='encoder_CONV2')(x)
         x = ReLU()(x)
-        x = Deconv2D(128, kernel_size=(5, 5), strides=(2, 2), padding='same', name='decoder_CONV3')(x)
+        x = Deconv2D(128, kernel_size=(5, 5), strides=(2, 2), padding='same', name='encoder_CONV3')(x)
         x = ReLU()(x)
-        x = Deconv2D(64, kernel_size=(5, 5), strides=(2, 2), padding='same', name='decoder_CONV4')(x)
+        x = Deconv2D(64, kernel_size=(5, 5), strides=(2, 2), padding='same', name='encoder_CONV4')(x)
         x = ReLU()(x)
-        x = Deconv2D(32, kernel_size=(5, 5), strides=(2, 2), padding='same', name='decoder_CONV5')(x)
+        x = Deconv2D(32, kernel_size=(5, 5), strides=(2, 2), padding='same', name='encoder_CONV5')(x)
         x = ReLU()(x)
-        x = Deconv2D(16, kernel_size=(5, 5), strides=(2, 2), padding='same', name='decoder_CONV6')(x)
+        x = Deconv2D(16, kernel_size=(5, 5), strides=(2, 2), padding='same', name='encoder_CONV6')(x)
         x = ReLU()(x)
         x = Deconv2D(3, kernel_size=(1, 1), strides=(1, 1), padding='same')(x)
         generator_output = Activation('tanh')(x)
-        generator_model = Model([encoded_input, erosion_input], generator_output)
+        generator_model = Model([noise_input, genre_input], generator_output)
         return generator_model
 
-    def build_discriminative_model_img(self):
+    def build_discriminator(self):
         image_input = Input(self.img_shape)
         x = Conv2D(16, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV1')(image_input)
         x = LeakyReLU()(x)
-        x_shape = (x.shape[1].value, x.shape[2].value)
-        size = x_shape[0] * x_shape[1]
-
-        def repeat(x):
-            return K.repeat(x, size)
-
-        erosion_input = Input((1,))
-        erosion = Lambda(repeat)(erosion_input)
-        erosion = Reshape((int(x_shape[0]), int(x_shape[1]), 1))(erosion)
-        x = Concatenate()([x, erosion])
         x = Conv2D(32, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV2')(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
@@ -109,65 +82,48 @@ class CAAE:
         x = Conv2D(512, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV6')(x)
         x = BatchNormalization()(x)
         x = Flatten()(x)
+
+        genre_input = Input((self.n_genres,))
+        embedded_genre = self.genre_embedder(genre_input)
+        x = Concatenate()([x, embedded_genre])
+
         discriminator_output = Dense(1, activation='sigmoid')(x)
-        discriminative_model = Model([image_input, erosion_input], discriminator_output)
+        discriminative_model = Model([image_input, genre_input], discriminator_output)
         return discriminative_model
 
-    def build_discriminative_model_z(self):
-        encoded_input = Input((self.latent_size,))
-        x = Dense(64)(encoded_input)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Dense(32)(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Dense(16)(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        discriminator_z_output = Dense(1, activation='sigmoid')(x)
-        discriminative_model_z = Model(encoded_input, discriminator_z_output)
-        return discriminative_model_z
+    def build_genre_embedder(self):
+        genre_input = Input((self.n_genres,))
+        emb1 = Dense(1024, activation='relu')(genre_input)
+        emb2 = Dense(512, activation='relu')(emb1)
+        embedded_genre = Dense(self.latent_size, activation='relu')(emb2)
+        genre_embedder = Model(genre_input, embedded_genre)
+        return genre_embedder
 
-    def train_on_batch(self, image_input, image_output, erosion_input):
-        fake = np.ones(len(erosion_input))
-        valid = np.zeros(len(erosion_input))
-        encoded_images = self.encoder.predict(image_input)
-        generated_images = self.decoder.predict([encoded_images, erosion_input])
+    def train_on_batch(self, real_images, genre_input):
+        fake = np.ones(len(genre_input))
+        real = np.zeros(len(genre_input))
 
-        discriminator_img_x = np.concatenate((generated_images, image_output))
-        discriminator_y = np.concatenate((fake, valid))
-        discriminator_img_erosion_input = np.concatenate((erosion_input, erosion_input))
-        self.discriminator_img_accuracy.append(
-            self.discriminative_model_img.evaluate([discriminator_img_x, discriminator_img_erosion_input],
-                                                   discriminator_y, verbose=0)[1])
+        noise = np.random.uniform(size=(len(genre_input), self.latent_size))
+        genre_noise = np.random.choice([0, 1], size=(len(genre_input), self.n_genres),
+                                       p=[1 - self.genre_prob, self.genre_prob])
+        generated_images = self.generator.predict([noise, genre_noise])
 
-        if np.mean(self.discriminator_img_accuracy) <= .5:
-            self.train_discriminator_img(generated_images, image_output, erosion_input)
+        discriminator_x = np.concatenate((generated_images, real_images))
+        discriminator_y = np.concatenate((fake, real))
+        discriminator_genre_input = np.concatenate((genre_input, genre_input))
+        self.discriminator_accuracy.append(
+            self.discriminator.evaluate([discriminator_x, discriminator_genre_input],
+                                        discriminator_y, verbose=0)[1])
 
-        n_uniform_noise = self.latent_size * len(erosion_input)
-        uniform_noise = np.random.uniform(0, 1, size=n_uniform_noise).reshape((len(erosion_input), self.latent_size))
-        self.discriminator_z_accuracy.append(
-            self.discriminative_model_z.evaluate(np.concatenate((uniform_noise, encoded_images)), discriminator_y,
-                                                 verbose=0)[1])
+        self.generator_loss.append([self.adversarial_model.train_on_batch([noise, genre_noise], real)])
 
-        if np.mean(self.discriminator_z_accuracy) <= .5:
-            self.train_discriminator_z(encoded_images, erosion_input)
+        if np.mean(self.discriminator_accuracy) <= .5:
+            self.train_discriminator_img(generated_images, real_images, genre_input)
 
-        reconstruction_loss = \
-        self.adversarial_model.train_on_batch([image_input, erosion_input], [image_output, valid, valid])[0]
+        return np.mean(self.discriminator_accuracy), np.mean(self.generator_loss)
 
-        return reconstruction_loss, np.mean(self.discriminator_img_accuracy), np.mean(self.discriminator_z_accuracy)
-
-    def train_discriminator_z(self, encoded_images, erosion_input):
-        fake = np.ones(len(erosion_input))
-        valid = np.zeros(len(erosion_input))
-        n_uniform_noise = self.latent_size * len(erosion_input)
-        uniform_noise = np.random.uniform(0, 1, size=n_uniform_noise).reshape((len(erosion_input), self.latent_size))
-        self.discriminative_model_z.train_on_batch(uniform_noise, fake)
-        self.discriminative_model_z.train_on_batch(encoded_images, valid)
-
-    def train_discriminator_img(self, generated_images, image_output, erosion_input):
-        fake = np.ones(len(erosion_input))
-        valid = np.zeros(len(erosion_input))
-        self.discriminative_model_img.train_on_batch([generated_images, erosion_input], fake)
-        self.discriminative_model_img.train_on_batch([image_output, erosion_input], valid)
+    def train_discriminator_img(self, generated_images, image_output, genre_input):
+        fake = np.ones(len(genre_input))
+        valid = np.zeros(len(genre_input))
+        self.discriminator.train_on_batch([generated_images, genre_input], fake)
+        self.discriminator.train_on_batch([image_output, genre_input], valid)

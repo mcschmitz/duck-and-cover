@@ -95,7 +95,7 @@ class DACInternalGenreEmbedding:
         genre_input = Input((self.n_genres,))
         emb1 = Dense(1024, activation='relu')(genre_input)
         emb2 = Dense(512, activation='relu')(emb1)
-        embedded_genre = Dense(self.latent_size, activation='relu')(emb2)
+        embedded_genre = Dense(self.latent_size, activation='sigmoid')(emb2)
         genre_embedder = Model(genre_input, embedded_genre)
         return genre_embedder
 

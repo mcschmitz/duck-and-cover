@@ -7,12 +7,10 @@ from Networks.internal_embedding.int_emb_network import DACInternalGenreEmbeddin
 
 BATCH_SIZE = 32
 EPOCH_NUM = 1000
-image_width = 602
-image_height = 312
-image_ratio = (1, 1)
 image_size = 256
+image_ratio = (1, 1)
 
-covers = pd.read_json("data/album_data_frame_red.json", orient="records", lines=True)
+covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
 covers = covers.sample(frac=1).reset_index(drop=True)
 
 steps_per_epoch = len(covers) // BATCH_SIZE
@@ -34,9 +32,10 @@ g_loss = []
 for epoch in range(0, EPOCH_NUM):
     for step in range(0, steps_per_epoch):
         step += 1
-        print('Running Batch {} of {} of Epoch {}'.format(step, steps_per_epoch, dac.adversarial_model.n_epochs + 1))
         real_images, genres = data_loader.next()
         cum_d_acc, cum_g_loss = dac.train_on_batch(real_images, genres)
+        print('Epoch {0}: Batch {1}/{2} - Generator Loss: {3:3,.3f} - Discriminator Acc.: {4:3,.3f}'.format(
+            dac.adversarial_model.n_epochs + 1, step, steps_per_epoch, cum_g_loss, cum_d_acc))
     dac.adversarial_model.n_epochs += 1
 
     d_acc.append(cum_d_acc)

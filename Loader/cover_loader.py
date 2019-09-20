@@ -276,7 +276,7 @@ def img_to_array(img, data_format=None):
 
 def scale_images(images: np.array):
     """
-    Scales the images to -1, 1
+    Scales the images to [-1, 1]
 
     Args:
         images: numpy array of images
@@ -290,13 +290,13 @@ def scale_images(images: np.array):
 
 def rescale_images(images: np.array):
     """
-    @TODO
+    Scales the images back from a range of [-1, 1] to [0, 255]
 
     Args:
-        images:
+        images: numpy array of scaled images
 
     Returns:
-
+        The rescaled images as numpy array
     """
     images = (images * 127.5 + 127.5)
     return images

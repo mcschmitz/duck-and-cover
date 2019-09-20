@@ -8,14 +8,10 @@ import os
 import keras.backend as K
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MultiLabelBinarizer
-
-try:
-    from PIL import Image as pil_image
-except ImportError:
-    pil_image = None
-
 import scipy.ndimage as ndi
+from PIL import Image as pil_image
+from sklearn.preprocessing import MultiLabelBinarizer
+from tqdm import tqdm
 
 
 def random_rotation(x, rg, row_axis=1, col_axis=2, channel_axis=0,
@@ -278,6 +274,34 @@ def img_to_array(img, data_format=None):
     return x
 
 
+def scale_images(images: np.array):
+    """
+    Scales the images to -1, 1
+
+    Args:
+        images: numpy array of images
+
+    Returns:
+        The scaled images as numpy array
+    """
+    images = (images - 127.5) / 127.5
+    return images
+
+
+def rescale_images(images: np.array):
+    """
+    @TODO
+
+    Args:
+        images:
+
+    Returns:
+
+    """
+    images = (images * 127.5 + 127.5)
+    return images
+
+
 def load_img(path, grayscale=False, target_size=None):
     """Loads an image into PIL format.
     # Arguments
@@ -318,8 +342,8 @@ class ImageLoader:
     @TODO
     """
 
-    def __init__(self, data: pd.DataFrame, root: str, binarizer: MultiLabelBinarizer, batch_size: int, image_size: int,
-                 image_ratio: tuple, color_mode: str = "rgb", row_axis: int = 0, col_axis: int = 1,
+    def __init__(self, data: pd.DataFrame, root: str, batch_size: int, image_size: int, image_ratio: tuple,
+                 binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb", row_axis: int = 0, col_axis: int = 1,
                  channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
                  width_shift_range: float = 0.0, shear_range: float = 0.0, zoom_range: tuple = (0.0, 0.0),
                  channel_shift_range: float = 0.0, horizontal_flip: bool = False, vertical_flip: bool = False):
@@ -367,9 +391,17 @@ class ImageLoader:
         self.vertical_flip = vertical_flip
 
     def __get_paths(self):
+        """
+        @TODO
+        Returns:
+
+        """
         file_list = []
         for _, d in self.data.iterrows():
-            file_list.append(os.path.join(self.root, d["artist_id"], d["album_id"]) + ".jpg")
+            file_path = os.path.join(self.root, d["artist_id"], d["album_id"]) + ".jpg"
+            if os.path.exists(file_path):
+                if os.stat(file_path).st_size > 0:
+                    file_list.append(file_path)
         return file_list
 
     def random_transform(self, x, seed=None):
@@ -388,8 +420,7 @@ class ImageLoader:
         if seed is not None:
             np.random.seed(seed)
 
-        # use composition of homographies
-        # to generate final transform that needs to be applied
+        # use composition of homographies to generate final transform that needs to be applied
         if self.rotation_range and np.random.random() > .5:
             theta = np.pi / 180 * np.random.uniform(-self.rotation_range, self.rotation_range)
         else:
@@ -455,22 +486,71 @@ class ImageLoader:
 
         return x
 
-    def next(self):
+    def next(self, year: bool = False, genre: bool = False):
         batch_x = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        genres = np.zeros((self.batch_size, len(self.binarizer.classes_)))
         grayscale = self.color_mode == 'grayscale'
+        if year:
+            year_x = np.zeros((len(self.batch_size), 1))
+        if genre:
+            genres_x = np.zeros((len(self.batch_size), len(self.binarizer.classes_)))
 
         for i in range(0, self.batch_size):
-            seed = np.random.randint(1e8)
             file_path = list(self.files)[self._iterator]
             img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
             x = img_to_array(img)
-            if np.random.sample() > .5:
-                x = self.random_transform(x, seed=seed)
-            x = x / 255
+            x = scale_images(x)
             batch_x[i] = x
-            genres[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
+            if year:
+                year_x[i] = self.data["release_year"][self._iterator]
+            if genre:
+                genres_x[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
             self._iterator += 1
             if self._iterator >= len(self.files):
                 self._iterator = 0
-        return batch_x, genres
+        return_values = [batch_x]
+        if year:
+            return_values.append(year_x)
+        if genre:
+            return_values.append([genres_x])
+        if len(return_values) == 1:
+            return return_values[0]
+        return return_values
+
+    def load_all(self, year: bool = False, genre: bool = False):
+        """
+        @TODO
+        Args:
+            year:
+            genre:
+
+        Returns:
+
+        """
+        batch_x = np.zeros((len(self.files), self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
+        grayscale = self.color_mode == 'grayscale'
+        if year:
+            year_x = np.zeros((len(self.files), 1))
+        if genre:
+            genres_x = np.zeros((len(self.files), len(self.binarizer.classes_)))
+
+        for i in tqdm(range(0, len(self.files))):
+            file_path = list(self.files)[self._iterator]
+            img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
+            x = img_to_array(img)
+            x = scale_images(x)
+            batch_x[i] = x
+            if year:
+                year_x[i] = self.data["release_year"][self._iterator]
+            if genre:
+                genres_x[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
+            self._iterator += 1
+            if self._iterator >= len(self.files):
+                self._iterator = 0
+        return_values = [batch_x]
+        if year:
+            return_values.append(year_x)
+        if genre:
+            return_values.append([genres_x])
+        if len(return_values) == 1:
+            return return_values[0]
+        return return_values

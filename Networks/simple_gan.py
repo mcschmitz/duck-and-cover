@@ -1,4 +1,5 @@
 from keras import Model
+from keras import initializers
 from keras.layers import *
 from keras.optimizers import Adam, Adadelta
 
@@ -8,7 +9,7 @@ class DaCSimple:
     @TODO
     """
 
-    def __init__(self, img_height: int, img_width: int, optimizer=Adam(0.0002, 0.5), channels: int = 3,
+    def __init__(self, img_height: int, img_width: int, optimizer=Adam(beta_1=0, beta_2=0.99), channels: int = 3,
                  latent_size: int = 128):
         """
         @TODO
@@ -53,39 +54,38 @@ class DaCSimple:
         x = Dense(8192, name='Generator_Dense')(noise_input)
         x = Reshape((4, 4, 512))(x)
 
-        x = Conv2DTranspose(512, kernel_size=(4, 4), strides=(1, 1), padding="same")(x)
+        x = Conv2DTranspose(512, kernel_size=(4, 4), strides=(1, 1), padding="same",
+                            bias_initializer=initializers.zero(),
+                            kernel_initializer=initializers.random_normal(stddev=1))(x)
         x = LeakyReLU(alpha=0.2)(x)
         x = BatchNormalization()(x)
-        x = Conv2DTranspose(512, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = UpSampling2D((2, 2))(x)
-
-        x = Conv2DTranspose(256, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = Conv2DTranspose(256, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
+        x = Conv2DTranspose(512, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                            bias_initializer=initializers.zero(),
+                            kernel_initializer=initializers.random_normal(stddev=1))(x)
         x = LeakyReLU(alpha=0.2)(x)
         x = BatchNormalization()(x)
         x = UpSampling2D((2, 2))(x)
 
-        x = Conv2DTranspose(128, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = Conv2DTranspose(128, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = UpSampling2D((2, 2))(x)
+        cur_img_size = 8
+        n_kernels = 256
+        while cur_img_size < self.img_shape[0]:
+            x = Conv2DTranspose(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                                bias_initializer=initializers.zero(),
+                                kernel_initializer=initializers.random_normal(stddev=1))(x)
+            x = LeakyReLU(alpha=0.2)(x)
+            x = BatchNormalization()(x)
+            x = Conv2DTranspose(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                                bias_initializer=initializers.zero(),
+                                kernel_initializer=initializers.random_normal(stddev=1))(x)
+            x = LeakyReLU(alpha=0.2)(x)
+            x = BatchNormalization()(x)
+            x = UpSampling2D((2, 2))(x)
+            cur_img_size *= 2
+            n_kernels //= 2
 
-        x = Conv2DTranspose(64, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = Conv2DTranspose(64, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = UpSampling2D((2, 2))(x)
-
-        generator_output = Conv2DTranspose(3, kernel_size=(1, 1), strides=(1, 1), padding="same")(x)
+        generator_output = Conv2DTranspose(3, kernel_size=(1, 1), strides=(1, 1), padding="same",
+                                           bias_initializer=initializers.zero(),
+                                           kernel_initializer=initializers.random_normal(stddev=1))(x)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
@@ -96,22 +96,25 @@ class DaCSimple:
 
         """
         image_input = Input(self.img_shape)
-        x = Conv2D(16, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV1')(image_input)
-        x = LeakyReLU()(x)
-        x = Conv2D(32, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV2')(x)
+        x = Conv2D(16, kernel_size=(1, 1), strides=(1, 1), padding='same', bias_initializer=initializers.zero(),
+                   kernel_initializer=initializers.random_normal(stddev=1))(image_input)
+        x = LeakyReLU(alpha=0.2)(x)
         x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Conv2D(64, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV3')(x)
+        x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
+                   kernel_initializer=initializers.random_normal(stddev=1))(x)
+        x = LeakyReLU(alpha=0.2)(x)
         x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Conv2D(128, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV4')(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Conv2D(256, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV5')(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Conv2D(512, kernel_size=(5, 5), strides=(2, 2), padding='same', name='discriminator_CONV6')(x)
-        x = BatchNormalization()(x)
+
+        cur_img_size = self.img_shape[0] // 2
+        n_kernels = 64
+        while cur_img_size > 4:
+            x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
+                       kernel_initializer=initializers.random_normal(stddev=1))(x)
+            x = LeakyReLU(alpha=0.2)(x)
+            x = BatchNormalization()(x)
+            n_kernels *= 2
+            cur_img_size //= 2
+
         x = Flatten()(x)
 
         discriminator_output = Dense(1, activation='sigmoid')(x)

@@ -338,36 +338,35 @@ def list_pictures(directory, ext=["jpg", "jpeg", "bmp", "png", "ppm"]):
 
 
 class ImageLoader:
-    """
-    @TODO
-    """
-
-    def __init__(self, data: pd.DataFrame, root: str, batch_size: int, image_size: int, image_ratio: tuple,
-                 binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb", row_axis: int = 0, col_axis: int = 1,
-                 channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
-                 width_shift_range: float = 0.0, shear_range: float = 0.0, zoom_range: tuple = (0.0, 0.0),
-                 channel_shift_range: float = 0.0, horizontal_flip: bool = False, vertical_flip: bool = False):
+    def __init__(self, data: pd.DataFrame, root: str, batch_size: int = 32, image_size: int = 256,
+                 image_ratio: tuple = (1, 1), binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb",
+                 row_axis: int = 0, col_axis: int = 1, channel_axis: int = 2, rotation_range: int = 0,
+                 height_shift_range: float = 0.0, width_shift_range: float = 0.0, shear_range: float = 0.0,
+                 zoom_range: tuple = (0.0, 0.0), channel_shift_range: float = 0.0, horizontal_flip: bool = False,
+                 vertical_flip: bool = False):
         """
-        @TODO
+        Image Loader that takes a pandas dataframe containing the file paths to the images and additional meta
+        information and loads the existing images. Also allows several image data augmentation applications.
+
         Args:
-            data:
-            root
-            binarizer:
-            batch_size:
-            image_size:
-            image_ratio:
-            color_mode:
-            row_axis:
-            col_axis:
-            channel_axis:
-            rotation_range:
-            height_shift_range:
-            width_shift_range:
-            shear_range:
-            zoom_range:
-            channel_shift_range:
-            horizontal_flip:
-            vertical_flip:
+            data: pandas dataframe containing the file paths to the images and additional meta information
+            root: root path to the images
+            batch_size: batch size for the iterator
+            image_size: output size of the images
+            image_ratio: output ratio of the images
+            binarizer: binarizer used to create dummy features out of additional meta information
+            color_mode: `rgb` or `grayscale`
+            row_axis: row axis index of the image matrix
+            col_axis: column axis index of the image matrix
+            channel_axis: channel axis index of the image matrix
+            rotation_range: rotation range used for image augmentation
+            height_shift_range: height shift range used for image augmentation
+            width_shift_range: width shift range used for image augmentation
+            shear_range: shear range used for image augmentation
+            zoom_range: zoom range used for image augmentation
+            channel_shift_range: channel shift range used for image augmentation
+            horizontal_flip: whether to flip the images horizontally during image augmentation
+            vertical_flip: whether to flip the images horizontally during image augmentation
         """
         self.data = data
         self.root = root
@@ -496,8 +495,11 @@ class ImageLoader:
 
         for i in range(0, self.batch_size):
             file_path = list(self.files)[self._iterator]
-            img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
-            x = img_to_array(img)
+            try:
+                img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
+                x = img_to_array(img)
+            except:
+                print(file_path)
             x = scale_images(x)
             batch_x[i] = x
             if year:
@@ -533,19 +535,18 @@ class ImageLoader:
         if genre:
             genres_x = np.zeros((len(self.files), len(self.binarizer.classes_)))
 
-        for i in tqdm(range(0, len(self.files))):
-            file_path = list(self.files)[self._iterator]
-            img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
-            x = img_to_array(img)
+        for i, file in tqdm(enumerate(self.files)):
+            try:
+                img = load_img(file, grayscale=grayscale, target_size=self.image_shape)
+                x = img_to_array(img)
+            except:
+                print(file)
             x = scale_images(x)
             batch_x[i] = x
             if year:
-                year_x[i] = self.data["release_year"][self._iterator]
+                year_x[i] = self.data["release_year"][i]
             if genre:
-                genres_x[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
-            self._iterator += 1
-            if self._iterator >= len(self.files):
-                self._iterator = 0
+                genres_x[i] = self.binarizer.transform([self.data["artist_genre"][i]])
         return_values = [batch_x]
         if year:
             return_values.append(year_x)

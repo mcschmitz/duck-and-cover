@@ -12,7 +12,7 @@ EPOCH_NUM = 1000
 image_size = 64
 image_ratio = (1, 1)
 
-covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True).sample(frac=.01)
+covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
 
 steps_per_epoch = len(covers) // BATCH_SIZE
 
@@ -35,7 +35,7 @@ for epoch in range(0, EPOCH_NUM):
         print('Epoch {0}: Batch {1}/{2} - Generator Loss: {3:3,.3f} - Discriminator Acc.: {4:3,.3f}'.format(
             dac.adversarial_model.n_epochs + 1, step, steps_per_epoch, cum_g_loss, cum_d_acc))
 
-        if step % 10 == 0:
+        if step % 1000 == 0:
             noise = np.random.uniform(size=(1, dac.latent_size))
             img = dac.generator.predict([noise])[0]
             img = rescale_images(img)

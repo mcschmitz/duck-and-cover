@@ -1,22 +1,16 @@
 from keras import Model
-from keras import initializers
 from keras.layers import *
 from keras.optimizers import Adam, Adadelta
 
 
 class DaCSimple:
-    """
-    @TODO
-    """
 
-    def __init__(self, img_height: int, img_width: int, optimizer=Adam(beta_1=0, beta_2=0.99), channels: int = 3,
-                 latent_size: int = 128):
+    def __init__(self, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128):
         """
         @TODO
         Args:
             img_height:
             img_width:
-            optimizer:
             channels:
             latent_size:
         """
@@ -25,7 +19,21 @@ class DaCSimple:
         self.channels = channels
         self.img_shape = (self.img_height, self.img_width, self.channels)
         self.latent_size = latent_size
+        self.discriminator = None
+        self.generator = None
+        self.adversarial_model = None
+        self.generator_loss = []
+        self.discriminator_accuracy = []
 
+    def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
+        """
+        @TODO
+        Args:
+            optimizer:
+
+        Returns:
+
+        """
         self.discriminator = self.build_discriminator()
         self.discriminator.compile(loss=['binary_crossentropy'], optimizer=Adadelta(), metrics=['accuracy'])
 
@@ -41,8 +49,6 @@ class DaCSimple:
         self.adversarial_model = Model(image_input, eval_of_gen_image)
         self.adversarial_model.compile(loss=['binary_crossentropy'], optimizer=optimizer)
         self.adversarial_model.n_epochs = 0
-        self.discriminator_accuracy = []
-        self.generator_loss = []
 
     def build_generator(self):
         """
@@ -85,7 +91,8 @@ class DaCSimple:
 
         generator_output = Conv2DTranspose(3, kernel_size=(1, 1), strides=(1, 1), padding="same",
                                            bias_initializer=initializers.zero(),
-                                           kernel_initializer=initializers.random_normal(stddev=1))(x)
+                                           kernel_initializer=initializers.random_normal(stddev=1),
+                                           activation="tanh")(x)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
@@ -133,7 +140,7 @@ class DaCSimple:
         fake = np.ones(len(real_images))
         real = np.zeros(len(real_images))
 
-        noise = np.random.uniform(size=(len(real_images), self.latent_size))
+        noise = np.random.normal(size=(len(real_images), self.latent_size))
         generated_images = self.generator.predict(noise)
 
         discriminator_x = np.concatenate((generated_images, real_images))

@@ -167,6 +167,7 @@ data/*
 !/data/genres.txt
 
 tmp
+learning_progress
 
 # Credentials
 credentials.py

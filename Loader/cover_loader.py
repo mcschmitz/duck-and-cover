@@ -391,9 +391,11 @@ class ImageLoader:
 
     def __get_paths(self):
         """
-        @TODO
-        Returns:
+        Loads the file paths of all covers contained in the dataset by merging root, artist ID and album ID. So the
+        covers should be organized as root/artist_id/album_id.jpg
 
+        Returns:
+            List of all album covers
         """
         file_list = []
         for _, d in self.data.iterrows():

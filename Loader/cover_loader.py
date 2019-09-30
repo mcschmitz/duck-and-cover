@@ -522,13 +522,14 @@ class ImageLoader:
 
     def load_all(self, year: bool = False, genre: bool = False):
         """
-        @TODO
+        Loads all images detected in the root file and the provided data frame into one big numpy array
+
         Args:
-            year:
-            genre:
+            year: whether to return the release your
+            genre: whether to return the binarized genre
 
         Returns:
-
+            the images and the year and genre if desired
         """
         batch_x = np.zeros((len(self.files), self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
         grayscale = self.color_mode == 'grayscale'

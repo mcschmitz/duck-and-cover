@@ -298,7 +298,8 @@ def rescale_images(images: np.array):
     Returns:
         The rescaled images as numpy array
     """
-    images = (images * 127.5 + 127.5)
+    images = (images * 127.5) + 127.5
+    images = np.squeeze(np.round(images).astype(np.uint8))
     return images
 
 

@@ -2,17 +2,21 @@ from keras import Model
 from keras.layers import *
 from keras.optimizers import Adam, Adadelta
 
+from Networks.progan_utils import PixelNorm
+
 
 class DaCSimple:
 
     def __init__(self, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128):
         """
-        @TODO
+        Simple GAN that builds a discriminator a generator and the adversarial model to train the GAN based on the
+        binary crossentropy loss for the generator and the discriminator
+
         Args:
-            img_height:
-            img_width:
-            channels:
-            latent_size:
+            img_height: height of the image. Should be a power of 2
+            img_width: width of the image. Should be a power of 2
+            channels: Number of image channels. Normally either 1 or 3.
+            latent_size: Size of the latent vector that is used to generate the image
         """
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
@@ -60,39 +64,39 @@ class DaCSimple:
         x = Dense(8192, name='Generator_Dense')(noise_input)
         x = Reshape((4, 4, 512))(x)
 
-        x = Conv2DTranspose(512, kernel_size=(4, 4), strides=(1, 1), padding="same",
-                            bias_initializer=initializers.zero(),
-                            kernel_initializer=initializers.random_normal(stddev=1))(x)
+        x = Conv2D(512, kernel_size=(4, 4), strides=(1, 1), padding="same",
+                   bias_initializer=initializers.zero(),
+                   kernel_initializer=initializers.random_normal(stddev=1))(x)
         x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
-        x = Conv2DTranspose(512, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                            bias_initializer=initializers.zero(),
-                            kernel_initializer=initializers.random_normal(stddev=1))(x)
+        x = PixelNorm()(x)
+        x = Conv2D(512, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                   bias_initializer=initializers.zero(),
+                   kernel_initializer=initializers.random_normal(stddev=1))(x)
         x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
+        x = PixelNorm()(x)
         x = UpSampling2D((2, 2))(x)
 
         cur_img_size = 8
         n_kernels = 256
         while cur_img_size < self.img_shape[0]:
-            x = Conv2DTranspose(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                                bias_initializer=initializers.zero(),
-                                kernel_initializer=initializers.random_normal(stddev=1))(x)
+            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                       bias_initializer=initializers.zero(),
+                       kernel_initializer=initializers.random_normal(stddev=1))(x)
             x = LeakyReLU(alpha=0.2)(x)
-            x = BatchNormalization()(x)
-            x = Conv2DTranspose(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                                bias_initializer=initializers.zero(),
-                                kernel_initializer=initializers.random_normal(stddev=1))(x)
+            x = PixelNorm()(x)
+            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                       bias_initializer=initializers.zero(),
+                       kernel_initializer=initializers.random_normal(stddev=1))(x)
             x = LeakyReLU(alpha=0.2)(x)
-            x = BatchNormalization()(x)
+            x = PixelNorm()(x)
             x = UpSampling2D((2, 2))(x)
             cur_img_size *= 2
             n_kernels //= 2
 
-        generator_output = Conv2DTranspose(3, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                           bias_initializer=initializers.zero(),
-                                           kernel_initializer=initializers.random_normal(stddev=1),
-                                           activation="tanh")(x)
+        generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
+                                  bias_initializer=initializers.zero(),
+                                  kernel_initializer=initializers.random_normal(stddev=1),
+                                  activation="tanh")(x)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
@@ -106,11 +110,11 @@ class DaCSimple:
         x = Conv2D(16, kernel_size=(1, 1), strides=(1, 1), padding='same', bias_initializer=initializers.zero(),
                    kernel_initializer=initializers.random_normal(stddev=1))(image_input)
         x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
+        x = PixelNorm()(x)
         x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
                    kernel_initializer=initializers.random_normal(stddev=1))(x)
         x = LeakyReLU(alpha=0.2)(x)
-        x = BatchNormalization()(x)
+        x = PixelNorm()(x)
 
         cur_img_size = self.img_shape[0] // 2
         n_kernels = 64
@@ -118,7 +122,7 @@ class DaCSimple:
             x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
                        kernel_initializer=initializers.random_normal(stddev=1))(x)
             x = LeakyReLU(alpha=0.2)(x)
-            x = BatchNormalization()(x)
+            x = PixelNorm()(x)
             n_kernels *= 2
             cur_img_size //= 2
 
@@ -169,7 +173,7 @@ class DaCSimple:
         self.discriminator.train_on_batch(generated_images, fake)
         self.discriminator.train_on_batch(real_images, real)
 
-    def __reset_generator_loss(self):
+    def _reset_generator_loss(self):
         """
         @TODO
         Returns:
@@ -177,7 +181,7 @@ class DaCSimple:
         """
         self.generator_loss = []
 
-    def __reset_discriminator_accuracy(self):
+    def _reset_discriminator_accuracy(self):
         """
         @TODO
         Returns:
@@ -191,5 +195,5 @@ class DaCSimple:
         Returns:
 
         """
-        self.__reset_generator_loss()
-        self.__reset_discriminator_accuracy()
+        self._reset_generator_loss()
+        self._reset_discriminator_accuracy()

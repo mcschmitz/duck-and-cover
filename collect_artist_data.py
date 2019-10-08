@@ -4,6 +4,7 @@ import shutil
 import urllib.request
 from urllib.error import ContentTooShortError, HTTPError
 
+import numpy as np
 import pandas as pd
 import spotipy
 import spotipy.util as util
@@ -226,6 +227,14 @@ class SpotifyInfoCollector:
             return []
 
     def collect_album_cover(self, target_dir: str):
+        """
+        @TODO
+        Args:
+            target_dir:
+
+        Returns:
+
+        """
         for idx, album in tqdm(self.cover_frame.iterrows()):
             url = album["album_cover_url"]
             artist_id = album["artist_id"]
@@ -242,6 +251,24 @@ class SpotifyInfoCollector:
 
                 except HTTPError:
                     continue
+
+    def add_file_path_to_frame(self, target_dir: str):
+        """
+        @TODO
+        Args:
+            target_dir:
+
+        Returns:
+
+        """
+        self.cover_frame["file_path"] = np.repeat(None, len(self.cover_frame))
+        for idx, d in tqdm(self.cover_frame.iterrows()):
+            file_path = os.path.join(target_dir, d["artist_id"], d["album_id"]) + ".jpg"
+            if os.path.exists(file_path):
+                if os.stat(file_path).st_size > 0:
+                    self.cover_frame.loc[idx, "file_path"] = file_path
+        self.cover_frame = self.cover_frame[self.cover_frame["file_path"].notnull()]
+        return self.cover_frame
 
 
 ARTISTS_FILE = "data/artist_ids.json"
@@ -283,3 +310,9 @@ if __name__ == "__main__":
             file.close()
     artist_info_collector.build_cover_data_frame(artists_to_process, 1000, ALBUM_DATA_PATH, REMAINING_ARTISTS)
     artist_info_collector.collect_album_cover(target_dir="data/covers")
+
+    album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
+    artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
+                                                 cover_frame=album_data)
+    cover_frame = artist_info_collector.add_file_path_to_frame(target_dir="data/covers")
+    cover_frame.to_json(ALBUM_DATA_PATH, lines=True, orient="records")

@@ -63,20 +63,24 @@ def transform_matrix_offset_center(matrix: np.array, x: int, y: int):
     return transform_matrix
 
 
-#  TODO DOCU and Reference
-def apply_transform(x, transform_matrix, channel_axis=0, fill_mode='nearest', cval=0.):
-    """Apply the image transformation specified by a matrix.
-    # Arguments
+def apply_transform(x: np.array, transform_matrix: np.array, channel_axis: int = 0, fill_mode: str = 'nearest',
+                    cval: float = 0.):
+    """
+    Apply the image transformation specified by a transformation matrix.
+
+    Args:
         x: 2D numpy array, single image.
         transform_matrix: Numpy array specifying the geometric transformation.
         channel_axis: Index of axis for channels in the input tensor.
-        fill_mode: Points outside the boundaries of the input
-            are filled according to the given mode
-            (one of `{'constant', 'nearest', 'reflect', 'wrap'}`).
-        cval: Value used for points outside the boundaries
-            of the input if `mode='constant'`.
-    # Returns
+        fill_mode: Points outside the boundaries of the input are filled according to the given mode (one of `{
+            'constant', 'nearest', 'reflect', 'wrap'}`).
+        cval: Value used for points outside the boundaries of the input if `mode='constant'`.
+
+    Returns:
         The transformed version of the input.
+
+    References:
+        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
     """
     x = np.rollaxis(x, channel_axis, 0)
     final_affine_matrix = transform_matrix[:2, :2]

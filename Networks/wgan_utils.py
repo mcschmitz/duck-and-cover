@@ -3,6 +3,7 @@ import numpy as np
 from keras.layers.merge import _Merge
 
 
+#  TODO Docu and Reference
 def wasserstein_loss(y_true, y_pred):
     """Calculates the Wasserstein loss for a sample batch.
     The Wasserstein loss function is very simple to calculate. In a standard GAN, the
@@ -19,6 +20,7 @@ def wasserstein_loss(y_true, y_pred):
     return K.mean(y_true * y_pred)
 
 
+#  TODO Docu and Reference
 def gradient_penalty_loss(y_true, y_pred, averaged_samples,
                           gradient_penalty_weight):
     """Calculates the gradient penalty loss for a batch of "averaged" samples.
@@ -56,6 +58,7 @@ def gradient_penalty_loss(y_true, y_pred, averaged_samples,
     return K.mean(gradient_penalty)
 
 
+#  TODO Docu and Reference
 class RandomWeightedAverage(_Merge):
     """Takes a randomly-weighted average of two tensors. In geometric terms, this
     outputs a random point on the line between each pair of input points.

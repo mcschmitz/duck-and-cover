@@ -1,6 +1,8 @@
 """
 Fairly basic set of tools for real-time data augmentation on image data. Can easily be extended to include new
 transformations, new preprocessing methods, etc...
+
+Some of the  functions are from https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
 """
 
 import keras.backend as K
@@ -23,7 +25,8 @@ def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
     Returns:
         The augmented image
 
-    References: https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+    References:
+        c
     """
     x = np.rollaxis(x, channel_axis, 0)
     min_x, max_x = np.min(x), np.max(x)
@@ -34,8 +37,24 @@ def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
     return x
 
 
-#  TODO Docu and Reference
-def transform_matrix_offset_center(matrix, x, y):
+def transform_matrix_offset_center(matrix: np.array, x: int, y: int):
+    """
+    Offsets an input matrix from its center.
+
+    Takes an input matrix M that is used for performing geometric transformation on matrix A and offsets it from its
+    center.
+
+    Args:
+        matrix: the input matrix
+        x: integer giving the height of matrix A
+        y: integer giving the width of matrix A
+
+    Returns:
+        The offset input matrix
+
+    References:
+        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+    """
     o_x = float(x) / 2 + 0.5
     o_y = float(y) / 2 + 0.5
     offset_matrix = np.array([[1, 0, o_x], [0, 1, o_y], [0, 0, 1]])

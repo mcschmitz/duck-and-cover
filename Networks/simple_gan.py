@@ -42,11 +42,8 @@ class DaCSimple:
         self.discriminator.compile(loss=['binary_crossentropy'], optimizer=Adadelta(), metrics=['accuracy'])
 
         image_input = Input((self.latent_size,), name="Noise_Input")
-
         self.generator = self.build_generator()
-
         generated_image = self.generator(image_input)
-
         self.discriminator.trainable = False
 
         eval_of_gen_image = self.discriminator(generated_image)

@@ -1,9 +1,7 @@
 """
-Fairly basic set of tools for real-time data augmentation on image data.
-Can easily be extended to include new transformations, new preprocessing methods, etc...
+Fairly basic set of tools for real-time data augmentation on image data. Can easily be extended to include new
+transformations, new preprocessing methods, etc...
 """
-
-import os
 
 import keras.backend as K
 import numpy as np
@@ -11,133 +9,22 @@ import pandas as pd
 import scipy.ndimage as ndi
 from PIL import Image as pil_image
 from sklearn.preprocessing import MultiLabelBinarizer
-from tqdm import tqdm
 
 
-def random_rotation(x, rg, row_axis=1, col_axis=2, channel_axis=0,
-                    fill_mode='nearest', cval=0.):
-    """Performs a random rotation of a Numpy image tensor.
-    # Arguments
-        x: Input tensor. Must be 3D.
-        rg: Rotation range, in degrees.
-        row_axis: Index of axis for rows in the input tensor.
-        col_axis: Index of axis for columns in the input tensor.
-        channel_axis: Index of axis for channels in the input tensor.
-        fill_mode: Points outside the boundaries of the input
-            are filled according to the given mode
-            (one of `{'constant', 'nearest', 'reflect', 'wrap'}`).
-        cval: Value used for points outside the boundaries
-            of the input if `mode='constant'`.
-    # Returns
-        Rotated Numpy image tensor.
+def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
     """
-    theta = np.pi / 180 * np.random.uniform(-rg, rg)
-    rotation_matrix = np.array([[np.cos(theta), -np.sin(theta), 0],
-                                [np.sin(theta), np.cos(theta), 0],
-                                [0, 0, 1]])
+    Randomly shifts color channels of the image array.
 
-    h, w = x.shape[row_axis], x.shape[col_axis]
-    transform_matrix = transform_matrix_offset_center(rotation_matrix, h, w)
-    x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
-    return x
+    Args:
+        x: input image
+        intensity: intensity of the channel shift
+        channel_axis: axis on which along the shift should be executed. Usually the color channel axis
 
+    Returns:
+        The augmented image
 
-def random_shift(x, wrg, hrg, row_axis=1, col_axis=2, channel_axis=0,
-                 fill_mode='nearest', cval=0.):
-    """Performs a random spatial shift of a Numpy image tensor.
-    # Arguments
-        x: Input tensor. Must be 3D.
-        wrg: Width shift range, as a float fraction of the width.
-        hrg: Height shift range, as a float fraction of the height.
-        row_axis: Index of axis for rows in the input tensor.
-        col_axis: Index of axis for columns in the input tensor.
-        channel_axis: Index of axis for channels in the input tensor.
-        fill_mode: Points outside the boundaries of the input
-            are filled according to the given mode
-            (one of `{'constant', 'nearest', 'reflect', 'wrap'}`).
-        cval: Value used for points outside the boundaries
-            of the input if `mode='constant'`.
-    # Returns
-        Shifted Numpy image tensor.
+    References: https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
     """
-    h, w = x.shape[row_axis], x.shape[col_axis]
-    tx = np.random.uniform(-hrg, hrg) * h
-    ty = np.random.uniform(-wrg, wrg) * w
-    translation_matrix = np.array([[1, 0, tx],
-                                   [0, 1, ty],
-                                   [0, 0, 1]])
-
-    transform_matrix = translation_matrix  # no need to do offset
-    x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
-    return x
-
-
-def random_shear(x, intensity, row_axis=1, col_axis=2, channel_axis=0,
-                 fill_mode='nearest', cval=0.):
-    """Performs a random spatial shear of a Numpy image tensor.
-    # Arguments
-        x: Input tensor. Must be 3D.
-        intensity: Transformation intensity.
-        row_axis: Index of axis for rows in the input tensor.
-        col_axis: Index of axis for columns in the input tensor.
-        channel_axis: Index of axis for channels in the input tensor.
-        fill_mode: Points outside the boundaries of the input
-            are filled according to the given mode
-            (one of `{'constant', 'nearest', 'reflect', 'wrap'}`).
-        cval: Value used for points outside the boundaries
-            of the input if `mode='constant'`.
-    # Returns
-        Sheared Numpy image tensor.
-    """
-    shear = np.random.uniform(-intensity, intensity)
-    shear_matrix = np.array([[1, -np.sin(shear), 0],
-                             [0, np.cos(shear), 0],
-                             [0, 0, 1]])
-
-    h, w = x.shape[row_axis], x.shape[col_axis]
-    transform_matrix = transform_matrix_offset_center(shear_matrix, h, w)
-    x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
-    return x
-
-
-def random_zoom(x, zoom_range, row_axis=1, col_axis=2, channel_axis=0,
-                fill_mode='nearest', cval=0.):
-    """Performs a random spatial zoom of a Numpy image tensor.
-    # Arguments
-        x: Input tensor. Must be 3D.
-        zoom_range: Tuple of floats; zoom range for width and height.
-        row_axis: Index of axis for rows in the input tensor.
-        col_axis: Index of axis for columns in the input tensor.
-        channel_axis: Index of axis for channels in the input tensor.
-        fill_mode: Points outside the boundaries of the input
-            are filled according to the given mode
-            (one of `{'constant', 'nearest', 'reflect', 'wrap'}`).
-        cval: Value used for points outside the boundaries
-            of the input if `mode='constant'`.
-    # Returns
-        Zoomed Numpy image tensor.
-    # Raises
-        ValueError: if `zoom_range` isn't a tuple.
-    """
-    if len(zoom_range) != 2:
-        raise ValueError('`zoom_range` should be a tuple or list of two floats. '
-                         'Received arg: ', zoom_range)
-
-    if zoom_range[0] == 1 and zoom_range[1] == 1:
-        zx, zy = 1, 1
-    else:
-        zx, zy = np.random.uniform(zoom_range[0], zoom_range[1], 2)
-    zoom_matrix = np.array([[zx, 0, 0],
-                            [0, zy, 0],
-                            [0, 0, 1]])
-
-    h, w = x.shape[row_axis], x.shape[col_axis]
-    transform_matrix = transform_matrix_offset_center(zoom_matrix, h, w)
-    x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
-    return x
-
-
-def random_channel_shift(x, intensity, channel_axis=0):
     x = np.rollaxis(x, channel_axis, 0)
     min_x, max_x = np.min(x), np.max(x)
     channel_images = [np.clip(x_channel + np.random.uniform(-intensity, intensity), min_x, max_x)
@@ -147,6 +34,7 @@ def random_channel_shift(x, intensity, channel_axis=0):
     return x
 
 
+#  TODO Docu and Reference
 def transform_matrix_offset_center(matrix, x, y):
     o_x = float(x) / 2 + 0.5
     o_y = float(y) / 2 + 0.5
@@ -156,11 +44,8 @@ def transform_matrix_offset_center(matrix, x, y):
     return transform_matrix
 
 
-def apply_transform(x,
-                    transform_matrix,
-                    channel_axis=0,
-                    fill_mode='nearest',
-                    cval=0.):
+#  TODO DOCU and Reference
+def apply_transform(x, transform_matrix, channel_axis=0, fill_mode='nearest', cval=0.):
     """Apply the image transformation specified by a matrix.
     # Arguments
         x: 2D numpy array, single image.
@@ -189,6 +74,7 @@ def apply_transform(x,
     return x
 
 
+#  TODO Docu and Reference
 def flip_axis(x, axis):
     x = np.asarray(x).swapaxes(axis, 0)
     x = x[::-1, ...]
@@ -196,6 +82,7 @@ def flip_axis(x, axis):
     return x
 
 
+#  TODO Docu and Reference
 def array_to_img(x, data_format=None, scale=True):
     """Converts a 3D Numpy array to a PIL Image instance.
     # Arguments
@@ -243,6 +130,7 @@ def array_to_img(x, data_format=None, scale=True):
         raise ValueError('Unsupported channel number: ', x.shape[2])
 
 
+#  TODO Docu and Reference
 def img_to_array(img, data_format=None):
     """Converts a PIL Image instance to a Numpy array.
     # Arguments
@@ -303,6 +191,7 @@ def rescale_images(images: np.array):
     return images
 
 
+#  TODO Docu
 def load_img(path, grayscale=False, target_size=None):
     """Loads an image into PIL format.
     # Arguments
@@ -330,12 +219,6 @@ def load_img(path, grayscale=False, target_size=None):
         if img.size != hw_tuple:
             img = img.resize(hw_tuple)
     return img
-
-
-def list_pictures(directory, ext=["jpg", "jpeg", "bmp", "png", "ppm"]):
-    return [os.path.join(root, f)
-            for root, _, files in os.walk(directory) for f in files
-            if os.path.splitext(f)[-1].replace('.', '') in ext]
 
 
 class ImageLoader:
@@ -371,7 +254,6 @@ class ImageLoader:
         """
         self.data = data
         self.root = root
-        self.files = self.__get_paths()
         self.binarizer = binarizer
         self.batch_size = batch_size
         self.image_shape = (np.int(np.ceil(image_size * image_ratio[1])), np.int(np.ceil(image_size * image_ratio[0])))
@@ -389,22 +271,6 @@ class ImageLoader:
         self.channel_shift_range = channel_shift_range
         self.horizontal_flip = horizontal_flip
         self.vertical_flip = vertical_flip
-
-    def __get_paths(self):
-        """
-        Loads the file paths of all covers contained in the dataset by merging root, artist ID and album ID. So the
-        covers should be organized as root/artist_id/album_id.jpg
-
-        Returns:
-            List of all album covers
-        """
-        file_list = []
-        for _, d in self.data.iterrows():
-            file_path = os.path.join(self.root, d["artist_id"], d["album_id"]) + ".jpg"
-            if os.path.exists(file_path):
-                if os.stat(file_path).st_size > 0:
-                    file_list.append(file_path)
-        return file_list
 
     def random_transform(self, x, seed=None):
         """Randomly augment a single image tensor.
@@ -489,68 +355,39 @@ class ImageLoader:
         return x
 
     def next(self, year: bool = False, genre: bool = False):
+        """
+        Loads the next batch of images.
+
+        Args:
+            year: whether to load the release year information as well.
+            genre: whether to load the binarized genre information as well. Can be nused for genre embedding.
+
+        Returns:
+            List if return values. Contains numpy array of images and release year information as well as genre
+                information if requested
+        """
         batch_x = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
         grayscale = self.color_mode == 'grayscale'
         if year:
-            year_x = np.zeros((len(self.batch_size), 1))
+            year_x = np.zeros((self.batch_size, 1))
         if genre:
-            genres_x = np.zeros((len(self.batch_size), len(self.binarizer.classes_)))
+            genres_x = np.zeros((self.batch_size, len(self.binarizer.classes_)))
 
         for i in range(0, self.batch_size):
-            file_path = list(self.files)[self._iterator]
-            try:
-                img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
-                x = img_to_array(img)
-            except:
-                print(file_path)
+            file_path = self.data["file_path"][self._iterator]
+            img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
+            x = img_to_array(img)
             x = scale_images(x)
             batch_x[i] = x
             if year:
-                year_x[i] = self.data["release_year"][self._iterator]
+                year_x[i] = self.data["album_release"][self._iterator]
             if genre:
                 genres_x[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
             self._iterator += 1
-            if self._iterator >= len(self.files):
+            if self._iterator >= len(self.data):
                 self._iterator = 0
-        return_values = [batch_x]
-        if year:
-            return_values.append(year_x)
-        if genre:
-            return_values.append([genres_x])
-        if len(return_values) == 1:
-            return return_values[0]
-        return return_values
+                self.data = self.data.sample(frac=1).reset_index(drop=True)
 
-    def load_all(self, year: bool = False, genre: bool = False):
-        """
-        Loads all images detected in the root file and the provided data frame into one big numpy array
-
-        Args:
-            year: whether to return the release your
-            genre: whether to return the binarized genre
-
-        Returns:
-            the images and the year and genre if desired
-        """
-        batch_x = np.zeros((len(self.files), self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        grayscale = self.color_mode == 'grayscale'
-        if year:
-            year_x = np.zeros((len(self.files), 1))
-        if genre:
-            genres_x = np.zeros((len(self.files), len(self.binarizer.classes_)))
-
-        for i, file in tqdm(enumerate(self.files)):
-            try:
-                img = load_img(file, grayscale=grayscale, target_size=self.image_shape)
-                x = img_to_array(img)
-            except:
-                print(file)
-            x = scale_images(x)
-            batch_x[i] = x
-            if year:
-                year_x[i] = self.data["release_year"][i]
-            if genre:
-                genres_x[i] = self.binarizer.transform([self.data["artist_genre"][i]])
         return_values = [batch_x]
         if year:
             return_values.append(year_x)

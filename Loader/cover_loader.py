@@ -26,7 +26,7 @@ def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
         The augmented image
 
     References:
-        c
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     x = np.rollaxis(x, channel_axis, 0)
     min_x, max_x = np.min(x), np.max(x)
@@ -53,7 +53,7 @@ def transform_matrix_offset_center(matrix: np.array, x: int, y: int):
         The offset input matrix
 
     References:
-        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     o_x = float(x) / 2 + 0.5
     o_y = float(y) / 2 + 0.5
@@ -80,7 +80,7 @@ def apply_transform(x: np.array, transform_matrix: np.array, channel_axis: int =
         The transformed version of the input.
 
     References:
-        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     x = np.rollaxis(x, channel_axis, 0)
     final_affine_matrix = transform_matrix[:2, :2]
@@ -109,7 +109,7 @@ def flip_axis(x: np.array, axis: int):
         The flipped input array
 
     References:
-        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     x = np.asarray(x).swapaxes(axis, 0)
     x = x[::-1, ...]
@@ -136,7 +136,7 @@ def array_to_img(x: np.array, data_format: str = None, scale: bool = True):
         ValueError: if invalid `x` or `data_format` is passed.
 
     References:
-        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     if pil_image is None:
         raise ImportError('Could not import PIL.Image. '
@@ -188,7 +188,7 @@ def img_to_array(img, data_format: str = None):
         ValueError: if invalid `img` or `data_format` is passed.
 
     References:
-        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     if data_format is None:
         data_format = K.image_data_format()
@@ -257,7 +257,7 @@ def load_img(path, grayscale=False, target_size=None):
         ImportError: if PIL is not available.
 
     References:
-        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+        See https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py for original source code
     """
     if pil_image is None:
         raise ImportError('Could not import PIL.Image. '

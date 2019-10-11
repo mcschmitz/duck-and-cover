@@ -8,7 +8,7 @@ from utils import create_dir, generate_images
 
 BATCH_SIZE = 16
 EPOCH_NUM = 100
-PATH = "simple_gan"
+PATH = "0_gan"
 image_size = 16
 image_ratio = (1, 1)
 
@@ -35,7 +35,7 @@ for epoch in range(0, EPOCH_NUM):
         cum_d_acc, cum_g_loss = gan.train_on_batch(images)
         print('Epoch {0}: Batch {1}/{2} - Generator Loss: {3:3,.3f} - Discriminator Acc.: {4:3,.3f}'.format(
             gan.combined_model.n_epochs + 1, step, steps_per_epoch, cum_g_loss, cum_d_acc))
-        if step % 1000 == 0 or step == (steps_per_epoch - 1):
+        if step % 10000 == 0 or step == (steps_per_epoch - 1):
             generate_images(gan.generator,
                             'learning_progress/{}/epoch{}_{}.png'.format(PATH, gan.combined_model.n_epochs, step))
     gan.combined_model.n_epochs += 1

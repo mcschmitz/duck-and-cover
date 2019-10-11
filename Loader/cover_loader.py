@@ -117,19 +117,26 @@ def flip_axis(x: np.array, axis: int):
     return x
 
 
-#  TODO Docu and Reference
-def array_to_img(x, data_format=None, scale=True):
-    """Converts a 3D Numpy array to a PIL Image instance.
-    # Arguments
+def array_to_img(x: np.array, data_format: str = None, scale: bool = True):
+    """
+    Converts a 3D Numpy array to a PIL Image instance.
+
+    Args:
         x: Input Numpy array.
-        data_format: Image dataset5_back format.
+        data_format: Image data format. Can be `channels_first` or `channels_last` indicating whether the channel
+            axis of the image should be the first or the last axis.
         scale: Whether to rescale image values
             to be within [0, 255].
-    # Returns
+
+    Returns
         A PIL Image instance.
-    # Raises
+
+    Raises
         ImportError: if PIL is not available.
         ValueError: if invalid `x` or `data_format` is passed.
+
+    References:
+        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
     """
     if pil_image is None:
         raise ImportError('Could not import PIL.Image. '

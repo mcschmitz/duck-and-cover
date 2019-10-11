@@ -172,16 +172,23 @@ def array_to_img(x: np.array, data_format: str = None, scale: bool = True):
         raise ValueError('Unsupported channel number: ', x.shape[2])
 
 
-#  TODO Docu and Reference
-def img_to_array(img, data_format=None):
-    """Converts a PIL Image instance to a Numpy array.
-    # Arguments
+def img_to_array(img, data_format: str = None):
+    """
+    Converts a PIL Image instance to a Numpy array.
+
+    Args:
         img: PIL Image instance.
-        data_format: Image dataset5_back format.
-    # Returns
+        data_format: Image data format. Can be `channels_first` or `channels_last` indicating whether the channel
+            axis of the image should be the first or the last axis.
+
+    Returns:
         A 3D Numpy array.
-    # Raises
+
+    Raises
         ValueError: if invalid `img` or `data_format` is passed.
+
+    References:
+        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
     """
     if data_format is None:
         data_format = K.image_data_format()

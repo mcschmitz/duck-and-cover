@@ -9,7 +9,7 @@ from utils import create_dir, generate_images
 BATCH_SIZE = 128
 EPOCH_NUM = 100
 PATH = "simple_gan"
-image_size = 64
+image_size = 16
 image_ratio = (1, 1)
 
 covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
@@ -37,7 +37,7 @@ for epoch in range(0, EPOCH_NUM):
             gan.combined_model.n_epochs + 1, step, steps_per_epoch, cum_g_loss, cum_d_acc))
         if step % 1000 == 0 or step == (steps_per_epoch - 1):
             generate_images(gan.generator,
-                            'learning_progress/{}/epoch{}_^{}.png'.format(PATH, gan.combined_model.n_epochs, step))
+                            'learning_progress/{}/epoch{}_{}.png'.format(PATH, gan.combined_model.n_epochs, step))
     gan.combined_model.n_epochs += 1
     gan.reset_metrics()
 

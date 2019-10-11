@@ -5,8 +5,7 @@ from keras.layers import *
 from keras.losses import binary_crossentropy
 from keras.optimizers import Adam, Adadelta
 
-from Networks.progan_utils import PixelNorm
-from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss
+from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss, PixelNorm
 
 
 #  TODO Use Wasserstein Loss
@@ -34,41 +33,62 @@ class CoverGAN:
         self.latent_size = latent_size
         self.discriminator = None
         self.generator = None
+        self.discriminator_model = None
         self.combined_model = None
         self.generator_loss = []
         self.discriminator_accuracy = []
 
-    def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99), use_wasserstein: bool = False):
+    def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
         """
+        @TODO
         Builds the desired GAN that allows to generate covers.
 
         The GAN can either be a simple GAN or a WGAN using Wasserstein loss with gradient penalty to improve
         learning. Also additional information can be passed to the GAN like release year information.
 
         Args:
-            optimizer: Which ooptimizer to use
-            use_wasserstein: whether to use the wasserstein loss to build a WGAN. Default is False and builds a
+            optimizer: Which optimizer to use
             simple GAN with binary crossentropy loss
         """
-        self.discriminator = self.build_discriminator()
-        self.generator = self.build_generator()
+        self.discriminator = self._build_discriminator()
+        self.generator = self._build_generator()
         self.discriminator.trainable = False
 
-        gen_input_latent = Input((self.latent_size,), name="Latent_Input")
-        gen_image = self.generator(gen_input_latent)
-        disc_image = self.discriminator(gen_image)
-        self.combined_model = Model(gen_input_latent, disc_image)
-        combined_model_loss = wasserstein_loss if use_wasserstein else binary_crossentropy
-        self.combined_model.compile(optimizer, loss=[combined_model_loss])
-        self.combined_model.n_epochs = 0
+        self._build_combined_model(optimizer)
 
         self.discriminator.trainable = True
         self.generator.trainable = False
 
-        discriminator_loss = None if use_wasserstein else binary_crossentropy
-        self.discriminator.compile(loss=[discriminator_loss], optimizer=Adadelta(), metrics=['accuracy'])
+        self._build_discriminator_model()
 
-    def build_generator(self):
+    def _build_discriminator_model(self, optimizer=Adadelta()):
+        """
+        @TODO
+        Args:
+            optimizer:
+
+        Returns:
+
+        """
+        self.discriminator.compile(loss=[binary_crossentropy], optimizer=optimizer, metrics=['accuracy'])
+
+    def _build_combined_model(self, optimizer):
+        """
+        @TODO
+        Args:
+            optimizer:
+
+        Returns:
+
+        """
+        gen_input_latent = Input((self.latent_size,), name="Latent_Input")
+        gen_image = self.generator(gen_input_latent)
+        disc_image = self.discriminator(gen_image)
+        self.combined_model = Model(gen_input_latent, disc_image)
+        self.combined_model.compile(optimizer, loss=[binary_crossentropy])
+        self.combined_model.n_epochs = 0
+
+    def _build_generator(self):
         """
         @TODO
         Returns:
@@ -114,7 +134,7 @@ class CoverGAN:
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
-    def build_discriminator(self):
+    def _build_discriminator(self):
         """
         @TODO
         Returns:
@@ -217,8 +237,7 @@ class CoverGAN:
 
 class WGAN(CoverGAN):
 
-    def __init__(self, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128,
-                 batch_size: int = 64):
+    def __init__(self, batch_size, gradient_penalty_weight, **kwargs):
         """
         @TODO
         Args:
@@ -227,35 +246,36 @@ class WGAN(CoverGAN):
             channels:
             latent_size:
         """
-        super(WGAN, self).__init__(img_height, img_width, channels, latent_size)
-        self.discriminator_model = None
+        super(WGAN, self).__init__(**kwargs)
         self.discriminator_loss = []
         self.batch_size = batch_size
+        self._gradient_penalty_weight = gradient_penalty_weight
 
-    def build_models(self, gradient_penalty_weight, optimizer=Adam(beta_1=0, beta_2=0.99)):
-        #  TODO Refactor
+    def _build_combined_model(self, optimizer):
         """
         @TODO
         Args:
-            gradient_penalty_weight:
             optimizer:
 
         Returns:
 
         """
-        self.discriminator = self.build_discriminator()
-        self.generator = self.build_generator()
-        self.discriminator.trainable = False
-        gen_input_noise = Input((self.latent_size,), name="Noise_Input_for_Generator")
-        gen_image = self.generator(gen_input_noise)
+        gen_input_latent = Input((self.latent_size,), name="Latent_Input")
+        gen_image = self.generator(gen_input_latent)
         disc_image = self.discriminator(gen_image)
-        self.combined_model = Model(gen_input_noise, disc_image)
+        self.combined_model = Model(gen_input_latent, disc_image)
         self.combined_model.compile(optimizer, loss=[wasserstein_loss])
         self.combined_model.n_epochs = 0
 
-        self.discriminator.trainable = True
-        self.generator.trainable = False
+    def _build_discriminator_model(self, optimizer: Adadelta):
+        """
+        @TODO
+        Args:
+            optimizer:
 
+        Returns:
+
+        """
         disc_input_image = Input(self.img_shape, name="Img_Input")
         disc_input_noise = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
         gen_image_disc = self.generator(disc_input_noise)
@@ -266,42 +286,10 @@ class WGAN(CoverGAN):
         self.discriminator_model = Model(inputs=[disc_input_image, disc_input_noise],
                                          outputs=[disc_image_image, disc_image_gen, disc_avg_disc])
         partial_gp_loss = functools.partial(gradient_penalty_loss, averaged_samples=avg_samples,
-                                            gradient_penalty_weight=gradient_penalty_weight)
+                                            gradient_penalty_weight=self._gradient_penalty_weight)
         partial_gp_loss.__name__ = 'gradient_penalty'
         self.discriminator_model.compile(loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss],
                                          optimizer=optimizer)
-
-    def build_discriminator(self):
-        """
-        @TODO
-        Returns:
-
-        """
-        image_input = Input(self.img_shape)
-        x = Conv2D(16, kernel_size=(1, 1), strides=(1, 1), padding='same', bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(image_input)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-
-        cur_img_size = self.img_shape[0] // 2
-        n_kernels = 64
-        while cur_img_size > 4:
-            x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-            n_kernels *= 2
-            cur_img_size //= 2
-
-        x = Flatten()(x)
-
-        discriminator_output = Dense(1)(x)
-        discriminative_model = Model(image_input, discriminator_output)
-        return discriminative_model
 
     def train_on_batch(self, real_images, ratio: int = 5):
         """
@@ -327,7 +315,7 @@ class WGAN(CoverGAN):
 
         return np.array(self.discriminator_loss).mean(axis=0), np.mean(self.generator_loss)
 
-    def __reset_discriminator_loss(self):
+    def _reset_discriminator_loss(self):
         """
         @TODO
         Returns:
@@ -343,167 +331,165 @@ class WGAN(CoverGAN):
         """
         self._reset_generator_loss()
         self._reset_discriminator_accuracy()
-        self.__reset_discriminator_loss()
-        self.__reset_discriminator_loss()
+        self._reset_discriminator_loss()
 
-
-class YearWGAN(WGAN):
-
-    def __init__(self, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128,
-                 batch_size: int = 64):
-        """
-        @TODO
-        Args:
-            img_height:
-            img_width:
-            channels:
-            latent_size:
-        """
-        super(YearWGAN, self).__init__(img_height, img_width, channels, latent_size, batch_size)
-
-    def build_models(self, gradient_penalty_weight, optimizer=Adam(beta_1=0, beta_2=0.99)):
-        #  TODO Refactor
-        """
-        @TODO
-        Args:
-            gradient_penalty_weight:
-            optimizer:
-
-        Returns:
-
-        """
-        self.discriminator = self.build_discriminator()
-        self.generator = self.build_generator()
-        self.generator.trainable = False
-        image_input_disc = Input(self.img_shape, name="Img_Input")
-        noise_input_disc = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
-        year_input = Input((1,))
-        discriminated_real_disc = self.discriminator([image_input_disc, year_input])
-        generated_image_disc = self.generator([noise_input_disc, year_input])
-        discriminated_fake_disc = self.discriminator([generated_image_disc, year_input])
-        avg_samples = RandomWeightedAverage(self.batch_size)([image_input_disc, generated_image_disc])
-        discriminated_avg_disc = self.discriminator([avg_samples, year_input])
-        self.discriminator_model = Model(inputs=[image_input_disc, noise_input_disc, year_input],
-                                         outputs=[discriminated_real_disc, discriminated_fake_disc,
-                                                  discriminated_avg_disc])
-        partial_gp_loss = functools.partial(gradient_penalty_loss, averaged_samples=avg_samples,
-                                            gradient_penalty_weight=gradient_penalty_weight)
-        partial_gp_loss.__name__ = 'gradient_penalty'
-        self.discriminator_model.compile(loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss],
-                                         optimizer=optimizer)
-        self.discriminator.trainable = False
-        self.generator.trainable = True
-
-        noise_input_gen = Input((self.latent_size,), name="Noise_Input_for_Generator")
-        generated_image_gen = self.generator([noise_input_gen, year_input])
-        discriminated_fake_gen = self.discriminator([generated_image_gen, year_input])
-        self.adversarial_model = Model([noise_input_gen, year_input], discriminated_fake_gen)
-        self.adversarial_model.compile(loss=[wasserstein_loss], optimizer=optimizer)
-        self.adversarial_model.n_epochs = 0
-
-    def build_generator(self):
-        """
-        @TODO
-        Returns:
-
-        """
-        noise_input = Input((self.latent_size,))
-        year_input = Input((1,))
-        x = Concatenate()([noise_input, year_input])
-        x = Dense(8192, name='Generator_Dense')(x)
-        x = Reshape((4, 4, 512))(x)
-
-        x = Conv2D(512, kernel_size=(4, 4), strides=(1, 1), padding="same",
-                   bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = Conv2D(512, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                   bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = UpSampling2D((2, 2))(x)
-
-        cur_img_size = 8
-        n_kernels = 256
-        while cur_img_size < self.img_shape[0]:
-            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                       bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                       bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-            x = UpSampling2D((2, 2))(x)
-            cur_img_size *= 2
-            n_kernels //= 2
-
-        generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                  bias_initializer=initializers.zero(),
-                                  kernel_initializer=initializers.random_normal(stddev=1),
-                                  activation="tanh")(x)
-        generator_model = Model([noise_input, year_input], generator_output)
-        return generator_model
-
-    def build_discriminator(self):
-        """
-        @TODO
-        Returns:
-
-        """
-        image_input = Input(self.img_shape)
-        year_input = Input((1,))
-        x = Conv2D(16, kernel_size=(1, 1), strides=(1, 1), padding='same', bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(image_input)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-
-        cur_img_size = self.img_shape[0] // 2
-        n_kernels = 64
-        while cur_img_size > 4:
-            x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-            n_kernels *= 2
-            cur_img_size //= 2
-
-        x = Flatten()(x)
-        x = Dense(128)(x)
-        x = Concatenate()([x, year_input])
-        discriminator_output = Dense(1)(x)
-        discriminative_model = Model([image_input, year_input], discriminator_output)
-        return discriminative_model
-
-    def train_on_batch(self, real_images, year: float, ratio: int = 5):
-        """
-        @TODO
-        Args:
-            real_images:
-            ratio:
-            year:
-
-        Returns:
-
-        """
-        fake = np.ones((len(real_images), 1)) * -1
-        real = np.ones((len(real_images), 1))
-        dummy_y = np.zeros((len(real_images), 1), dtype=np.float32)
-
-        noise = np.random.normal(size=(len(real_images), self.latent_size))
-
-        self.generator_loss.append([self.adversarial_model.train_on_batch([noise, year], real)])
-
-        for _ in range(ratio):
-            losses = self.discriminator_model.train_on_batch([real_images, noise, year], [real, fake, dummy_y])
-        self.discriminator_loss.append(losses)
-
-        return np.array(self.discriminator_loss).mean(axis=0), np.mean(self.generator_loss)
+# class YearWGAN(WGAN):
+#
+#     def __init__(self, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128,
+#                  batch_size: int = 64):
+#         """
+#         @TODO
+#         Args:
+#             img_height:
+#             img_width:
+#             channels:
+#             latent_size:
+#         """
+#         super(YearWGAN, self).__init__(img_height, img_width, channels, latent_size, batch_size)
+#
+#     def build_models(self, gradient_penalty_weight, optimizer=Adam(beta_1=0, beta_2=0.99)):
+#         #  TODO Refactor
+#         """
+#         @TODO
+#         Args:
+#             gradient_penalty_weight:
+#             optimizer:
+#
+#         Returns:
+#
+#         """
+#         self.discriminator = self._build_discriminator()
+#         self.generator = self._build_generator()
+#         self.generator.trainable = False
+#         image_input_disc = Input(self.img_shape, name="Img_Input")
+#         noise_input_disc = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
+#         year_input = Input((1,))
+#         discriminated_real_disc = self.discriminator([image_input_disc, year_input])
+#         generated_image_disc = self.generator([noise_input_disc, year_input])
+#         discriminated_fake_disc = self.discriminator([generated_image_disc, year_input])
+#         avg_samples = RandomWeightedAverage(self.batch_size)([image_input_disc, generated_image_disc])
+#         discriminated_avg_disc = self.discriminator([avg_samples, year_input])
+#         self.discriminator_model = Model(inputs=[image_input_disc, noise_input_disc, year_input],
+#                                          outputs=[discriminated_real_disc, discriminated_fake_disc,
+#                                                   discriminated_avg_disc])
+#         partial_gp_loss = functools.partial(gradient_penalty_loss, averaged_samples=avg_samples,
+#                                             gradient_penalty_weight=gradient_penalty_weight)
+#         partial_gp_loss.__name__ = 'gradient_penalty'
+#         self.discriminator_model.compile(loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss],
+#                                          optimizer=optimizer)
+#         self.discriminator.trainable = False
+#         self.generator.trainable = True
+#
+#         noise_input_gen = Input((self.latent_size,), name="Noise_Input_for_Generator")
+#         generated_image_gen = self.generator([noise_input_gen, year_input])
+#         discriminated_fake_gen = self.discriminator([generated_image_gen, year_input])
+#         self.adversarial_model = Model([noise_input_gen, year_input], discriminated_fake_gen)
+#         self.adversarial_model.compile(loss=[wasserstein_loss], optimizer=optimizer)
+#         self.adversarial_model.n_epochs = 0
+#
+#     def _build_generator(self):
+#         """
+#         @TODO
+#         Returns:
+#
+#         """
+#         noise_input = Input((self.latent_size,))
+#         year_input = Input((1,))
+#         x = Concatenate()([noise_input, year_input])
+#         x = Dense(8192, name='Generator_Dense')(x)
+#         x = Reshape((4, 4, 512))(x)
+#
+#         x = Conv2D(512, kernel_size=(4, 4), strides=(1, 1), padding="same",
+#                    bias_initializer=initializers.zero(),
+#                    kernel_initializer=initializers.random_normal(stddev=1))(x)
+#         x = LeakyReLU(alpha=0.2)(x)
+#         x = PixelNorm()(x)
+#         x = Conv2D(512, kernel_size=(3, 3), strides=(1, 1), padding="same",
+#                    bias_initializer=initializers.zero(),
+#                    kernel_initializer=initializers.random_normal(stddev=1))(x)
+#         x = LeakyReLU(alpha=0.2)(x)
+#         x = PixelNorm()(x)
+#         x = UpSampling2D((2, 2))(x)
+#
+#         cur_img_size = 8
+#         n_kernels = 256
+#         while cur_img_size < self.img_shape[0]:
+#             x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
+#                        bias_initializer=initializers.zero(),
+#                        kernel_initializer=initializers.random_normal(stddev=1))(x)
+#             x = LeakyReLU(alpha=0.2)(x)
+#             x = PixelNorm()(x)
+#             x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
+#                        bias_initializer=initializers.zero(),
+#                        kernel_initializer=initializers.random_normal(stddev=1))(x)
+#             x = LeakyReLU(alpha=0.2)(x)
+#             x = PixelNorm()(x)
+#             x = UpSampling2D((2, 2))(x)
+#             cur_img_size *= 2
+#             n_kernels //= 2
+#
+#         generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
+#                                   bias_initializer=initializers.zero(),
+#                                   kernel_initializer=initializers.random_normal(stddev=1),
+#                                   activation="tanh")(x)
+#         generator_model = Model([noise_input, year_input], generator_output)
+#         return generator_model
+#
+#     def _build_discriminator(self):
+#         """
+#         @TODO
+#         Returns:
+#
+#         """
+#         image_input = Input(self.img_shape)
+#         year_input = Input((1,))
+#         x = Conv2D(16, kernel_size=(1, 1), strides=(1, 1), padding='same', bias_initializer=initializers.zero(),
+#                    kernel_initializer=initializers.random_normal(stddev=1))(image_input)
+#         x = LeakyReLU(alpha=0.2)(x)
+#         x = PixelNorm()(x)
+#         x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
+#                    kernel_initializer=initializers.random_normal(stddev=1))(x)
+#         x = LeakyReLU(alpha=0.2)(x)
+#         x = PixelNorm()(x)
+#
+#         cur_img_size = self.img_shape[0] // 2
+#         n_kernels = 64
+#         while cur_img_size > 4:
+#             x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
+#                        kernel_initializer=initializers.random_normal(stddev=1))(x)
+#             x = LeakyReLU(alpha=0.2)(x)
+#             x = PixelNorm()(x)
+#             n_kernels *= 2
+#             cur_img_size //= 2
+#
+#         x = Flatten()(x)
+#         x = Dense(128)(x)
+#         x = Concatenate()([x, year_input])
+#         discriminator_output = Dense(1)(x)
+#         discriminative_model = Model([image_input, year_input], discriminator_output)
+#         return discriminative_model
+#
+#     def train_on_batch(self, real_images, year: float, ratio: int = 5):
+#         """
+#         @TODO
+#         Args:
+#             real_images:
+#             ratio:
+#             year:
+#
+#         Returns:
+#
+#         """
+#         fake = np.ones((len(real_images), 1)) * -1
+#         real = np.ones((len(real_images), 1))
+#         dummy_y = np.zeros((len(real_images), 1), dtype=np.float32)
+#
+#         noise = np.random.normal(size=(len(real_images), self.latent_size))
+#
+#         self.generator_loss.append([self.adversarial_model.train_on_batch([noise, year], real)])
+#
+#         for _ in range(ratio):
+#             losses = self.discriminator_model.train_on_batch([real_images, noise, year], [real, fake, dummy_y])
+#         self.discriminator_loss.append(losses)
+#
+#         return np.array(self.discriminator_loss).mean(axis=0), np.mean(self.generator_loss)

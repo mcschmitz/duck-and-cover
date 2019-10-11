@@ -9,6 +9,7 @@ from Loader import rescale_images
 def create_dir(directory_path):
     """
     Creates a directory to the given path if it does not exist
+
     Args:
         directory_path: path directory
     """
@@ -16,11 +17,16 @@ def create_dir(directory_path):
         os.makedirs(directory_path)
 
 
-def generate_images(generator_model, output_dir, n_imgs: int = 10):
+def generate_images(generator_model, output_dir, year: float = None, n_imgs: int = 10):
     """TODO
     Feeds random seeds into the generator and tiles and saves the output to a PNG
     file."""
-    generated_images = generator_model.predict(np.random.rand(n_imgs, generator_model.input_shape[1]))
+    if year is None:
+        generated_images = generator_model.predict(np.random.rand(n_imgs, generator_model.input_shape[1]))
+    else:
+        year = np.repeat(year, n_imgs)
+        noise = np.random.rand(n_imgs, generator_model.input_shape[0][1])
+        generated_images = generator_model.predict([noise, year])
     generated_images = rescale_images(generated_images)
     tiled_output = tile_images(generated_images)
     tiled_output = Image.fromarray(tiled_output)

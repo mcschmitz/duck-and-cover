@@ -97,8 +97,20 @@ def apply_transform(x: np.array, transform_matrix: np.array, channel_axis: int =
     return x
 
 
-#  TODO Docu and Reference
-def flip_axis(x, axis):
+def flip_axis(x: np.array, axis: int):
+    """
+    Flips the axis of a given input matrix
+
+    Args:
+        x: 2D numpy array, single image.
+        axis: Index of the axis to flip
+
+    Returns:
+        The flipped input array
+
+    References:
+        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
+    """
     x = np.asarray(x).swapaxes(axis, 0)
     x = x[::-1, ...]
     x = x.swapaxes(0, axis)

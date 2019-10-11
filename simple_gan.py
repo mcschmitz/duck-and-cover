@@ -6,7 +6,7 @@ from Loader.cover_loader import ImageLoader
 from Networks import CoverGAN
 from utils import create_dir, generate_images
 
-BATCH_SIZE = 128
+BATCH_SIZE = 16
 EPOCH_NUM = 100
 PATH = "simple_gan"
 image_size = 16

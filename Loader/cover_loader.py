@@ -240,18 +240,24 @@ def rescale_images(images: np.array):
     return images
 
 
-#  TODO Docu
 def load_img(path, grayscale=False, target_size=None):
-    """Loads an image into PIL format.
-    # Arguments
+    """
+    Loads an image into PIL format.
+
+    Args:
         path: Path to image file
         grayscale: Boolean, whether to load the image as grayscale.
         target_size: Either `None` (default to original size)
             or tuple of ints `(img_height, img_width)`.
-    # Returns
+
+    Returns:
         A PIL Image instance.
-    # Raises
+
+    Raises:
         ImportError: if PIL is not available.
+
+    References:
+        https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
     """
     if pil_image is None:
         raise ImportError('Could not import PIL.Image. '

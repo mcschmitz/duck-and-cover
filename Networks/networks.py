@@ -59,9 +59,9 @@ class CoverGAN:
         self.discriminator.trainable = True
         self.generator.trainable = False
 
-        self._build_discriminator_model()
+        self._build_discriminator_model(optimizer)
 
-    def _build_discriminator_model(self, optimizer=Adadelta()):
+    def _build_discriminator_model(self, optimizer):
         """
         @TODO
         Args:
@@ -70,7 +70,7 @@ class CoverGAN:
         Returns:
 
         """
-        self.discriminator.compile(loss=[binary_crossentropy], optimizer=optimizer, metrics=['accuracy'])
+        self.discriminator.compile(loss=[binary_crossentropy], optimizer=Adadelta(), metrics=['accuracy'])
 
     def _build_combined_model(self, optimizer):
         """
@@ -267,7 +267,7 @@ class WGAN(CoverGAN):
         self.combined_model.compile(optimizer, loss=[wasserstein_loss])
         self.combined_model.n_epochs = 0
 
-    def _build_discriminator_model(self, optimizer: Adadelta):
+    def _build_discriminator_model(self, optimizer):
         """
         @TODO
         Args:

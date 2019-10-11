@@ -1,1 +1,1 @@
-from .networks import CoverGAN, WGAN, YearWGAN
+from .networks import CoverGAN, WGAN

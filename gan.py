@@ -26,7 +26,7 @@ gan.build_models()
 d_acc = []
 g_loss = []
 
-create_dir("learning_progress/simple_gan")
+create_dir("learning_progress/{}".format(PATH))
 i = 0
 for epoch in range(0, EPOCH_NUM):
     for step in range(0, steps_per_epoch):

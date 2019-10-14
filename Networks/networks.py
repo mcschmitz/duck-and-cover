@@ -8,7 +8,6 @@ from keras.optimizers import Adam, Adadelta
 from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss, PixelNorm
 
 
-#  TODO Use Wasserstein Loss
 #  TODO Add Release Year information
 #  TODO Add Genre Information
 #  TODO Let GAN grow
@@ -37,6 +36,7 @@ class CoverGAN:
         self.combined_model = None
         self.generator_loss = []
         self.discriminator_accuracy = []
+        self.n_epochs = 0
 
     def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
         """

@@ -23,13 +23,18 @@ def _pixel_norm(x, epsilon=1e-8, channel_axis=-1):
 
 
 class PixelNorm(Layer):
-    """
-    @TODO
-    """
 
     def __init__(self, channel_axis=-1, **kwargs):
+        """
+        Pixel normalization layer that normalizes an innput tensor along its channel axis by scaling its features
+        along this axis to unit length
+
+        Args:
+            channel_axis: channel axis. tensor value will be normalized along this axis
+            kwargs: Keyword arguments for keras layer
+        """
         self.channel_axis = channel_axis
-        super().__init__()
+        super().__init__(kwargs)
 
     def call(self, x):
         return _pixel_norm(x, channel_axis=self.channel_axis)
@@ -64,7 +69,7 @@ def save_gan(gan, path):
     gan.generator = None
     gan.discriminator_model = None
     gan.combined_model = None
-    joblib.dump(gan, os.path.join("GAN.pkl"))
+    joblib.dump(gan, os.path.join(path, "GAN.pkl"))
 
 
 def load_cover_gan(path, custom_objects: dict = None):

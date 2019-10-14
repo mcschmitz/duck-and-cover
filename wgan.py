@@ -10,7 +10,7 @@ BATCH_SIZE = 16
 EPOCH_NUM = 100
 PATH = "1_wgan"
 DISCRIMINATOR_TRAIN_RATIO = 5
-image_size = 16
+image_size = 32
 image_ratio = (1, 1)
 
 covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)

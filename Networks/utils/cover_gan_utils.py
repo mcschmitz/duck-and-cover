@@ -34,7 +34,7 @@ class PixelNorm(Layer):
             kwargs: Keyword arguments for keras layer
         """
         self.channel_axis = channel_axis
-        super().__init__(kwargs)
+        super().__init__()
 
     def call(self, x):
         return _pixel_norm(x, channel_axis=self.channel_axis)

@@ -1,3 +1,4 @@
+import copy
 import os
 
 import joblib
@@ -49,7 +50,7 @@ class PixelNorm(Layer):
         }
 
 
-def save_gan(gan, path):
+def save_gan(obj, path):
     """
     @TODO
     Args:
@@ -59,6 +60,7 @@ def save_gan(gan, path):
     Returns:
 
     """
+    gan = copy.copy(obj)
     gan.discriminator.trainable = False
     gan.combined_model.save(os.path.join(path, "C.h5"))
     gan.discriminator.trainable = True
@@ -82,7 +84,7 @@ def load_cover_gan(path, custom_objects: dict = None):
     generator = load_model(os.path.join(path, "G.h5"), custom_objects=custom_objects)
     generator.trainable = False
     combined_model = load_model(os.path.join(path, "C.h5"), custom_objects=custom_objects)
-    gan = joblib.load(os.path.join("GAN.pkl"))
+    gan = joblib.load(os.path.join(path, "GAN.pkl"))
     gan.generator = generator
     gan.discriminator = discriminator
     gan.combined_model = combined_model

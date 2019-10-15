@@ -11,6 +11,7 @@ import pandas as pd
 import scipy.ndimage as ndi
 from PIL import Image as pil_image
 from sklearn.preprocessing import MultiLabelBinarizer
+from tqdm import tqdm
 
 
 def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
@@ -443,11 +444,62 @@ class ImageLoader:
                 self._iterator = 0
                 self.data = self.data.sample(frac=1).reset_index(drop=True)
 
-        return_values = [batch_x]
+        return self._wrap_output(batch_x, genres_x, year_x)
+
+    def load_all(self, year: bool = False, genre: bool = False):
+        """
+        Loads all images from the data frame
+
+        Args:
+            year: whether to load the release year information as well.
+            genre: whether to load the binarized genre information as well. Can be nused for genre embedding.
+
+        Returns:
+            List of return values. Contains numpy array of images and release year information as well as genre
+                information if requested
+        """
+        batch_x = np.zeros((len(self.data), self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
+        grayscale = self.color_mode == 'grayscale'
         if year:
-            return_values.append(year_x)
+            year_x = np.zeros((len(self.data), 1))
         if genre:
-            return_values.append([genres_x])
+            genres_x = np.zeros((len(self.data), len(self.binarizer.classes_)))
+
+        for i in tqdm(range(0, len(self.data))):
+            file_path = self.data["file_path"][self._iterator]
+            img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
+            x = img_to_array(img)
+            x = scale_images(x)
+            batch_x[i] = x
+            if year:
+                year_x[i] = self.data["album_release"][self._iterator]
+            if genre:
+                genres_x[i] = self.binarizer.transform([self.data["artist_genre"][self._iterator]])
+            self._iterator += 1
+
+        return self._wrap_output(batch_x, genres_x, year_x)
+
+    @staticmethod
+    def _wrap_output(x: np.array = None, genres: np.array = None, year: np.array = None):
+        """
+        Wraps the output of the data loader to one object.
+
+        Returns the images and if required the genre and year information
+
+        Args:
+            x: numpy array of images
+            genres: numpy array of genre information
+            year: numpy array of release year information
+
+        Returns:
+            List of return values. Contains numpy array of images and release year information as well as genre
+                information if requested
+        """
+        return_values = [x]
+        if year is not None:
+            return_values.append(year)
+        if genres is not None:
+            return_values.append([genres])
         if len(return_values) == 1:
             return return_values[0]
         return return_values

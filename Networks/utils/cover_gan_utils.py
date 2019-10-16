@@ -4,7 +4,6 @@ import os
 import joblib
 import tensorflow as tf
 from keras.layers import Layer
-from keras.models import load_model
 
 
 def _pixel_norm(x, epsilon=1e-8, channel_axis=-1):
@@ -50,22 +49,21 @@ class PixelNorm(Layer):
         }
 
 
-def save_gan(obj, path):
+def save_gan(obj, path: str):
     """
-    @TODO
+    Saves the weights of the Cover GAN
+
+    Writes the weights of the GAN object to the given path. The combined model weights, the discriminator weights and
+    the generator weights will be written separately to the given directory
+
     Args:
-        gan:
-        path:
-
-    Returns:
-
+        obj: The Cover GAN object
+        path: The directory to which the weights should be written
     """
     gan = copy.copy(obj)
-    gan.discriminator.trainable = False
-    gan.combined_model.save(os.path.join(path, "C.h5"))
-    gan.discriminator.trainable = True
-    gan.discriminator.save(os.path.join(path, "D.h5"))
-    gan.generator.save(os.path.join(path, "G.h5"))
+    gan.combined_model.save_weights(os.path.join(path, "C.h5"))
+    gan.discriminator.save_weights(os.path.join(path, "D.h5"))
+    gan.generator.save_weights(os.path.join(path, "G.h5"))
 
     gan.discriminator = None
     gan.generator = None
@@ -74,19 +72,21 @@ def save_gan(obj, path):
     joblib.dump(gan, os.path.join(path, "GAN.pkl"))
 
 
-def load_cover_gan(path, custom_objects: dict = None):
+def load_cover_gan(obj, path):
     """
     @TODO
     Returns:
 
     """
-    discriminator = load_model(os.path.join(path, "D.h5"), custom_objects=custom_objects)
-    generator = load_model(os.path.join(path, "G.h5"), custom_objects=custom_objects)
-    generator.trainable = False
-    combined_model = load_model(os.path.join(path, "C.h5"), custom_objects=custom_objects)
-    gan = joblib.load(os.path.join(path, "GAN.pkl"))
-    gan.generator = generator
-    gan.discriminator = discriminator
-    gan.combined_model = combined_model
+    obj.discriminator.load_weights(os.path.join(path, "D.h5"))
+    obj.generator.load_weights(os.path.join(path, "G.h5"))
+    obj.combined_model.load_weights(os.path.join(path, "C.h5"))
 
-    return gan
+    print("Generator summary:\n")
+    print(obj.generator.summary())
+    print("Discriminator summary:\n")
+    print(obj.discriminator.summary())
+    print("Combined model summary:\n")
+    print(obj.combined_model.summary())
+
+    return obj

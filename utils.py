@@ -21,15 +21,19 @@ def create_dir(directory_path):
     return directory_path
 
 
-def generate_images(generator_model, output_dir, year: float = None, n_imgs: int = 10):
+def generate_images(generator_model, output_dir, year: float = None, n_imgs: int = 10, fixed: bool = False):
     """TODO
     Feeds random seeds into the generator and tiles and saves the output to a PNG
     file."""
+    if fixed:
+        np.random.seed(101)
+    else:
+        np.random.seed()
     if year is None:
-        generated_images = generator_model.predict(np.random.rand(n_imgs, generator_model.input_shape[1]))
+        generated_images = generator_model.predict(np.random.normal(size=(n_imgs, generator_model.input_shape[1])))
     else:
         year = np.repeat(year, n_imgs)
-        noise = np.random.rand(n_imgs, generator_model.input_shape[0][1])
+        noise = np.random.normal(size=(n_imgs, generator_model.input_shape[0][1]))
         generated_images = generator_model.predict([noise, year])
     generated_images = rescale_images(generated_images)
     tiled_output = tile_images(generated_images)

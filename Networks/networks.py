@@ -37,6 +37,7 @@ class CoverGAN:
         self.generator_loss = []
         self.discriminator_accuracy = []
         self.n_epochs = 0
+        self.history = {}
 
     def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
         """
@@ -51,15 +52,14 @@ class CoverGAN:
             simple GAN with binary crossentropy loss
         """
         self.discriminator = self._build_discriminator()
+        self._build_discriminator_model(optimizer)
+        self.history["D_accuracy"] = []
+
         self.generator = self._build_generator()
         self.discriminator.trainable = False
 
         self._build_combined_model(optimizer)
-
-        self.discriminator.trainable = True
-        self.generator.trainable = False
-
-        self._build_discriminator_model(optimizer)
+        self.history["G_loss"] = []
 
     def _build_discriminator_model(self, optimizer):
         """

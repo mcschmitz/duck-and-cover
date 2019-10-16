@@ -7,7 +7,7 @@ import seaborn as sns
 
 from Loader.cover_loader import ImageLoader
 from Networks import CoverGAN
-from Networks.utils import save_gan, load_cover_gan, PixelNorm
+from Networks.utils import save_gan, load_cover_gan
 from utils import create_dir, generate_images
 
 BATCH_SIZE = 32
@@ -34,20 +34,15 @@ image_width = images.shape[1]
 image_height = images.shape[2]
 steps_per_epoch = len(covers) // BATCH_SIZE
 
-if not WARM_START:
-    gan = CoverGAN(img_width=image_width, img_height=image_height, latent_size=128)
-    gan.build_models()
-    d_acc = []
-    g_loss = []
-    i = 0
+gan = CoverGAN(img_width=image_width, img_height=image_height, latent_size=128)
+gan.build_models()
 
-else:
-    custom_objects = {"PixelNorm": PixelNorm}
-    gan = load_cover_gan(model_path, custom_objects)
+if WARM_START:
+    gan = load_cover_gan(gan, model_path)
 
 batch_idx = 0
 img_idx = np.arange(0, images.shape[0])
-for epoch in range(0, EPOCH_NUM):
+for epoch in range(gan.n_epochs, EPOCH_NUM):
     for step in range(0, steps_per_epoch):
         step += 1
         batch_idx = [i if i < images.shape[0] else i - images.shape[0] for i in
@@ -58,21 +53,22 @@ for epoch in range(0, EPOCH_NUM):
         if step % 1000 == 0 or step == steps_per_epoch:
             print('Epoch {0}: Batch {1}/{2} - Generator Loss: {3:3,.3f} - Discriminator Acc.: {4:3,.3f}'.format(
                 gan.n_epochs, step, steps_per_epoch, cum_g_loss, cum_d_acc))
+    gan.history["G_loss"].append(cum_g_loss)
+    gan.history["D_accuracy"].append(cum_d_acc)
     np.random.shuffle(img_idx)
     images = images[img_idx]
     generate_images(gan.generator, os.path.join(lp_path, "epoch{}.png".format(gan.n_epochs)))
+    generate_images(gan.generator, os.path.join(lp_path, "epoch{}_fixed.png".format(gan.n_epochs)), fixed=True)
     gan.n_epochs += 1
     gan.reset_metrics()
 
-    d_acc.append(cum_d_acc)
-    ax = sns.lineplot(range(gan.n_epochs), d_acc)
+    ax = sns.lineplot(range(gan.n_epochs), gan.history["D_accuracy"])
     plt.ylabel('Discriminator Accucary')
     plt.xlabel('Epochs')
     plt.savefig(os.path.join(lp_path, "d_acc.png".format(PATH)))
     plt.close()
 
-    g_loss.append(cum_g_loss)
-    ax = sns.lineplot(range(gan.n_epochs), g_loss)
+    ax = sns.lineplot(range(gan.n_epochs), gan.history["G_loss"])
     plt.ylabel('Generator Loss')
     plt.xlabel('Epochs')
     plt.savefig(os.path.join(lp_path, "g_loss.png".format(PATH)))

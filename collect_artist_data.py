@@ -53,7 +53,8 @@ class SpotifyInfoCollector:
         """
         return spotipy.Spotify(self.token)
 
-    def get_genre_artists(self, genres, save_on: int = 100, result_path: str = None, remaining_path: str = None):
+    def get_top_artists_for_genre(self, genres, save_on: int = 100, result_path: str = None,
+                                  remaining_path: str = None):
         """
         Collects top artists for a list of genres and their recommended artists and saves their corresponding genres
         to the result path
@@ -294,8 +295,10 @@ if __name__ == "__main__":
                                                          artist_genres_map=artists_to_process)
     else:
         genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
-    artists_to_process = artist_info_collector.get_genre_artists(genres=genres_to_process, result_path=ARTISTS_FILE,
-                                                                 remaining_path=REMAINING_GENRES_PATH, save_on=100)
+    artists_to_process = artist_info_collector.get_top_artists_for_genre(genres=genres_to_process,
+                                                                         result_path=ARTISTS_FILE,
+                                                                         remaining_path=REMAINING_GENRES_PATH,
+                                                                         save_on=100)
 
     if os.path.isfile(REMAINING_ARTISTS):
         with open(REMAINING_ARTISTS, "r", encoding="utf-8") as file:

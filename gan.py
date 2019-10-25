@@ -13,7 +13,7 @@ from utils import create_dir, generate_images
 BATCH_SIZE = 32
 EPOCH_NUM = 100
 PATH = "0_gan"
-WARM_START = False
+WARM_START = True
 DATA_PATH = "data/covers/all32.npy"
 image_size = 32
 image_ratio = (1, 1)

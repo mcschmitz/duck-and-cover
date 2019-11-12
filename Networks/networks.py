@@ -42,7 +42,7 @@ class CoverGAN:
     def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
         """
         @TODO
-        Builds the desired GAN that allows to generate covers.
+        Builds the desired GAN that allows to generate covers300.
 
         The GAN can either be a simple GAN or a WGAN using Wasserstein loss with gradient penalty to improve
         learning. Also additional information can be passed to the GAN like release year information.
@@ -175,7 +175,7 @@ class CoverGAN:
         if year:
             x = Concatenate()([x, year_input])
         discriminator_output = Dense(1)(x)
-        if self.__class__ == CoverGAN:
+        if isinstance(self.__class__, CoverGAN):
             discriminator_output = Activation("sigmoid")(discriminator_output)
         if year:
             discriminative_model = Model([image_input, year_input], discriminator_output)
@@ -271,7 +271,7 @@ class WGAN(CoverGAN):
     def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99), year: bool = False):
         """
         @TODO
-        Builds the desired GAN that allows to generate covers.
+        Builds the desired GAN that allows to generate covers300.
 
         The GAN can either be a simple GAN or a WGAN using Wasserstein loss with gradient penalty to improve
         learning. Also additional information can be passed to the GAN like release year information.
@@ -282,14 +282,17 @@ class WGAN(CoverGAN):
         """
         self.discriminator = self._build_discriminator(year)
         self.generator = self._build_generator(year)
-        self.discriminator.trainable = False
-
-        self._build_combined_model(optimizer, year)
-
-        self.discriminator.trainable = True
         self.generator.trainable = False
 
         self._build_discriminator_model(optimizer, year)
+        self.history["D_loss_positives"] = []
+        self.history["D_loss_negatives"] = []
+        self.history["D_loss_dummies"] = []
+        self.discriminator.trainable = False
+
+        self.generator.trainable = True
+        self._build_combined_model(optimizer, year)
+        self.history["G_loss"] = []
 
     def _build_combined_model(self, optimizer, year: bool = False):
         """

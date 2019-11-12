@@ -460,10 +460,8 @@ class ImageLoader:
         """
         batch_x = np.zeros((len(self.data), self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
         grayscale = self.color_mode == 'grayscale'
-        if year:
-            year_x = np.zeros((len(self.data), 1))
-        if genre:
-            genres_x = np.zeros((len(self.data), len(self.binarizer.classes_)))
+        year_x = np.zeros((len(self.data), 1)) if year else None
+        genres_x = np.zeros((len(self.data), len(self.binarizer.classes_))) if genre else None
 
         for i in tqdm(range(0, len(self.data))):
             file_path = self.data["file_path"][self._iterator]

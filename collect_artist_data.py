@@ -39,7 +39,8 @@ class SpotifyInfoCollector:
             self.cover_frame = cover_frame
         else:
             self.cover_frame = pd.DataFrame([], columns=["artist_id", "artist_name", "artist_genre",
-                                                         "album_id", "album_name", "album_release", "album_cover_url"])
+                                                         "album_id", "album_name", "album_release",
+                                                         "album_cover_url300", "album_cover_url64"])
 
     def create_new_token(self):
         """
@@ -194,12 +195,12 @@ class SpotifyInfoCollector:
         os.remove(remaining_path)
 
     def get_artist_album_data(self, artist: str = None, genre: list = None):
-        """
-        Collects essential information about all  albums released by the given artist
+        """Collects essential information about all  albums released by the given artist
 
         Args:
             artist: Spotify artist Id
             genre: Genre of the artist
+
         Returns:
             List of summarizing dictionaries of all albums released by an artist
         """
@@ -214,30 +215,44 @@ class SpotifyInfoCollector:
                         continue
                     else:
                         images = album["images"]
-                        cover_url = [i["url"] for i in images if i["height"] == 300]
-                        if len(cover_url) > 0:
+                        cover_url300 = [i["url"] for i in images if i["height"] == 300 or i["width"] == 300]
+                        cover_url64 = [i["url"] for i in images if i["height"] == 64 or i["width"] == 64]
+                        if len(cover_url64) > 0 or len(cover_url300):
+                            cover_url300 = cover_url300[0] if cover_url300 else ""
+                            cover_url64 = cover_url64[0] if cover_url64 else ""
                             release_year = int(album["release_date"][:4])
                             album_summary = {"artist_id": artist, "artist_name": album["artists"][0]["name"],
                                              "artist_genre": genre,
                                              "album_id": album["id"], "album_name": album["name"],
                                              "album_release": release_year,
-                                             "album_cover_url": cover_url[0]}
+                                             "album_cover_url64": cover_url64,
+                                             "album_cover_url300": cover_url300}
                             result.append(album_summary)
             return result
         else:
             return []
 
-    def collect_album_cover(self, target_dir: str):
-        """
-        @TODO
+    def collect_album_cover(self, target_dir: str, size: int = 64):
+        """Collects the album covers
+
+        Downloads the album covers in the `cover_frame` and saves them to the given target directory under path
+        `target_dir`/`artist_id`/`album_id.jpg`. Size determines whether do download the large 300x300 images or the
+        smaller 64x64 images
+
         Args:
-            target_dir:
+            target_dir: root directory where to save the files
+            size: integer giving the size of the images. Should be either 300 or 64.
 
-        Returns:
-
+        Raises:
+            @TODO
         """
+        if size not in [64, 300]:
+            raise ValueError("size has to be either 64 oor 300.")
+        url_col = "album_cover_url300" if size == 300 else "album_cover_url64"
         for idx, album in tqdm(self.cover_frame.iterrows()):
-            url = album["album_cover_url"]
+            url = album[url_col]
+            if url == "":
+                continue
             artist_id = album["artist_id"]
             album_id = album["album_id"]
             path = os.path.join(target_dir, artist_id)
@@ -249,26 +264,29 @@ class SpotifyInfoCollector:
                     urllib.request.urlretrieve(url, file_path)
                 except ContentTooShortError:
                     urllib.request.urlretrieve(url, file_path)
-
                 except HTTPError:
                     continue
 
-    def add_file_path_to_frame(self, target_dir: str):
+    def add_file_path_to_frame(self, target_dir: str, size: int = 64):
         """
         @TODO
         Args:
             target_dir:
+            size: integer giving the size of the images. Should be either 300 or 64.
 
         Returns:
 
         """
-        self.cover_frame["file_path"] = np.repeat(None, len(self.cover_frame))
+        if size not in [64, 300]:
+            raise ValueError("size has to be either 64 oor 300.")
+        size = str(size)
+        container = np.repeat(None, len(self.cover_frame))
         for idx, d in tqdm(self.cover_frame.iterrows()):
             file_path = os.path.join(target_dir, d["artist_id"], d["album_id"]) + ".jpg"
             if os.path.exists(file_path):
                 if os.stat(file_path).st_size > 0:
-                    self.cover_frame.loc[idx, "file_path"] = file_path
-        self.cover_frame = self.cover_frame[self.cover_frame["file_path"].notnull()]
+                    container[idx] = file_path
+        self.cover_frame["file_path_" + size] = container
         return self.cover_frame
 
 
@@ -312,10 +330,16 @@ if __name__ == "__main__":
             artists_to_process = json.load(file)
             file.close()
     artist_info_collector.build_cover_data_frame(artists_to_process, 1000, ALBUM_DATA_PATH, REMAINING_ARTISTS)
-    artist_info_collector.collect_album_cover(target_dir="data/covers")
+
+    album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
+    artist_info_collector.cover_frame = album_data
+    artist_info_collector.collect_album_cover(target_dir="data/covers300", size=300)
+    artist_info_collector.collect_album_cover(target_dir="data/covers64", size=64)
 
     album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
     artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
                                                  cover_frame=album_data)
-    cover_frame = artist_info_collector.add_file_path_to_frame(target_dir="data/covers")
-    cover_frame.to_json(ALBUM_DATA_PATH, lines=True, orient="records")
+    for size in [64, 300]:
+        artist_info_collector.cover_frame = artist_info_collector.add_file_path_to_frame(
+            target_dir="data/covers{}".format(size), size=size)
+    artist_info_collector.cover_frame.to_json(ALBUM_DATA_PATH, lines=True, orient="records")

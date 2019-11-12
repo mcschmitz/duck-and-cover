@@ -8,7 +8,7 @@
 additional information like the genre and the release year of your
 artificial performer.**
 
-Duck and Cover uses data from more than 600.000 covers of over 100.000
+Duck and Cover uses data from more than 600.000 covers of over 120.000
 spotify top artists from 3.254 genres to learn about the structure and
 appearance of let's say a thrash metal album cover from 1988.
 
@@ -25,7 +25,7 @@ Data gathering consists of two steps:
    duplicated artists are removed. After this step the script builds a
    table containing genre and release date of each album released by
    these artists, the artists and the album name as well as an URL to
-   download an 300x300 image of the cover. Based on this URL the covers
+   download a 300x300 image of the cover. Based on this URL the covers
    are finally downloaded and save to a unified identifiable file
    structure.
    

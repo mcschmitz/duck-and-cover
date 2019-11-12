@@ -233,9 +233,9 @@ class SpotifyInfoCollector:
             return []
 
     def collect_album_cover(self, target_dir: str, size: int = 64):
-        """Collects the album covers
+        """Collects the album all_covers
 
-        Downloads the album covers in the `cover_frame` and saves them to the given target directory under path
+        Downloads the album all_covers in the `cover_frame` and saves them to the given target directory under path
         `target_dir`/`artist_id`/`album_id.jpg`. Size determines whether do download the large 300x300 images or the
         smaller 64x64 images
 
@@ -341,5 +341,5 @@ if __name__ == "__main__":
                                                  cover_frame=album_data)
     for size in [64, 300]:
         artist_info_collector.cover_frame = artist_info_collector.add_file_path_to_frame(
-            target_dir="data/covers{}".format(size), size=size)
+            target_dir="data/all_covers{}".format(size), size=size)
     artist_info_collector.cover_frame.to_json(ALBUM_DATA_PATH, lines=True, orient="records")

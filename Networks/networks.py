@@ -175,7 +175,7 @@ class CoverGAN:
         if year:
             x = Concatenate()([x, year_input])
         discriminator_output = Dense(1)(x)
-        if isinstance(self.__class__, CoverGAN):
+        if isinstance(self, CoverGAN):
             discriminator_output = Activation("sigmoid")(discriminator_output)
         if year:
             discriminative_model = Model([image_input, year_input], discriminator_output)

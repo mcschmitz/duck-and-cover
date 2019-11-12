@@ -278,7 +278,7 @@ def load_img(path, grayscale=False, target_size=None):
 
 
 class ImageLoader:
-    def __init__(self, data: pd.DataFrame, root: str, batch_size: int = 32, image_size: int = 256,
+    def __init__(self, data: pd.DataFrame, path_column: str, batch_size: int = 32, image_size: int = 256,
                  image_ratio: tuple = (1, 1), binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb",
                  row_axis: int = 0, col_axis: int = 1, channel_axis: int = 2, rotation_range: int = 0,
                  height_shift_range: float = 0.0, width_shift_range: float = 0.0, shear_range: float = 0.0,
@@ -290,7 +290,7 @@ class ImageLoader:
 
         Args:
             data: pandas dataframe containing the file paths to the images and additional meta information
-            root: root path to the images
+            path_column: column name that holds the path to the files
             batch_size: batch size for the iterator
             image_size: output size of the images
             image_ratio: output ratio of the images
@@ -309,7 +309,7 @@ class ImageLoader:
             vertical_flip: whether to flip the images horizontally during image augmentation
         """
         self.data = data
-        self.root = root
+        self.path_column = path_column
         self.binarizer = binarizer
         self.batch_size = batch_size
         self.image_shape = (np.int(np.ceil(image_size * image_ratio[1])), np.int(np.ceil(image_size * image_ratio[0])))
@@ -430,7 +430,7 @@ class ImageLoader:
             genres_x = np.zeros((self.batch_size, len(self.binarizer.classes_)))
 
         for i in range(0, self.batch_size):
-            file_path = self.data["file_path"][self._iterator]
+            file_path = self.data[self.path_column][self._iterator]
             img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
             x = img_to_array(img)
             x = scale_images(x)
@@ -464,7 +464,7 @@ class ImageLoader:
         genres_x = np.zeros((len(self.data), len(self.binarizer.classes_))) if genre else None
 
         for i in tqdm(range(0, len(self.data))):
-            file_path = self.data["file_path"][self._iterator]
+            file_path = self.data[self.path_column][self._iterator]
             img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
             x = img_to_array(img)
             x = scale_images(x)

@@ -13,17 +13,19 @@ from utils import create_dir, generate_images
 BATCH_SIZE = 32
 EPOCH_NUM = 100
 PATH = "0_gan"
-WARM_START = True
-DATA_PATH = "data/covers/all32.npy"
-image_size = 32
+WARM_START = False
+DATA_PATH = "data/all_covers/all32.npy"
+image_size = 64
 image_ratio = (1, 1)
 
 covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
+covers.dropna(subset=["file_path_64"], inplace=True)
+covers.reset_index(inplace=True)
 lp_path = create_dir("learning_progress/{}".format(PATH))
 model_path = create_dir(os.path.join(lp_path, "model"))
 
 if not os.path.exists(DATA_PATH):
-    data_loader = ImageLoader(data=covers, root="data/covers", batch_size=BATCH_SIZE, image_size=image_size,
+    data_loader = ImageLoader(data=covers, path_column="file_path_64", batch_size=BATCH_SIZE, image_size=image_size,
                               image_ratio=image_ratio)
     images = data_loader.load_all()
     np.save(DATA_PATH, images)
@@ -58,7 +60,7 @@ for epoch in range(gan.n_epochs, EPOCH_NUM):
     np.random.shuffle(img_idx)
     images = images[img_idx]
     generate_images(gan.generator, os.path.join(lp_path, "epoch{}.png".format(gan.n_epochs)))
-    generate_images(gan.generator, os.path.join(lp_path, "epoch{}_fixed.png".format(gan.n_epochs)), fixed=True)
+    generate_images(gan.generator, os.path.join(lp_path, "fixed_epoch{}.png".format(gan.n_epochs)), fixed=True)
     gan.n_epochs += 1
     gan.reset_metrics()
 

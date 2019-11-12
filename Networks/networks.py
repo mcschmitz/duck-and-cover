@@ -40,16 +40,13 @@ class CoverGAN:
         self.history = {}
 
     def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
-        """
-        @TODO
-        Builds the desired GAN that allows to generate covers300.
+        """Builds the desired GAN that allows to generate covers.
 
-        The GAN can either be a simple GAN or a WGAN using Wasserstein loss with gradient penalty to improve
-        learning. Also additional information can be passed to the GAN like release year information.
+        Creates every model needed for GAN. Creates a discriminator, a generator and the combined model. The
+        discriminator as well as the generator are trained using the provided optimizer.
 
         Args:
             optimizer: Which optimizer to use
-            simple GAN with binary crossentropy loss
         """
         self.discriminator = self._build_discriminator()
         self._build_discriminator_model(optimizer)

@@ -14,7 +14,7 @@ BATCH_SIZE = 32
 EPOCH_NUM = 100
 PATH = "0_gan"
 WARM_START = False
-DATA_PATH = "data/all_covers/all32.npy"
+DATA_PATH = "data/all_covers/all64.npy"
 image_size = 64
 image_ratio = (1, 1)
 

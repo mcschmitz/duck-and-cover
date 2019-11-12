@@ -25,9 +25,9 @@ Data gathering consists of two steps:
    duplicated artists are removed. After this step the script builds a
    table containing genre and release date of each album released by
    these artists, the artists and the album name as well as an URL to
-   download a 300x300 image of the cover. Based on this URL the covers
-   are finally downloaded and save to a unified identifiable file
-   structure.
+   download a 300x300 as well as a 64x64 image of the cover. Based on 
+   this URL the covers are finally downloaded and save to a unified
+   identifiable file structure.
    
  All of the final and intermediate results of the tasks in steps in 2.
  are saved in a tmp dictionary to allow splitting the data collection in

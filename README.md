@@ -31,4 +31,5 @@ Data gathering consists of two steps:
    
  All of the final and intermediate results of the tasks in steps in 2.
  are saved in a tmp dictionary to allow splitting the data collection in
- case of reaching the quota limit of the Spotify API.
+ case of reaching the quota limit of the Spotify API (which is usually
+ not the case) or running into other trouble.

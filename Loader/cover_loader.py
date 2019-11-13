@@ -424,10 +424,8 @@ class ImageLoader:
         """
         batch_x = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
         grayscale = self.color_mode == 'grayscale'
-        if year:
-            year_x = np.zeros((self.batch_size, 1))
-        if genre:
-            genres_x = np.zeros((self.batch_size, len(self.binarizer.classes_)))
+        year_x = np.zeros((self.batch_size, 1)) if year else None
+        genres_x = np.zeros((self.batch_size, len(self.binarizer.classes_))) if genre else None
 
         for i in range(0, self.batch_size):
             file_path = self.data[self.path_column][self._iterator]

@@ -59,24 +59,23 @@ class CoverGAN:
         self.history["G_loss"] = []
 
     def _build_discriminator_model(self, optimizer):
-        """
-        @TODO
+        """Build the discriminator model
+
+        The discriminator model is only compiled in this step since the model is rather simple in a plain GAN
+
         Args:
-            optimizer:
-
-        Returns:
-
+            optimizer: Which optimizer to use
         """
         self.discriminator.compile(loss=[binary_crossentropy], optimizer=Adadelta(), metrics=['accuracy'])
 
     def _build_combined_model(self, optimizer):
-        """
-        @TODO
+        """Build the combined GAN consisting of generator and discriminator
+
+        Takes the latent input and generates an images out of it by applying the generator. Classifies the image by
+        via the discriminator. The model is compiled using the given optimizer
+
         Args:
-            optimizer:
-
-        Returns:
-
+            optimizer: Which optimizer to use
         """
         gen_input_latent = Input((self.latent_size,), name="Latent_Input")
         gen_image = self.generator(gen_input_latent)

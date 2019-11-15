@@ -1,5 +1,7 @@
 import os
+import re
 
+import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -9,12 +11,12 @@ import seaborn as sns
 from Loader.cover_loader import ImageLoader
 from Networks import CoverGAN
 from Networks.utils import save_gan, load_cover_gan
-from utils import create_dir, generate_images
+from utils import create_dir, generate_images, AnimatedGif
 
 BATCH_SIZE = 32
 EPOCH_NUM = 100
 PATH = "0_gan"
-WARM_START = True
+WARM_START = False
 DATA_PATH = "data/all_covers/all64.npy"
 
 image_size = 64
@@ -90,3 +92,19 @@ for epoch in range(gan.n_epochs, EPOCH_NUM):
     plt.savefig(os.path.join(lp_path, "g_loss.png".format(PATH)))
     plt.close()
     save_gan(gan, model_path)
+
+animated_gif = AnimatedGif(size=(image_width * 10, image_height + 50))
+images = []
+labels = []
+for root, dirs, files in os.walk(lp_path):
+    for file in files:
+        if 'fixed_epoch' in file:
+            images.append(imageio.imread(os.path.join(root, file)))
+            labels.append(int(re.findall("\d+", file)[0]))
+
+order = np.argsort(labels)
+images = [images[i] for i in order]
+labels = [labels[i] for i in order]
+for img, lab in zip(images, labels):
+    animated_gif.add(img, label="Epoch {}".format(lab))
+animated_gif.save(os.path.join(lp_path, 'fixed.gif'))

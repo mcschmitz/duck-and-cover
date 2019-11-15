@@ -85,10 +85,18 @@ class CoverGAN:
         self.combined_model.n_epochs = 0
 
     def _build_generator(self, year: bool = False):
-        """
-        @TODO
-        Returns:
+        """Builds the generator for the GAN
 
+        The generator gets an input of the defined size and generates an image out of it. The architecture of the
+        generator is as follows: The input is upsampled to a 8192 dimensional vector by applying a dense layer. After
+        that it is reshaped to a 4x4x512 tensor. The upsampling of this tensor happens by applying multiple blocks of
+        convolutional layers with leaky RelU followed by a Pixel normalization. Two of these convolutional blocks are
+        followed by one upsampling layer, that doubles the size of the tensor. This is done until the generated
+        tensor has the desired output size. In a last step a tanH activation is applied to scale the output between
+        -1 and 1.
+
+        Returns:
+            The generator model
         """
         noise_input = Input((self.latent_size,))
         if year:

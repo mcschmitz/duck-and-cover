@@ -407,7 +407,7 @@ class ImageLoader:
 
         return x
 
-    def next(self, batch_size: int = 32, year: bool = False, bool=False, genre: bool = False):
+    def next(self, batch_size: int = 32, year: bool = False, genre: bool = False):
         """
         Loads the next batch of images.
 

@@ -14,9 +14,9 @@ from Networks import CoverGAN
 from Networks.utils import save_gan, load_cover_gan
 from utils import create_dir, generate_images, AnimatedGif
 
-BATCH_SIZE = 32
+BATCH_SIZE = 128
 PATH = "0_gan"
-WARM_START = False
+WARM_START = True
 DATA_PATH = "data/all_covers/all64.npy"
 TRAIN_STEPS = int(10e6)
 
@@ -48,33 +48,30 @@ image_width = image_size * image_ratio[0]
 image_height = image_size * image_ratio[1]
 
 gan = CoverGAN(img_width=image_width, img_height=image_height, latent_size=128)
-gan.build_models(optimizer=Adam(0.0002, 0.5))
+gan.build_models(combined_optimizer=Adam(0.0002, 0.5), discriminator_optimizer=Adam(0.000004))
 
 if WARM_START:
     gan = load_cover_gan(gan, model_path)
 
 batch_idx = 0
 steps = TRAIN_STEPS // BATCH_SIZE
-for step in range(0, steps):
+for step in range(gan.images_shown // BATCH_SIZE, steps):
     if images:
         batch_idx = [i if i < images.shape[0] else i - images.shape[0] for i in
                      np.arange(batch_idx, batch_idx + BATCH_SIZE)]
+        if 0 in batch_idx and images.shape[0] in batch_idx:
+            np.random.shuffle(img_idx)
+            images = images[img_idx]
         batch_images = images[batch_idx]
         batch_idx = batch_idx[-1] + 1
     else:
         batch_images = data_loader.next()
-    cum_d_acc, cum_g_loss = gan.train_on_batch(batch_images)
+    gan.train_on_batch(batch_images)
     gan.images_shown += BATCH_SIZE
 
-    if step % 1000 == 0:
+    if step % 250 == 0:
         print('Images shown {0}: Generator Loss: {1:2,.3f} - Discriminator Acc.: {2:3,.3f}'.format(
-            gan.images_shown, cum_g_loss, cum_d_acc))
-        gan.history["G_loss"].append(cum_g_loss)
-        gan.history["D_accuracy"].append(cum_d_acc)
-
-        if images:
-            np.random.shuffle(img_idx)
-            images = images[img_idx]
+            gan.images_shown, np.mean(gan.history["G_loss"]), np.mean(gan.history["D_accuracy"])))
 
         generate_images(gan.generator, os.path.join(lp_path, "step{}.png".format(gan.images_shown)))
         generate_images(gan.generator, os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)), fixed=True)
@@ -90,6 +87,7 @@ for step in range(0, steps):
         plt.xlabel('Images shown')
         plt.savefig(os.path.join(lp_path, "g_loss.png".format(PATH)))
         plt.close()
+
         save_gan(gan, model_path)
 
 animated_gif = AnimatedGif(size=(image_width * 10, image_height + 50))

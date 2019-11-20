@@ -78,4 +78,4 @@ class AnimatedGif:
 
     def save(self, filename):
         animation = anim.ArtistAnimation(self.fig, self.images)
-        animation.save(filename, writer='imagemagick', fps=5)
+        animation.save(filename, writer='imagemagick', fps=60)

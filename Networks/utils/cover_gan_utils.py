@@ -91,7 +91,7 @@ def load_cover_gan(obj, path: str):
     obj.generator.load_weights(os.path.join(path, "G.h5"))
     obj.combined_model.load_weights(os.path.join(path, "C.h5"))
     gan = joblib.load(os.path.join(path, "GAN.pkl"))
-    obj.n_epochs = gan.images_shown
+    obj.images_shown = gan.images_shown
     obj.history = gan.history
 
     print("Generator summary:\n")

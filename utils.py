@@ -73,7 +73,7 @@ class AnimatedGif:
 
     def add(self, image, label=''):
         plt_im = plt.imshow(image, vmin=0, vmax=1, animated=True)
-        plt_txt = plt.text(self.size[0] * .875, self.size[1] * .7, label, color='black')
+        plt_txt = plt.text(self.size[0] * .7, self.size[1] * .7, label, color='black')
         self.images.append([plt_im, plt_txt])
 
     def save(self, filename):

@@ -1,22 +1,79 @@
 import functools
+from abc import abstractmethod
 
+import numpy as np
 from keras import Model
 from keras.layers import *
 from keras.losses import binary_crossentropy
-from keras.optimizers import Adam, Adadelta
 
-from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss, PixelNorm
+from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss
 
 
 #  TODO Add Release Year information
 #  TODO Add Genre Information
 #  TODO Let GAN grow
+#  TODO Try styleGAN
 
-class CoverGAN:
+class GAN:
+    def __init__(self):
+        """Abstract GAN Class
+        """
+        self.discriminator = None
+        self.generator = None
+        self.discriminator_model = None
+        self.combined_model = None
+        self.images_shown = 0
+        self.history = {}
+
+    @abstractmethod
+    def build_models(self, *args):
+        """Abstract method to build the models for the GAN
+        """
+        pass
+
+    @abstractmethod
+    def _build_discriminator(self):
+        """Abstract method to define the discriminator architecture
+        """
+        pass
+
+    @abstractmethod
+    def _build_discriminator_model(self, *args):
+        """Abstract method to build the discriminator
+        """
+        pass
+
+    @abstractmethod
+    def _build_combined_model(self, *args):
+        """Abstract method to build the combined model
+        """
+        pass
+
+    @abstractmethod
+    def _build_generator(self):
+        """Abstract method to define the generator architecture
+        """
+        pass
+
+    @abstractmethod
+    def train_on_batch(self, *args):
+        """Abstract method to train the combined model on a batch of data
+        """
+        pass
+
+    @abstractmethod
+    def train_discriminator(self, *args):
+        """Abstract method to train the discriminator on a batch of data
+        """
+        pass
+
+
+class CoverGAN(GAN):
 
     def __init__(self, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128):
-        """
-        Simple GAN that builds a discriminator a generator and the adversarial model to train the GAN based on the
+        """Simple Deep Convolutional GAN
+
+        Simple DCGAN that builds a discriminator a generator and the adversarial model to train the GAN based on the
         binary crossentropy loss for the generator and the discriminator
 
         Args:
@@ -25,21 +82,16 @@ class CoverGAN:
             channels: Number of image channels. Normally either 1 or 3.
             latent_size: Size of the latent vector that is used to generate the image
         """
+        super(CoverGAN, self).__init__()
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
         self.channels = channels
         self.img_shape = (self.img_height, self.img_width, self.channels)
         self.latent_size = latent_size
-        self.discriminator = None
-        self.generator = None
-        self.discriminator_model = None
-        self.combined_model = None
         self.generator_loss = []
         self.discriminator_accuracy = []
-        self.n_epochs = 0
-        self.history = {}
 
-    def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99)):
+    def build_models(self, optimizer):
         """Builds the desired GAN that allows to generate covers.
 
         Creates every model needed for GAN. Creates a discriminator, a generator and the combined model. The
@@ -66,7 +118,7 @@ class CoverGAN:
         Args:
             optimizer: Which optimizer to use
         """
-        self.discriminator.compile(loss=[binary_crossentropy], optimizer=Adadelta(), metrics=['accuracy'])
+        self.discriminator.compile(loss=[binary_crossentropy], optimizer=optimizer, metrics=['accuracy'])
 
     def _build_combined_model(self, optimizer):
         """Build the combined GAN consisting of generator and discriminator
@@ -82,114 +134,68 @@ class CoverGAN:
         disc_image = self.discriminator(gen_image)
         self.combined_model = Model(gen_input_latent, disc_image)
         self.combined_model.compile(optimizer, loss=[binary_crossentropy])
-        self.combined_model.n_epochs = 0
 
-    def _build_generator(self, year: bool = False):
-        """Builds the generator for the GAN
+    def _build_generator(self):
+        """Builds the DCGAN generator
 
-        The generator gets an input of the defined size and generates an image out of it. The architecture of the
-        generator is as follows: The input is upsampled to a 8192 dimensional vector by applying a dense layer. After
-        that it is reshaped to a 4x4x512 tensor. The upsampling of this tensor happens by applying multiple blocks of
-        convolutional layers with leaky RelU followed by a Pixel normalization. Two of these convolutional blocks are
-        followed by one upsampling layer, that doubles the size of the tensor. This is done until the generated
-        tensor has the desired output size. In a last step a tanH activation is applied to scale the output between
-        -1 and 1.
+        Builds the very simple generator that takes a latent input vector and applies the following block until the
+        desired image size is reached: 3x3 convolutional layer with ReLu activation -> Batch Normalization ->
+        Upsamling layer. The last Convolutional layer wit tanH activation results in 3 RGB channels and serves as
+        final output
 
         Returns:
-            The generator model
+            The DCGAN generator
         """
         noise_input = Input((self.latent_size,))
-        if year:
-            year_input = Input((1,))
-            x = Concatenate()([noise_input, year_input])
-            x = Dense(8192, name='Generator_Dense')(x)
-        else:
-            x = Dense(8192, name='Generator_Dense')(noise_input)
+        x = Dense(8192, name='Generator_Dense')(noise_input)
         x = Reshape((4, 4, 512))(x)
 
-        x = Conv2D(512, kernel_size=(4, 4), strides=(1, 1), padding="same",
-                   bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = Conv2D(512, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                   bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = UpSampling2D((2, 2))(x)
-
-        cur_img_size = 8
+        cur_img_size = 4
         n_kernels = 256
         while cur_img_size < self.img_shape[0]:
-            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                       bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                       bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-            x = UpSampling2D((2, 2))(x)
+            x = Conv2D(n_kernels, kernel_size=(3, 3), strides=(1, 1), padding="same")(x)
+            x = Activation("relu")(x)
+            x = BatchNormalization()(x)
+            x = UpSampling2D()(x)
             cur_img_size *= 2
             n_kernels //= 2
 
-        generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                  bias_initializer=initializers.zero(),
-                                  kernel_initializer=initializers.random_normal(stddev=1),
-                                  activation="tanh")(x)
-        if year:
-            generator_model = Model([noise_input, year_input], generator_output)
-        else:
-            generator_model = Model(noise_input, generator_output)
+        generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same")(x)
+        generator_output = Activation("tanh")(generator_output)
+        generator_model = Model(noise_input, generator_output)
         return generator_model
 
-    def _build_discriminator(self, year: bool = False):
-        """
-        @TODO
-        Returns:
+    def _build_discriminator(self):
+        """Builds the DCGAN discriminator
 
+        Builds the very simple discriminator that takes an image input and applies a 3x3 convolutional layer with ReLu
+        activation and a 2x2 stride until the desired embedding  size is reached. The flattend embedding is ran
+        through a Dense layer with sigmoid output to label the image.
+
+        Returns:
+            The DCGAN discriminator
         """
         image_input = Input(self.img_shape)
-        if year:
-            year_input = Input((1,))
-        x = Conv2D(16, kernel_size=(1, 1), strides=(1, 1), padding='same', bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(image_input)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
-        x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
-                   kernel_initializer=initializers.random_normal(stddev=1))(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
+        x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding='same')(image_input)
+        x = Activation("relu")(x)
 
         cur_img_size = self.img_shape[0] // 2
         n_kernels = 64
         while cur_img_size > 4:
-            x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same', bias_initializer=initializers.zero(),
-                       kernel_initializer=initializers.random_normal(stddev=1))(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
+            x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
+            x = Activation("relu")(x)
             n_kernels *= 2
             cur_img_size //= 2
 
         x = Flatten()(x)
         x = Dense(self.latent_size)(x)
-        if year:
-            x = Concatenate()([x, year_input])
         discriminator_output = Dense(1)(x)
-        if isinstance(self, CoverGAN):
-            discriminator_output = Activation("sigmoid")(discriminator_output)
-        if year:
-            discriminative_model = Model([image_input, year_input], discriminator_output)
-        else:
-            discriminative_model = Model(image_input, discriminator_output)
+        discriminator_output = Activation("sigmoid")(discriminator_output)
+        discriminative_model = Model(image_input, discriminator_output)
         return discriminative_model
 
     def train_on_batch(self, real_images: np.array):
-        """
-        Runs a single gradient update on a single batch of data.
+        """Runs a single gradient update on a batch of data.
 
         Args:
             real_images: numpy array of real input images used for training
@@ -215,45 +221,17 @@ class CoverGAN:
 
         return np.mean(self.discriminator_accuracy), np.mean(self.generator_loss)
 
-    def train_discriminator(self, generated_images, real_images):
-        """
-        @TODO
+    def train_discriminator(self, generated_images: np.array, real_images: np.array):
+        """Runs a single gradient update for the discriminator
+
         Args:
-            generated_images:
-            real_images:
-
-        Returns:
-
+            generated_images: array of generated images by the generator
+            real_images: array of real images
         """
         fake = np.ones(len(generated_images))
         real = np.zeros(len(real_images))
         self.discriminator.train_on_batch(generated_images, fake)
         self.discriminator.train_on_batch(real_images, real)
-
-    def _reset_generator_loss(self):
-        """
-        @TODO
-        Returns:
-
-        """
-        self.generator_loss = []
-
-    def _reset_discriminator_accuracy(self):
-        """
-        @TODO
-        Returns:
-
-        """
-        self.discriminator_accuracy = []
-
-    def reset_metrics(self):
-        """
-        @TODO
-        Returns:
-
-        """
-        self._reset_generator_loss()
-        self._reset_discriminator_accuracy()
 
 
 class WGAN(CoverGAN):
@@ -272,7 +250,7 @@ class WGAN(CoverGAN):
         self.batch_size = batch_size
         self._gradient_penalty_weight = gradient_penalty_weight
 
-    def build_models(self, optimizer=Adam(beta_1=0, beta_2=0.99), year: bool = False):
+    def build_models(self, optimizer, year: bool = False):
         """
         @TODO
         Builds the desired GAN that allows to generate covers300.
@@ -318,7 +296,6 @@ class WGAN(CoverGAN):
             disc_image = self.discriminator(gen_image)
             self.combined_model = Model(gen_input_latent, disc_image)
         self.combined_model.compile(optimizer, loss=[wasserstein_loss])
-        self.combined_model.n_epochs = 0
 
     def _build_discriminator_model(self, optimizer, year: bool = False):
         """
@@ -366,22 +343,26 @@ class WGAN(CoverGAN):
         Returns:
 
         """
-        fake = np.ones((len(real_images), 1)) * -1
-        real = np.ones((len(real_images), 1))
-        dummy_y = np.zeros((len(real_images), 1), dtype=np.float32)
+        batch_size = real_images.shape[0] // self._gradient_penalty_weight
+        fake_y = np.ones((batch_size, 1)) * -1
+        real_y = np.ones((batch_size, 1))
+        dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
 
-        noise = np.random.normal(size=(len(real_images), self.latent_size))
+        for i in range(ratio):
+            discriminator_minibatch = real_images[i * batch_size:(i + 1) * batch_size]
+            noise = np.random.normal(size=(batch_size, self.latent_size))
+            if year is None:
+                losses = self.discriminator_model.train_on_batch([discriminator_minibatch, noise],
+                                                                 [real_y, fake_y, dummy_y])
 
-        if year is None:
-            self.generator_loss.append([self.combined_model.train_on_batch(noise, real)])
-            for _ in range(ratio):
-                losses = self.discriminator_model.train_on_batch([real_images, noise], [real, fake, dummy_y])
-        else:
-            self.generator_loss.append([self.combined_model.train_on_batch([noise, year], real)])
-            for _ in range(ratio):
-                losses = self.discriminator_model.train_on_batch([real_images, noise, year], [real, fake, dummy_y])
+            else:
+                losses = self.discriminator_model.train_on_batch([discriminator_minibatch, noise, year],
+                                                                 [real_y, fake_y, dummy_y])
 
         self.discriminator_loss.append(losses)
+
+        noise = np.random.normal(size=(batch_size, self.latent_size))
+        self.generator_loss.append([self.combined_model.train_on_batch(noise, real_y)])
 
         return np.array(self.discriminator_loss).mean(axis=0), np.mean(self.generator_loss)
 

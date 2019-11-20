@@ -278,12 +278,11 @@ def load_img(path, grayscale=False, target_size=None):
 
 
 class ImageLoader:
-    def __init__(self, data: pd.DataFrame, path_column: str, batch_size: int = 32, image_size: int = 256,
-                 image_ratio: tuple = (1, 1), binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb",
-                 row_axis: int = 0, col_axis: int = 1, channel_axis: int = 2, rotation_range: int = 0,
-                 height_shift_range: float = 0.0, width_shift_range: float = 0.0, shear_range: float = 0.0,
-                 zoom_range: tuple = (0.0, 0.0), channel_shift_range: float = 0.0, horizontal_flip: bool = False,
-                 vertical_flip: bool = False):
+    def __init__(self, data: pd.DataFrame, path_column: str, image_size: int = 256, image_ratio: tuple = (1, 1),
+                 binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb", row_axis: int = 0, col_axis: int =
+                 1, channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
+                 width_shift_range: float = 0.0, shear_range: float = 0.0, zoom_range: tuple = (0.0, 0.0),
+                 channel_shift_range: float = 0.0, horizontal_flip: bool = False, vertical_flip: bool = False):
         """
         Image Loader that takes a pandas dataframe containing the file paths to the images and additional meta
         information and loads the existing images. Also allows several image data augmentation applications.
@@ -291,7 +290,6 @@ class ImageLoader:
         Args:
             data: pandas dataframe containing the file paths to the images and additional meta information
             path_column: column name that holds the path to the files
-            batch_size: batch size for the iterator
             image_size: output size of the images
             image_ratio: output ratio of the images
             binarizer: binarizer used to create dummy features out of additional meta information
@@ -311,7 +309,6 @@ class ImageLoader:
         self.data = data
         self.path_column = path_column
         self.binarizer = binarizer
-        self.batch_size = batch_size
         self.image_shape = (np.int(np.ceil(image_size * image_ratio[1])), np.int(np.ceil(image_size * image_ratio[0])))
         self.color_mode = color_mode
         self._iterator = 0
@@ -410,11 +407,12 @@ class ImageLoader:
 
         return x
 
-    def next(self, year: bool = False, genre: bool = False):
+    def next(self, batch_size: int = 32, year: bool = False, bool=False, genre: bool = False):
         """
         Loads the next batch of images.
 
         Args:
+            batch_size: size of the drawn batch
             year: whether to load the release year information as well.
             genre: whether to load the binarized genre information as well. Can be nused for genre embedding.
 
@@ -422,12 +420,12 @@ class ImageLoader:
             List if return values. Contains numpy array of images and release year information as well as genre
                 information if requested
         """
-        batch_x = np.zeros((self.batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
+        batch_x = np.zeros((batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
         grayscale = self.color_mode == 'grayscale'
-        year_x = np.zeros((self.batch_size, 1)) if year else None
-        genres_x = np.zeros((self.batch_size, len(self.binarizer.classes_))) if genre else None
+        year_x = np.zeros((batch_size, 1)) if year else None
+        genres_x = np.zeros((batch_size, len(self.binarizer.classes_))) if genre else None
 
-        for i in range(0, self.batch_size):
+        for i in range(0, batch_size):
             file_path = self.data[self.path_column][self._iterator]
             img = load_img(file_path, grayscale=grayscale, target_size=self.image_shape)
             x = img_to_array(img)

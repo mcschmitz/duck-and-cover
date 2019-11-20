@@ -233,7 +233,7 @@ class SpotifyInfoCollector:
             return []
 
     def collect_album_cover(self, target_dir: str, size: int = 64):
-        """Collects the album all_covers
+        """Collects the album covers
 
         Downloads the album all_covers in the `cover_frame` and saves them to the given target directory under path
         `target_dir`/`artist_id`/`album_id.jpg`. Size determines whether do download the large 300x300 images or the
@@ -242,9 +242,6 @@ class SpotifyInfoCollector:
         Args:
             target_dir: root directory where to save the files
             size: integer giving the size of the images. Should be either 300 or 64.
-
-        Raises:
-            @TODO
         """
         if size not in [64, 300]:
             raise ValueError("size has to be either 64 oor 300.")
@@ -268,14 +265,17 @@ class SpotifyInfoCollector:
                     continue
 
     def add_file_path_to_frame(self, target_dir: str, size: int = 64):
-        """
-        @TODO
+        """Add the file path to the dataframe
+
+        Adds a new column to the data frame. The name of this column is either `file_path_64` or `fie_path_300`
+        depending on the selected size.
+
         Args:
-            target_dir:
+            target_dir: root directory of the album covers
             size: integer giving the size of the images. Should be either 300 or 64.
 
         Returns:
-
+            the album data frame
         """
         if size not in [64, 300]:
             raise ValueError("size has to be either 64 oor 300.")

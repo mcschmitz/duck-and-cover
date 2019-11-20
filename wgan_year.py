@@ -18,7 +18,7 @@ covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True
 year_scaler = StandardScaler()
 year_scaler.fit(covers["album_release"].values.reshape(-1, 1))
 
-data_loader = ImageLoader(data=covers, root="data/covers", batch_size=BATCH_SIZE, image_size=image_size,
+data_loader = ImageLoader(data=covers, root="data/covers300", batch_size=BATCH_SIZE, image_size=image_size,
                           image_ratio=image_ratio)
 steps_per_epoch = len(covers) // BATCH_SIZE
 

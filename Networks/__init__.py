@@ -1,1 +1,2 @@
-from .networks import CoverGAN, WGAN
+from .base import CoverGAN, WGAN, GAN
+from .proGAN import ProGAN

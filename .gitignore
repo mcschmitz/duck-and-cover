@@ -162,12 +162,15 @@ fabric.properties
 # Editor-based Rest Client
 .idea/httpRequests
 
-# Data folder
+# Data folders
 data/*
 !/data/genres.txt
-
 tmp
-learning_progress
+learning_progress/*
+!learning_progress/0_dcgan/fixed.gif
 
 # Credentials
 credentials.py
+
+# Benchmark
+CelebA/*

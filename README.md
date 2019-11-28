@@ -33,3 +33,13 @@ Data gathering consists of two steps:
  are saved in a tmp dictionary to allow splitting the data collection in
  case of reaching the quota limit of the Spotify API (which is usually
  not the case) or running into other trouble.
+ 
+### Networks and results
+The first network built is a simple
+[Deep Convolutional GAN](Networks/base.py#L69). The results aren't
+really satisfying since a DCGAN is not able to capture the manifold
+variations in an album Cover:
+
+<div align="center">
+  <img src="learning_progress/0_dcgan/fixed.gif">
+</div>

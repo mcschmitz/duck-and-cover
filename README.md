@@ -2,6 +2,7 @@
 
 <div align="center">
   <img src="http://cbarks.dk/Digital/seraa196208.JPG">
+  <figcaption>Source: http://cbarks.dk/Digital/seraa196208.JPG</figcaption>
 </div>
 
 **Duck and Cover allows you to create your own album covers based on

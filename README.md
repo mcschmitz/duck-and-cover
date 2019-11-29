@@ -36,10 +36,23 @@ Data gathering consists of two steps:
  
 ### Networks and results
 The first network built is a simple
-[Deep Convolutional GAN](Networks/base.py#L69). The results aren't
-really satisfying since a DCGAN is not able to capture the manifold
-variations in an album Cover:
+[Deep Convolutional GAN](https://arxiv.org/pdf/1511.06434.pdf). The 
+results aren't really satisfying since a DCGAN is not able to capture
+the manifold variations in an album Cover:
 
 <div align="center">
   <img src="learning_progress/0_dcgan/fixed.gif">
 </div>
+
+Switching from a normal binary crossentropy loss for both discriminator
+and the combined model to a [GAN trained with wasserstein loss fused
+with gradient penalty](https://arxiv.org/pdf/1704.00028.pdf) yields much
+better results than the DCGAN:
+
+<div align="center">
+  <img src="learning_progress/1_wgan/fixed.gif">
+</div>
+
+Obviously optimizing the wasserstein loss results in more stable
+gradients which leads to a steady learning phase, whereas the gradient
+penalty prevents varnished gradients.

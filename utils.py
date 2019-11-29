@@ -41,7 +41,6 @@ def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = N
     else:
         np.random.seed()
     generated_images = generator_model.predict(np.random.normal(size=(n_imgs, generator_model.input_shape[1])))
-    # generated_images = rescale_images(generated_images)
     tiled_output = tile_images(generated_images)
     tiled_output = array_to_img(tiled_output, scale=True)
     tiled_output = tiled_output.resize(size=target_size)
@@ -49,9 +48,16 @@ def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = N
 
 
 def tile_images(image_stack):
-    """TODO
-    Given a stacked tensor of images, reshapes them into a horizontal tiling for
-    display."""
+    """Tiles the given images to one big image
+
+    Given a stacked array of images, reshapes them into a horizontal tiling for display.
+
+    Args:
+        image_stack: numpy array of images
+
+    Returns:
+        The tiled image consisting of all images in the stack
+    """
     image_list = [image_stack[i, :, :] for i in range(image_stack.shape[0])]
     tiled_images = np.concatenate(image_list, axis=1)
     return tiled_images

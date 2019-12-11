@@ -2,6 +2,7 @@ import copy
 import os
 
 import joblib
+from keras.utils import plot_model
 
 
 def save_gan(obj, path: str):
@@ -57,3 +58,15 @@ def load_cover_gan(obj, path: str):
     print(obj.combined_model.summary())
 
     return obj
+
+
+def plot_gan(model, path: str, suffix: str = None):
+    plot_model(model.discriminator, to_file=os.path.join(path, "disc{}.png".format(suffix)),
+               show_shapes=True, expand_nested=True)
+    plot_model(model.discriminator_model, to_file=os.path.join(path, "disc_m{}.png".format(suffix)),
+               show_shapes=True, expand_nested=True)
+    plot_model(model.generator, to_file=os.path.join(path, "gen{}.png".format(suffix)), show_shapes=True)
+    plot_model(model.combined_model, to_file=os.path.join(path, "comb{}.png".format(suffix)),
+               show_shapes=True, expand_nested=True)
+    plot_model(model.combined_model, to_file=os.path.join(path, "comb{}.png".format(suffix)),
+               show_shapes=True, expand_nested=True)

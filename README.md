@@ -56,4 +56,6 @@ better results than the DCGAN:
 
 Obviously optimizing the wasserstein loss results in more stable
 gradients which leads to a steady learning phase, whereas the gradient
-penalty prevents varnished gradients.
+penalty prevents varnished gradients. This results in a detectable
+structure in the generated images, so that they even adumbrate interpret
+or album names on top or bottom of the generated covers.

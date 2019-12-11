@@ -7,7 +7,7 @@ from keras.layers import *
 from keras.losses import binary_crossentropy
 
 from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss
-from Networks.utils.layers import MinibatchDiscrimination
+from Networks.utils.layers import MinibatchStdev
 
 
 class GAN(ABC):
@@ -202,10 +202,8 @@ class CoverGAN(GAN):
             n_channels *= 2
             cur_img_size //= 2
 
+        x = MinibatchStdev()(x)
         x = Flatten()(x)
-        x = Dense(512)(x)
-        x = MinibatchDiscrimination(512, self.batch_size)(x)
-        x = LeakyReLU()(x)
         discriminator_output = Dense(1, kernel_initializer='he_normal', activation="sigmoid")(x)
         discriminative_model = Model(image_input, discriminator_output)
         return discriminative_model
@@ -321,10 +319,8 @@ class WGAN(GAN):
             n_channels *= 2
             cur_img_size //= 2
 
+        x = MinibatchStdev()(x)
         x = Flatten()(x)
-        x = Dense(512)(x)
-        x = MinibatchDiscrimination(512, self.batch_size)(x)
-        x = LeakyReLU()(x)
         discriminator_output = Dense(1, kernel_initializer='he_normal')(x)
         discriminative_model = Model(image_input, discriminator_output)
         return discriminative_model

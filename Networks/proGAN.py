@@ -3,14 +3,14 @@ import functools
 import numpy as np
 from keras import Model
 from keras import backend as K
+from keras.initializers import RandomNormal
 from keras.layers import *
 
 from Networks import GAN
 from Networks.utils import PixelNorm, RandomWeightedAverage, wasserstein_loss, gradient_penalty_loss
-from Networks.utils.layers import MinibatchStdev, WeightedSum, ScaledDense
+from Networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D
 
 
-#  TODO Add dynamic weight scaling
 #  TODO Add release year information
 #  TODO Add genre information
 #  TODO Add artist
@@ -134,12 +134,12 @@ class ProGAN(GAN):
         x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
 
-        x = Conv2D(n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
         x = PixelNorm()(x)
-        x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
         x = PixelNorm()(x)
 
@@ -147,17 +147,17 @@ class ProGAN(GAN):
             x = UpSampling2D()(x)
             cur_resolution *= 2
             n_filters = self.calc_filters(cur_resolution)
-            x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", bias_initializer="zeros",
-                       kernel_initializer="he_normal")(x)
+            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                             kernel_initializer=RandomNormal(0, 1))(x)
             x = LeakyReLU(.2)(x)
             x = PixelNorm()(x)
-            x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                       bias_initializer="zeros", kernel_initializer="he_normal")(x)
+            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                             kernel_initializer=RandomNormal(0, 1))(x)
             x = LeakyReLU(.2)(x)
             x = PixelNorm()(x)
 
-        generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                  bias_initializer="zeros", kernel_initializer="he_normal", name="to_rgb_removable")(x)
+        generator_output = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
+                                        kernel_initializer=RandomNormal(0, 1), name="to_rgb_removable")(x)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
@@ -172,29 +172,29 @@ class ProGAN(GAN):
         n_filters = self.calc_filters(cur_resolution)
 
         image_input = Input(self.img_shape)
-        x = Conv2D(n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(image_input)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(image_input)
         x = LeakyReLU(.2)(x)
 
         fused_set = False
         while cur_resolution > 4:
             name = "fuse_here" if not fused_set else None
-            x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", bias_initializer="zeros",
-                       kernel_initializer="he_normal", name=name)(x)
+            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                             kernel_initializer=RandomNormal(0, 1), name=name)(x)
             fused_set = True
             x = LeakyReLU(.2)(x)
             cur_resolution //= 2
             n_filters = self.calc_filters(cur_resolution)
-            x = Conv2D(n_filters, kernel_size=(3, 3), strides=(2, 2), padding="same", bias_initializer="zeros",
-                       kernel_initializer="he_normal")(x)
+            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding="same",
+                             kernel_initializer=RandomNormal(0, 1))(x)
             x = LeakyReLU(.2)(x)
 
         name = "fuse_here" if self.img_shape[0] == 4 else None
-        x = MinibatchStdev(name=name)(x)
-        x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(x)
-        x = Conv2D(n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(x)
+        x = MinibatchSd(name=name)(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
 
         output_shape = np.prod(x.get_shape().as_list()[1:])
         x = Flatten()(x)
@@ -270,19 +270,19 @@ class ProGAN(GAN):
         n_filters = self.calc_filters(target_resolution)
 
         x = UpSampling2D()(x)
-        x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                   bias_initializer="zeros", kernel_initializer="he_normal")(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
         x = PixelNorm()(x)
-        x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                   bias_initializer="zeros", kernel_initializer="he_normal")(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
         x = PixelNorm()(x)
         cur_resolution *= 2
         n_filters //= 2
 
-        generator_output = Conv2D(self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                  bias_initializer="zeros", kernel_initializer="he_normal")(x)
+        generator_output = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
+                                        kernel_initializer=RandomNormal(0, 1))(x)
         return generator_output
 
     def _upsample_generator(self):
@@ -294,27 +294,27 @@ class ProGAN(GAN):
         cur_resolution = image_input.shape[1].value
         n_filters = self.calc_filters(target_resolution)
 
-        x = Conv2D(n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(image_input)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(image_input)
         x = LeakyReLU(.2)(x)
 
-        x = Conv2D(n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", bias_initializer="zeros",
-                   kernel_initializer="he_normal")(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
         cur_resolution //= 2
         n_filters = self.calc_filters(cur_resolution)
-        x = Conv2D(n_filters, kernel_size=(3, 3), strides=(2, 2), padding="same",
-                   bias_initializer="zeros", kernel_initializer="he_normal")(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding="same",
+                         kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
         return x
 
     def _downsample_discriminator(self, image_input):
         x = AveragePooling2D(2, 2, name="avg_pool_removable")(image_input)
-        conv2d = self.discriminator.layers[1]
-        conv2d.name = "conv2d_removable"
+        scaled_conv2d = self.discriminator.layers[1]
+        scaled_conv2d.name = "conv2d_removable"
         lrelu = self.discriminator.layers[2]
         lrelu.name = "lrelu_removable"
-        x = conv2d(x)
+        x = scaled_conv2d(x)
         x = lrelu(x)
         return x
 

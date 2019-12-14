@@ -7,7 +7,7 @@ from keras.layers import *
 from keras.losses import binary_crossentropy
 
 from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss
-from Networks.utils.layers import MinibatchStdev
+from Networks.utils.layers import MinibatchSd
 
 
 class GAN(ABC):
@@ -202,7 +202,7 @@ class CoverGAN(GAN):
             n_channels *= 2
             cur_img_size //= 2
 
-        x = MinibatchStdev()(x)
+        x = MinibatchSd()(x)
         x = Flatten()(x)
         discriminator_output = Dense(1, kernel_initializer='he_normal', activation="sigmoid")(x)
         discriminative_model = Model(image_input, discriminator_output)
@@ -319,7 +319,7 @@ class WGAN(GAN):
             n_channels *= 2
             cur_img_size //= 2
 
-        x = MinibatchStdev()(x)
+        x = MinibatchSd()(x)
         x = Flatten()(x)
         discriminator_output = Dense(1, kernel_initializer='he_normal')(x)
         discriminative_model = Model(image_input, discriminator_output)

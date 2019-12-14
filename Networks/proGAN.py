@@ -7,7 +7,7 @@ from keras.layers import *
 
 from Networks import GAN
 from Networks.utils import PixelNorm, RandomWeightedAverage, wasserstein_loss, gradient_penalty_loss
-from Networks.utils.layers import MinibatchStdev, WeightedSum
+from Networks.utils.layers import MinibatchStdev, WeightedSum, ScaledDense
 
 
 #  TODO Add dynamic weight scaling
@@ -129,7 +129,7 @@ class ProGAN(GAN):
         cur_resolution = 4
         noise_input = Input((self.latent_size,))
         x = PixelNorm()(noise_input)
-        x = Dense(4 * 4 * 256)(x)
+        x = ScaledDense(units=4 * 4 * 256)(x)
         x = Reshape((4, 4, 256))(x)
         x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
@@ -196,9 +196,10 @@ class ProGAN(GAN):
         x = Conv2D(n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same", bias_initializer="zeros",
                    kernel_initializer="he_normal")(x)
 
+        output_shape = np.prod(x.get_shape().as_list()[1:])
         x = Flatten()(x)
         x = LeakyReLU(.2)(x)
-        x = Dense(1)(x)
+        x = ScaledDense(units=1, maps=output_shape)(x)
 
         discriminator_model = Model(image_input, x)
         return discriminator_model

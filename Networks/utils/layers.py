@@ -1,6 +1,7 @@
 import numpy as np
 from keras import backend as K
 from keras.engine import Layer
+from keras.initializers import _compute_fans
 from keras.layers import Add, Dense, Conv2D
 
 
@@ -60,7 +61,7 @@ class WeightedSum(Add):
 
 class ScaledDense(Dense):
 
-    def __init__(self, maps=None, use_dynamic_wscale: bool = True, **kwargs):
+    def __init__(self, maps=None, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
         """
         @TODO
         Args:
@@ -71,13 +72,14 @@ class ScaledDense(Dense):
         super(ScaledDense, self).__init__(**kwargs)
         self.use_dynamic_wscale = use_dynamic_wscale
         self.maps = maps
+        self.gain = gain
 
     def call(self, inputs):
         if self.maps is not None:
             fan_in = np.prod(self.maps)
         else:
-            fan_in = np.prod(inputs.shape[1:]).value
-        wscale = np.sqrt(2) / np.sqrt(fan_in)
+            fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
+        wscale = self.gain / np.sqrt(fan_in)
         output = K.dot(inputs, self.kernel * wscale)
         if self.use_bias:
             output = K.bias_add(output, self.bias, data_format='channels_last')
@@ -88,7 +90,7 @@ class ScaledDense(Dense):
 
 class ScaledConv2D(Conv2D):
 
-    def __init__(self, maps: int = None, use_dynamic_wscale: bool = True, **kwargs):
+    def __init__(self, maps: int = None, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
         """
         @TODO
         Args:
@@ -99,13 +101,14 @@ class ScaledConv2D(Conv2D):
         super(ScaledConv2D, self).__init__(**kwargs)
         self.use_dynamic_wscale = use_dynamic_wscale
         self.maps = maps
+        self.gain = gain
 
     def call(self, inputs):
         if self.maps is not None:
             fan_in = np.prod(self.maps)
         else:
-            fan_in = np.prod(inputs.shape[1:]).value
-        wscale = np.sqrt(2) / np.sqrt(fan_in)
+            fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
+        wscale = self.gain / np.sqrt(fan_in)
 
         outputs = K.conv2d(inputs, self.kernel * wscale, strides=self.strides, padding=self.padding,
                            data_format=self.data_format, dilation_rate=self.dilation_rate)
@@ -119,3 +122,27 @@ class ScaledConv2D(Conv2D):
         if self.activation is not None:
             return self.activation(outputs)
         return outputs
+
+
+class PixelNorm(Layer):
+    def __init__(self, **kwargs):
+        """
+        Pixel normalization layer that normalizes an input tensor along its channel axis by scaling its features
+        along this axis to unit length
+
+        Args:
+            channel_axis: channel axis. tensor value will be normalized along this axis
+            kwargs: Keyword arguments for keras layer
+        """
+        super(PixelNorm, self).__init__(**kwargs)
+
+    def call(self, inputs):
+        values = inputs ** 2.0
+        mean_values = K.mean(values, axis=-1, keepdims=True)
+        mean_values += 1.0e-8
+        l2 = K.sqrt(mean_values)
+        normalized = inputs / l2
+        return normalized
+
+    def compute_output_shape(self, input_shape):
+        return input_shape

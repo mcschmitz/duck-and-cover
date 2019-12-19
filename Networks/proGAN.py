@@ -49,7 +49,7 @@ class ProGAN(GAN):
         self.batch_size = batch_size
         self._gradient_penalty_weight = gradient_penalty_weight
 
-    def build_models(self, optimizer, compile_only: bool = False):
+    def build_models(self, optimizer, discriminator_optimizer=None, compile_only: bool = False):
         """Builds the desired GAN that allows to generate covers.
         @ TODO
         Builds the generator, the discriminator and the combined model for a WGAN using Wasserstein loss with gradient
@@ -57,8 +57,10 @@ class ProGAN(GAN):
 
         Args:
             optimizer: Which optimizer to use
+            discriminator_optimizer: Which optimizer to use for the discriminator model
             compile_only: Whether to only compile the models. Needed for growing phase
         """
+        discriminator_optimizer = optimizer if discriminator_optimizer is None else discriminator_optimizer
         if not compile_only:
             self.discriminator = self._build_discriminator()
             self.generator = self._build_generator()
@@ -79,7 +81,7 @@ class ProGAN(GAN):
         for layer in self.generator.layers:
             layer.trainable = True
         self.generator.trainable = True
-        self._build_combined_model(optimizer)
+        self._build_combined_model(discriminator_optimizer)
         if not compile_only:
             self.history["G_loss"] = []
 

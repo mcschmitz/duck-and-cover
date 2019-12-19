@@ -3,6 +3,7 @@ from keras import backend as K
 from keras.engine import Layer
 from keras.initializers import _compute_fans
 from keras.layers import Add, Dense, Conv2D
+from keras.layers.merge import _Merge
 
 
 class MinibatchSd(Layer):
@@ -35,12 +36,14 @@ class MinibatchSd(Layer):
 
 class WeightedSum(Add):
 
-    def __init__(self, alpha=0.0, **kwargs):
-        """
-        @TODO
+    def __init__(self, alpha: float = 0.0, **kwargs):
+        """Weighted sum layer that outputs the weighted sum of two input tensors
+
+        Calculates the weighted sum a * (1 - alpha) + b * (alpha) for the input tensors a and b and weight alpha
+
         Args:
-            alpha:
-            **kwargs:
+            alpha: alpha weight
+            **kwargs: keyword args passed to parent class
         """
         super(WeightedSum, self).__init__(**kwargs)
         self.alpha = K.variable(alpha, name='ws_alpha')
@@ -146,3 +149,23 @@ class PixelNorm(Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
+
+
+class RandomWeightedAverage(_Merge):
+    """Takes a randomly-weighted average of two tensors. In geometric terms, this outputs a random point on the line
+    between each pair of input points.
+
+    Inheriting from _Merge is a little messy but it was the quickest solution I could
+    think of. Improvements appreciated
+
+    References:
+       See https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py for original source code
+    """
+
+    def __init__(self, batch_size, **kwargs):
+        super(RandomWeightedAverage, self).__init__(**kwargs)
+        self.batch_size = batch_size
+
+    def _merge_function(self, inputs):
+        weights = K.random_uniform((self.batch_size, 1, 1, 1))
+        return (weights * inputs[0]) + ((1 - weights) * inputs[1])

@@ -31,47 +31,47 @@ from skimage.transform import resize
 from networks.utils import PixelNorm, MinibatchSd, WeightedSum, ScaledConv2D, ScaledDense, wasserstein_loss
 
 
-# add a discriminator block
-def add_discriminator_block(old_model, n_input_layers=3):
-    # weight initialization
-    init = RandomNormal(stddev=0.02)
-    # weight constraint
-    const = max_norm(1.0)
-    # get shape of existing model
+def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
+    """
+    Adds a new block to the discriminator model
+
+    Args:
+        old_model: Already well trained discriminator model
+        n_input_layers: Number of input layers in the discriminator model
+
+    Returns:
+        List of new models
+    """
+    init = RandomNormal(0, 1)
+
     in_shape = list(old_model.input.shape)
-    # define new input shape as double the size
     input_shape = (in_shape[-2].value * 2, in_shape[-2].value * 2, in_shape[-1].value)
     in_image = Input(shape=input_shape)
-    # define new input processing layer
-    d = Conv2D(128, (1, 1), padding='same', kernel_initializer=init, kernel_constraint=const)(in_image)
+
+    d = ScaledConv2D(128, kernel_size=(1, 1), padding='same', kernel_initializer=init)(in_image)
     d = LeakyReLU(alpha=0.2)(d)
-    # define new block
-    d = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(d)
+
+    d = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
-    d = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(d)
+    d = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
-    d = AveragePooling2D()(d)
+    d = AveragePooling2D(2, 2)(d)
     block_new = d
-    # skip the input, 1x1 and activation for the old model
+
     for i in range(n_input_layers, len(old_model.layers)):
         d = old_model.layers[i](d)
-    # define straight-through model
+
     model1 = Model(in_image, d)
-    # compile model
     model1.compile(loss=wasserstein_loss, optimizer=Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
-    # downsample the new larger image
-    downsample = AveragePooling2D()(in_image)
-    # connect old input processing to downsampled new input
+
+    downsample = AveragePooling2D(2, 2)(in_image)
     block_old = old_model.layers[1](downsample)
     block_old = old_model.layers[2](block_old)
-    # fade in output of old model input layer with new input
     d = WeightedSum()([block_old, block_new])
-    # skip the input, 1x1 and activation for the old model
+
     for i in range(n_input_layers, len(old_model.layers)):
         d = old_model.layers[i](d)
-    # define straight-through model
     model2 = Model(in_image, d)
-    # compile model
     model2.compile(loss=wasserstein_loss, optimizer=Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
     return [model1, model2]
 

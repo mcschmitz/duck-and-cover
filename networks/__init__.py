@@ -1,2 +1,2 @@
 from .base import CoverGAN, WGAN, GAN
-from .proGAN import ProGAN
+from .progan import ProGAN

@@ -28,7 +28,7 @@ def save_gan(obj, path: str):
     joblib.dump(gan, os.path.join(path, "GAN.pkl"))
 
 
-def load_cover_gan(obj, path: str):
+def load_gan(obj, path: str, verbose: bool = False, weights_only: bool = False):
     """
     Loads the weights of the Cover GAN
 
@@ -39,6 +39,7 @@ def load_cover_gan(obj, path: str):
     Args:
         obj: CoverGAN instance for which the weights are loaded
         path: Directory to the weights folder
+        verbose: Whether to print model summaries after loading the models
 
     Returns:
         The CoverGAN instance with loaded weights
@@ -46,16 +47,17 @@ def load_cover_gan(obj, path: str):
     obj.discriminator.load_weights(os.path.join(path, "D.h5"))
     obj.generator.load_weights(os.path.join(path, "G.h5"))
     obj.combined_model.load_weights(os.path.join(path, "C.h5"))
-    gan = joblib.load(os.path.join(path, "GAN.pkl"))
-    obj.images_shown = gan.images_shown
-    obj.history = gan.history
-
-    print("Generator summary:\n")
-    print(obj.generator.summary())
-    print("Discriminator summary:\n")
-    print(obj.discriminator.summary())
-    print("Combined model summary:\n")
-    print(obj.combined_model.summary())
+    if not weights_only:
+        gan = joblib.load(os.path.join(path, "GAN.pkl"))
+        obj.images_shown = gan.images_shown
+        obj.history = gan.history
+    if verbose:
+        print("Generator summary:\n")
+        print(obj.generator.summary())
+        print("Discriminator summary:\n")
+        print(obj.discriminator.summary())
+        print("Combined model summary:\n")
+        print(obj.combined_model.summary())
 
     return obj
 

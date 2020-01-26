@@ -6,9 +6,9 @@ from keras import backend as K
 from keras.initializers import RandomNormal
 from keras.layers import *
 
-from Networks import GAN
-from Networks.utils import PixelNorm, RandomWeightedAverage, wasserstein_loss, gradient_penalty_loss
-from Networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D
+from networks import GAN
+from networks.utils import PixelNorm, RandomWeightedAverage, wasserstein_loss, gradient_penalty_loss
+from networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D
 
 
 #  TODO Add release year information
@@ -19,8 +19,7 @@ from Networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledC
 
 class ProGAN(GAN):
 
-    def __init__(self, batch_size, gradient_penalty_weight: int = 10, image_resolution: int = 4, channels: int = 3,
-                 latent_size: int = 256):
+    def __init__(self, gradient_penalty_weight: int = 10, latent_size: int = 256):
         """Progressive growing GAN
 
         Progressive Growing GAN that iteratively adds convolutional blocks too generator and discriminator. This
@@ -32,24 +31,21 @@ class ProGAN(GAN):
         resolution. The procedure is repeated until the output image has the desired resolution.
 
         Args:
-            batch_size: size of each training batch
             gradient_penalty_weight: weight for the gradient penalty
-            channels: Number of image channels. Normally either 1 or 3.
-            image_resolution: image resolution. should be a power of 2
             latent_size: Size of the latent vector that is used to generate the image
         """
         super(ProGAN, self).__init__()
-        self.img_height = np.int(image_resolution)
-        self.img_width = np.int(image_resolution)
-        self.channels = channels
+        self.img_height = None
+        self.img_width = None
+        self.channels = None
         self.img_shape = (self.img_height, self.img_width, self.channels)
-        self.target_resolution = image_resolution
         self.latent_size = latent_size
         self.discriminator_loss = []
-        self.batch_size = batch_size
         self._gradient_penalty_weight = gradient_penalty_weight
+        self.batch_size = None
 
-    def build_models(self, optimizer, discriminator_optimizer=None, compile_only: bool = False):
+    def build_models(self, optimizer, discriminator_optimizer=None, batch_size: int = None,
+                     image_resolution: int = None, channels: int = None, compile_only: bool = False):
         """Builds the desired GAN that allows to generate covers.
         @ TODO
         Builds the generator, the discriminator and the combined model for a WGAN using Wasserstein loss with gradient
@@ -58,23 +54,33 @@ class ProGAN(GAN):
         Args:
             optimizer: Which optimizer to use
             discriminator_optimizer: Which optimizer to use for the discriminator model
-            compile_only: Whether to only compile the models. Needed for growing phase
+            compile_only: Whether to only compile the models. Needed for fade-in phase
+            image_resolution: resolution of the output image
+            channels: number of channels of the output image
+            batch_size: batch size of the GAN
         """
+        self.img_height = np.int(image_resolution) if image_resolution is not None else self.img_height
+        self.img_width = np.int(image_resolution) if image_resolution is not None else self.img_width
+        self.channels = channels if channels is not None else self.channels
+        self.img_shape = (self.img_height, self.img_width, self.channels)
+        self.batch_size = batch_size if batch_size is not None else self.batch_size
+
         discriminator_optimizer = optimizer if discriminator_optimizer is None else discriminator_optimizer
         if not compile_only:
             self.discriminator = self._build_discriminator()
             self.generator = self._build_generator()
+
+            self.history["D_loss"] = []
+            self.history["D_loss_positives"] = []
+            self.history["D_loss_negatives"] = []
+            self.history["D_loss_dummies"] = []
+            self.history["G_loss"] = []
 
         for layer in self.generator.layers:
             layer.trainable = False
         self.generator.trainable = False
 
         self._build_discriminator_model(optimizer)
-        if not compile_only:
-            self.history["D_loss_positives"] = []
-            self.history["D_loss_negatives"] = []
-            self.history["D_loss_dummies"] = []
-
         for layer in self.discriminator.layers:
             layer.trainable = False
         self.discriminator.trainable = False
@@ -82,8 +88,6 @@ class ProGAN(GAN):
             layer.trainable = True
         self.generator.trainable = True
         self._build_combined_model(discriminator_optimizer)
-        if not compile_only:
-            self.history["G_loss"] = []
 
     def _build_discriminator_model(self, optimizer):
         """Builds the discriminator for the WGAN with gradient penalty
@@ -127,12 +131,12 @@ class ProGAN(GAN):
         Returns:
 
         """
-        n_filters = 256
+        n_filters = self.latent_size
         cur_resolution = 4
         noise_input = Input((self.latent_size,))
         x = PixelNorm()(noise_input)
-        x = ScaledDense(units=4 * 4 * 256, gain=np.sqrt(2) / 4)(x)
-        x = Reshape((4, 4, 256))(x)
+        x = ScaledDense(units=4 * 4 * self.latent_size, gain=np.sqrt(2) / 4)(x)
+        x = Reshape((4, 4, self.latent_size))(x)
         x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
 
@@ -201,9 +205,8 @@ class ProGAN(GAN):
                          kernel_initializer=RandomNormal(0, 1))(x)
         x = LeakyReLU(.2)(x)
 
-        output_shape = np.prod(x.get_shape().as_list()[1:])
         x = Flatten()(x)
-        x = ScaledDense(units=1, maps=output_shape, gain=1)(x)
+        x = ScaledDense(units=1, gain=1)(x)
 
         discriminator_model = Model(image_input, x)
         return discriminator_model
@@ -216,15 +219,16 @@ class ProGAN(GAN):
             n_critic: number of discriminator updates for each iteration
         """
         batch_size = real_images.shape[0] // n_critic
-        real_y = np.ones((batch_size, 1))
+        real_y = np.ones((batch_size, 1)) * -1
 
         for i in range(n_critic):
             discriminator_minibatch = real_images[i * batch_size:(i + 1) * batch_size]
             losses = self.train_discriminator(discriminator_minibatch)
 
-        self.history["D_loss_positives"].append(losses[0])
-        self.history["D_loss_negatives"].append(losses[1])
-        self.history["D_loss_dummies"].append(losses[2])
+        self.history["D_loss"].append(losses[0])
+        self.history["D_loss_positives"].append(losses[1])
+        self.history["D_loss_negatives"].append(losses[2])
+        self.history["D_loss_dummies"].append(losses[3])
 
         noise = np.random.normal(size=(batch_size, self.latent_size))
         self.history["G_loss"].append(self.combined_model.train_on_batch(noise, real_y))
@@ -239,8 +243,8 @@ class ProGAN(GAN):
             the losses for this training iteration
         """
         batch_size = len(real_images)
-        fake_y = np.ones((batch_size, 1)) * -1
-        real_y = np.ones((batch_size, 1))
+        fake_y = np.ones((batch_size, 1))
+        real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
         losses = self.discriminator_model.train_on_batch([real_images, noise], [real_y, fake_y, dummy_y])
@@ -347,6 +351,5 @@ class ProGAN(GAN):
                 x = layer(x)
         self.discriminator = Model(self.discriminator.get_input_at(0), x)
 
-    @staticmethod
-    def calc_filters(x):
-        return int(min((4 * 4 * 256 / x) * 2, 256))
+    def calc_filters(self, x):
+        return int(min((4 * 4 * self.latent_size / x) * 2, self.latent_size))

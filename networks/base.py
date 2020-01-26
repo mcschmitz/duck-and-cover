@@ -6,7 +6,7 @@ from keras import Model
 from keras.layers import *
 from keras.losses import binary_crossentropy
 
-from Networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss, MinibatchSd
+from networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss, MinibatchSd
 
 
 class GAN(ABC):

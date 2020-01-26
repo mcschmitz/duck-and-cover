@@ -1,3 +1,9 @@
+"""
+This script defines and trains the ProGAN as defined in
+https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-keras-for-synthesizing-faces/,
+whereby some functions and classes are modified or enhanced.
+"""
+
 from math import sqrt
 
 from keras import backend
@@ -22,7 +28,7 @@ from numpy.random import randint
 from numpy.random import randn
 from skimage.transform import resize
 
-from Networks.utils import PixelNorm, MinibatchSd, WeightedSum, wasserstein_loss
+from networks.utils import PixelNorm, MinibatchSd, WeightedSum, ScaledConv2D, ScaledDense, wasserstein_loss
 
 
 # add a discriminator block
@@ -70,41 +76,42 @@ def add_discriminator_block(old_model, n_input_layers=3):
     return [model1, model2]
 
 
-# define the discriminator models for each image resolution
-def define_discriminator(n_blocks, input_shape=(4, 4, 3)):
-    # weight initialization
-    init = RandomNormal(stddev=0.02)
-    # weight constraint
-    const = max_norm(1.0)
+def define_discriminator(n_double: int, input_shape: tuple = (4, 4, 3)) -> list:
+    """
+    Defines a list of discriminator models
+
+    Args:
+        n_double: Number of doublings of the image resolution
+        input_shape: Shape of the input image
+
+    Returns:
+        list of discriminator models
+    """
+    init = RandomNormal(0, 1)
     model_list = list()
-    # base model input
+
     in_image = Input(shape=input_shape)
-    # conv 1x1
-    d = Conv2D(128, (1, 1), padding='same', kernel_initializer=init, kernel_constraint=const)(in_image)
+
+    d = ScaledConv2D(128, kernel_size=(1, 1), padding='same', kernel_initializer=init)(in_image)
     d = LeakyReLU(alpha=0.2)(d)
-    # conv 3x3 (output block)
+
     d = MinibatchSd()(d)
-    d = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(d)
+    d = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
-    # conv 4x4
-    d = Conv2D(128, (4, 4), padding='same', kernel_initializer=init, kernel_constraint=const)(d)
+
+    d = ScaledConv2D(128, kernel_size=(4, 4), padding='same', kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
-    # dense output layer
+
     d = Flatten()(d)
-    out_class = Dense(1)(d)
-    # define model
+    out_class = ScaledDense(1, gain=1)(d)
+
     model = Model(in_image, out_class)
-    # compile model
     model.compile(loss=wasserstein_loss, optimizer=Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
-    # store model
+
     model_list.append([model, model])
-    # create submodels
-    for i in range(1, n_blocks):
-        # get prior model without the fade-on
+    for i in range(1, n_double):
         old_model = model_list[i - 1][0]
-        # create new model for next resolution
         models = add_discriminator_block(old_model)
-        # store model
         model_list.append(models)
     return model_list
 

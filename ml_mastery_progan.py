@@ -24,30 +24,7 @@ from numpy.random import randint
 from numpy.random import randn
 from skimage.transform import resize
 
-
-# pixel-wise feature vector normalization layer
-class PixelNormalization(Layer):
-    # initialize the layer
-    def __init__(self, **kwargs):
-        super(PixelNormalization, self).__init__(**kwargs)
-
-    # perform the operation
-    def call(self, inputs):
-        # calculate square pixel values
-        values = inputs ** 2.0
-        # calculate the mean pixel values
-        mean_values = backend.mean(values, axis=-1, keepdims=True)
-        # ensure the mean is not zero
-        mean_values += 1.0e-8
-        # calculate the sqrt of the mean squared value (L2 norm)
-        l2 = backend.sqrt(mean_values)
-        # normalize values by the l2 norm
-        normalized = inputs / l2
-        return normalized
-
-    # define the output shape of the layer
-    def compute_output_shape(self, input_shape):
-        return input_shape
+from Networks.utils import PixelNorm
 
 
 # mini-batch standard deviation layer
@@ -203,10 +180,10 @@ def add_generator_block(old_model):
     # upsample, and define new block
     upsampling = UpSampling2D()(block_end)
     g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(upsampling)
-    g = PixelNormalization()(g)
+    g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
     g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
-    g = PixelNormalization()(g)
+    g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
     # add new output layer
     out_image = Conv2D(3, (1, 1), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
@@ -237,11 +214,11 @@ def define_generator(latent_dim, n_blocks, in_dim=4):
     g = Reshape((in_dim, in_dim, 128))(g)
     # conv 4x4, input block
     g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
-    g = PixelNormalization()(g)
+    g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
     # conv 3x3
     g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
-    g = PixelNormalization()(g)
+    g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
     # conv 1x1, output block
     out_image = Conv2D(3, (1, 1), padding='same', kernel_initializer=init, kernel_constraint=const)(g)

@@ -11,7 +11,7 @@ from keras.optimizers import Adam
 
 from Loader.cover_loader import ImageLoader
 from Networks import WGAN
-from Networks.utils import save_gan, load_cover_gan
+from Networks.utils import save_gan, load_gan
 from utils import create_dir, generate_images, AnimatedGif
 
 BATCH_SIZE = 64
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     gan.build_models(optimizer=Adam(0.0001, beta_1=0.5))
 
     if WARM_START:
-        gan = load_cover_gan(gan, model_path)
+        gan = load_gan(gan, model_path)
 
     batch_idx = 0
     steps = TRAIN_STEPS // BATCH_SIZE

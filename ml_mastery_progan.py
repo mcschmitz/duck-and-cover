@@ -22,12 +22,7 @@ from numpy.random import randint
 from numpy.random import randn
 from skimage.transform import resize
 
-from Networks.utils import PixelNorm, MinibatchSd, WeightedSum
-
-
-# calculate wasserstein loss
-def wasserstein_loss(y_true, y_pred):
-    return backend.mean(y_true * y_pred)
+from Networks.utils import PixelNorm, MinibatchSd, WeightedSum, wasserstein_loss
 
 
 # add a discriminator block

@@ -40,7 +40,7 @@ def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
         n_input_layers: Number of input layers in the discriminator model
 
     Returns:
-        List of new models
+        List of old and new model
     """
     init = RandomNormal(0, 1)
 
@@ -116,33 +116,33 @@ def define_discriminator(n_double: int, input_shape: tuple = (4, 4, 3)) -> list:
     return model_list
 
 
-# add a generator block
-def add_generator_block(old_model):
-    # weight initialization
-    init = RandomNormal(stddev=0.02)
-    # weight constraint
-    const = max_norm(1.0)
-    # get the end of the last block
+def add_generator_block(old_model: Model) -> list:
+    """
+    Adds a new block to the generator model
+
+    Args:
+        old_model: Already well trained generator model
+
+    Returns:
+        list of old and new model
+    """
+    init = RandomNormal(0, 1)
+
     block_end = old_model.layers[-2].output
-    # upsample, and define new block
     upsampling = UpSampling2D()(block_end)
-    g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(upsampling)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(upsampling)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    # add new output layer
-    out_image = Conv2D(3, (1, 1), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
-    # define model
+    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding='same', kernel_initializer=init)(g)
     model1 = Model(old_model.input, out_image)
-    # get the output layer from old model
+
     out_old = old_model.layers[-1]
-    # connect the upsampling to the old output layer
     out_image2 = out_old(upsampling)
-    # define new output image as the weighted sum of the old and new models
     merged = WeightedSum()([out_image2, out_image])
-    # define model
+
     model2 = Model(old_model.input, merged)
     return [model1, model2]
 

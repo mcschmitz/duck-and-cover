@@ -6,12 +6,10 @@ whereby some functions and classes are modified or enhanced.
 
 from math import sqrt
 
+import numpy as np
 from keras import backend
-from keras.constraints import max_norm
 from keras.initializers import RandomNormal
 from keras.layers import AveragePooling2D
-from keras.layers import Conv2D
-from keras.layers import Dense
 from keras.layers import Flatten
 from keras.layers import Input
 from keras.layers import LeakyReLU
@@ -147,39 +145,38 @@ def add_generator_block(old_model: Model) -> list:
     return [model1, model2]
 
 
-# define generator models
-def define_generator(latent_dim, n_blocks, in_dim=4):
-    # weight initialization
-    init = RandomNormal(stddev=0.02)
-    # weight constraint
-    const = max_norm(1.0)
+def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> list:
+    """
+    Defines a list of generator models
+
+    Args:
+        latent_dim: Dimension of the latent space
+        n_doublings: Number of doublings of the image resolution
+        img_dim: image input dimensoon
+
+    Returns:
+
+    """
+    init = RandomNormal(0, 1)
     model_list = list()
-    # base model latent input
+
     in_latent = Input(shape=(latent_dim,))
-    # linear scale up to activation maps
-    g = Dense(128 * in_dim * in_dim, kernel_initializer=init, kernel_constraint=const)(in_latent)
-    g = Reshape((in_dim, in_dim, 128))(g)
-    # conv 4x4, input block
-    g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
+    g = ScaledDense(128 * img_dim * img_dim, kernel_initializer=init, gain=np.sqrt(2) / 4)(in_latent)
+    g = Reshape((img_dim, img_dim, 128))(g)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    # conv 3x3
-    g = Conv2D(128, (3, 3), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    # conv 1x1, output block
-    out_image = Conv2D(3, (1, 1), padding='same', kernel_initializer=init, kernel_constraint=const)(g)
-    # define model
+    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding='same', kernel_initializer=init, gain=1)(g)
+
     model = Model(in_latent, out_image)
-    # store model
     model_list.append([model, model])
-    # create submodels
-    for i in range(1, n_blocks):
-        # get prior model without the fade-on
+
+    for i in range(1, n_doublings):
         old_model = model_list[i - 1][0]
-        # create new model for next resolution
         models = add_generator_block(old_model)
-        # store model
         model_list.append(models)
     return model_list
 

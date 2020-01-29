@@ -181,25 +181,33 @@ def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> lis
     return model_list
 
 
-# define composite models for training generators via discriminators
-def define_composite(discriminators, generators):
+def define_combined(discriminators: list, generators: list) -> list:
+    """
+    Build the combined models out of the given generator and discriminator models.
+
+    Args:
+        discriminators: list of discriminator models
+        generators: list of generator models
+
+    Returns:
+        list of combined models
+    """
     model_list = list()
-    # create composite models
+
     for i in range(len(discriminators)):
         g_models, d_models = generators[i], discriminators[i]
-        # straight-through model
         d_models[0].trainable = False
         model1 = Sequential()
         model1.add(g_models[0])
         model1.add(d_models[0])
         model1.compile(loss=wasserstein_loss, optimizer=Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
-        # fade-in model
+
         d_models[1].trainable = False
         model2 = Sequential()
         model2.add(g_models[1])
         model2.add(d_models[1])
         model2.compile(loss=wasserstein_loss, optimizer=Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
-        # store
+
         model_list.append([model1, model2])
     return model_list
 
@@ -360,7 +368,7 @@ d_models = define_discriminator(n_blocks)
 # define models
 g_models = define_generator(latent_dim, n_blocks)
 # define composite models
-gan_models = define_composite(d_models, g_models)
+gan_models = define_combined(d_models, g_models)
 # load image data
 dataset = load_real_samples('img_align_celeba_128.npz')
 print('Loaded', dataset.shape)

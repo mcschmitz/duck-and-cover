@@ -4,12 +4,13 @@ https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-ker
 whereby some functions and classes are modified or enhanced.
 """
 
+import os
 from math import sqrt
 
 import numpy as np
-from keras import backend
+import psutil
+from keras import backend as K
 from keras.initializers import RandomNormal
-from keras.layers import AveragePooling2D
 from keras.layers import Flatten
 from keras.layers import Input
 from keras.layers import LeakyReLU
@@ -20,11 +21,12 @@ from keras.models import Sequential
 from keras.optimizers import Adam
 from matplotlib import pyplot
 from numpy import asarray
-from numpy import load
 from numpy import ones
 from numpy.random import randint
 from numpy.random import randn
+from skimage.io import imread
 from skimage.transform import resize
+from tqdm import tqdm
 
 from networks.utils import PixelNorm, MinibatchSd, WeightedSum, ScaledConv2D, ScaledDense, wasserstein_loss
 
@@ -212,17 +214,39 @@ def define_combined(discriminators: list, generators: list) -> list:
     return model_list
 
 
-# load dataset
-def load_real_samples(filename):
-    # load dataset
-    data = load(filename)
-    # extract numpy array
-    X = data['arr_0']
-    # convert from ints to floats
-    X = X.astype('float32')
-    # scale from [0,255] to [-1,1]
-    X = (X - 127.5) / 127.5
-    return X
+def load_real_samples(path: str, size: int = 4):
+    """
+    Loads the image dataset
+
+    Args:
+        path: path to the image files
+        size: target resolution of the image tensor
+
+    Returns:
+        list of image tensor and image index
+    """
+    if os.path.exists(path) and os.stat(path).st_size < (psutil.virtual_memory().total * .8):
+        images = np.load(path)
+        img_idx = np.arange(0, images.shape[0])
+        return images, img_idx
+    elif os.path.exists(path):
+        print("Data does not fit inside Memory. Preallocation is not possible, use iterator instead")
+    else:
+        try:
+            files = [os.path.join(path, f) for f in os.listdir(path) if
+                     os.path.splitext(os.path.join(path, f))[1] == ".jpg"]
+            images = np.zeros((len(files), size, size, 3), dtype=K.floatx())
+
+            for i, file_path in tqdm(enumerate(files)):
+                x = imread(file_path)
+                x = resize(x, (size, size, 3))
+                x = (x - 127.5) / 127.5
+                images[i] = x
+            np.save(path, images)
+            img_idx = np.arange(0, images.shape[0])
+            return images, img_idx
+        except MemoryError as _:
+            print("Data does not fit inside Memory. Preallocation is not possible.")
 
 
 # select real samples

@@ -11,13 +11,8 @@ import numpy as np
 import psutil
 from keras import backend as K
 from keras.initializers import RandomNormal
-from keras.layers import Flatten
-from keras.layers import Input
-from keras.layers import LeakyReLU
-from keras.layers import Reshape
-from keras.layers import UpSampling2D
-from keras.models import Model
-from keras.models import Sequential
+from keras.layers import *
+from keras.models import Model, Sequential
 from keras.optimizers import Adam
 from matplotlib import pyplot
 from numpy import asarray
@@ -249,13 +244,19 @@ def load_real_samples(path: str, size: int = 4):
             print("Data does not fit inside Memory. Preallocation is not possible.")
 
 
-# select real samples
 def generate_real_samples(dataset, n_samples):
-    # choose random instances
-    ix = randint(0, dataset.shape[0], n_samples)
-    # select images
+    """
+    Selects n random images out of the dataset
+
+    Args:
+        dataset: list-like dataset
+        n_samples: how many sample to draw
+
+    Returns:
+        sampled datapoints and y values
+    """
+    ix = np.random.randint(0, dataset.shape[0], n_samples)
     X = dataset[ix]
-    # generate class labels
     y = ones((n_samples, 1))
     return X, y
 

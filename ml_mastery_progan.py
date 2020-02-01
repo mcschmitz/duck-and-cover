@@ -18,7 +18,6 @@ from matplotlib import pyplot
 from numpy import asarray
 from numpy import ones
 from numpy.random import randint
-from numpy.random import randn
 from skimage.io import imread
 from skimage.transform import resize
 from tqdm import tqdm
@@ -261,11 +260,19 @@ def generate_real_samples(dataset, n_samples):
     return X, y
 
 
-# generate points in latent space as input for the generator
 def generate_latent_points(latent_dim, n_samples):
-    # generate points in the latent space
-    x_input = randn(latent_dim * n_samples)
-    # reshape into a batch of inputs for the network
+    """
+    Samples random points
+
+    Args:
+        latent_dim: dimension of the latent space
+        n_samples: number of samples to draw
+
+    Returns:
+        sampled points
+    """
+
+    x_input = np.random.randn(latent_dim * n_samples)
     x_input = x_input.reshape(n_samples, latent_dim)
     return x_input
 

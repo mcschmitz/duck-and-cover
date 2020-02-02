@@ -1,7 +1,8 @@
 """
 This script defines and trains the ProGAN as defined in
-https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-keras-for-synthesizing-faces/,
-whereby some functions and classes are modified or enhanced.
+https://machinelearningmastery.com/how-to-train-a-progressive-growing-gan-in-
+keras-for-synthesizing-faces/, whereby some functions and classes are modified
+or enhanced.
 """
 
 import os
@@ -11,13 +12,12 @@ import numpy as np
 import psutil
 from keras import backend as K
 from keras.initializers import RandomNormal
-from keras.layers import *
+from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
 from keras.models import Model, Sequential
 from keras.optimizers import Adam
 from matplotlib import pyplot
 from numpy import asarray
 from numpy import ones
-from numpy.random import randint
 from skimage.io import imread
 from skimage.transform import resize
 from tqdm import tqdm
@@ -27,7 +27,7 @@ from networks.utils import PixelNorm, MinibatchSd, WeightedSum, ScaledConv2D, Sc
 
 def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
     """
-    Adds a new block to the discriminator model
+    Adds a new block to the discriminator model.
 
     Args:
         old_model: Already well trained discriminator model
@@ -42,12 +42,12 @@ def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
     input_shape = (in_shape[-2].value * 2, in_shape[-2].value * 2, in_shape[-1].value)
     in_image = Input(shape=input_shape)
 
-    d = ScaledConv2D(128, kernel_size=(1, 1), padding='same', kernel_initializer=init)(in_image)
+    d = ScaledConv2D(128, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
     d = LeakyReLU(alpha=0.2)(d)
 
-    d = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(d)
+    d = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
-    d = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(d)
+    d = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
     d = AveragePooling2D(2, 2)(d)
     block_new = d
@@ -72,7 +72,7 @@ def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
 
 def define_discriminator(n_double: int, input_shape: tuple = (4, 4, 3)) -> list:
     """
-    Defines a list of discriminator models
+    Defines a list of discriminator models.
 
     Args:
         n_double: Number of doublings of the image resolution
@@ -86,14 +86,14 @@ def define_discriminator(n_double: int, input_shape: tuple = (4, 4, 3)) -> list:
 
     in_image = Input(shape=input_shape)
 
-    d = ScaledConv2D(128, kernel_size=(1, 1), padding='same', kernel_initializer=init)(in_image)
+    d = ScaledConv2D(128, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
     d = LeakyReLU(alpha=0.2)(d)
 
     d = MinibatchSd()(d)
-    d = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(d)
+    d = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
 
-    d = ScaledConv2D(128, kernel_size=(4, 4), padding='same', kernel_initializer=init)(d)
+    d = ScaledConv2D(128, kernel_size=(4, 4), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
 
     d = Flatten()(d)
@@ -112,7 +112,7 @@ def define_discriminator(n_double: int, input_shape: tuple = (4, 4, 3)) -> list:
 
 def add_generator_block(old_model: Model) -> list:
     """
-    Adds a new block to the generator model
+    Adds a new block to the generator model.
 
     Args:
         old_model: Already well trained generator model
@@ -124,13 +124,13 @@ def add_generator_block(old_model: Model) -> list:
 
     block_end = old_model.layers[-2].output
     upsampling = UpSampling2D()(block_end)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(upsampling)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(upsampling)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(g)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding='same', kernel_initializer=init)(g)
+    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding="same", kernel_initializer=init)(g)
     model1 = Model(old_model.input, out_image)
 
     out_old = old_model.layers[-1]
@@ -143,7 +143,7 @@ def add_generator_block(old_model: Model) -> list:
 
 def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> list:
     """
-    Defines a list of generator models
+    Defines a list of generator models.
 
     Args:
         latent_dim: Dimension of the latent space
@@ -151,7 +151,6 @@ def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> lis
         img_dim: image input dimensoon
 
     Returns:
-
     """
     init = RandomNormal(0, 1)
     model_list = list()
@@ -159,13 +158,13 @@ def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> lis
     in_latent = Input(shape=(latent_dim,))
     g = ScaledDense(128 * img_dim * img_dim, kernel_initializer=init, gain=np.sqrt(2) / 4)(in_latent)
     g = Reshape((img_dim, img_dim, 128))(g)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(g)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding='same', kernel_initializer=init)(g)
+    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding='same', kernel_initializer=init, gain=1)(g)
+    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1)(g)
 
     model = Model(in_latent, out_image)
     model_list.append([model, model])
@@ -179,7 +178,8 @@ def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> lis
 
 def define_combined(discriminators: list, generators: list) -> list:
     """
-    Build the combined models out of the given generator and discriminator models.
+    Build the combined models out of the given generator and discriminator
+    models.
 
     Args:
         discriminators: list of discriminator models
@@ -210,7 +210,7 @@ def define_combined(discriminators: list, generators: list) -> list:
 
 def load_real_samples(path: str, size: int = 4):
     """
-    Loads the image dataset
+    Loads the image dataset.
 
     Args:
         path: path to the image files
@@ -219,7 +219,7 @@ def load_real_samples(path: str, size: int = 4):
     Returns:
         list of image tensor and image index
     """
-    if os.path.exists(path) and os.stat(path).st_size < (psutil.virtual_memory().total * .8):
+    if os.path.exists(path) and os.stat(path).st_size < (psutil.virtual_memory().total * 0.8):
         images = np.load(path)
         img_idx = np.arange(0, images.shape[0])
         return images, img_idx
@@ -227,8 +227,9 @@ def load_real_samples(path: str, size: int = 4):
         print("Data does not fit inside Memory. Preallocation is not possible, use iterator instead")
     else:
         try:
-            files = [os.path.join(path, f) for f in os.listdir(path) if
-                     os.path.splitext(os.path.join(path, f))[1] == ".jpg"]
+            files = [
+                os.path.join(path, f) for f in os.listdir(path) if os.path.splitext(os.path.join(path, f))[1] == ".jpg"
+            ]
             images = np.zeros((len(files), size, size, 3), dtype=K.floatx())
 
             for i, file_path in tqdm(enumerate(files)):
@@ -245,7 +246,7 @@ def load_real_samples(path: str, size: int = 4):
 
 def generate_real_samples(dataset, n_samples):
     """
-    Selects n random images out of the dataset
+    Selects n random images out of the dataset.
 
     Args:
         dataset: list-like dataset
@@ -262,7 +263,7 @@ def generate_real_samples(dataset, n_samples):
 
 def generate_latent_points(latent_dim, n_samples):
     """
-    Samples random points
+    Samples random points.
 
     Args:
         latent_dim: dimension of the latent space
@@ -271,19 +272,25 @@ def generate_latent_points(latent_dim, n_samples):
     Returns:
         sampled points
     """
-
     x_input = np.random.randn(latent_dim * n_samples)
     x_input = x_input.reshape(n_samples, latent_dim)
     return x_input
 
 
-# use the generator to generate n fake examples, with class labels
-def generate_fake_samples(generator, latent_dim, n_samples):
-    # generate points in latent space
+def generate_fake_samples(generator: Model, latent_dim: int, n_samples: int):
+    """
+    Use the generator to generate fake images
+
+    Args:
+        generator: Generator model to use
+        latent_dim: dimension of the latent space
+        n_samples: number of samples to generate
+
+    Returns:
+        generated samples and their class
+    """
     x_input = generate_latent_points(latent_dim, n_samples)
-    # predict outputs
     X = generator.predict(x_input)
-    # create class labels
     y = -ones((n_samples, 1))
     return X, y
 
@@ -323,7 +330,7 @@ def train_epochs(g_model, d_model, gan_model, dataset, n_epochs, n_batch, fadein
         y_real2 = ones((n_batch, 1))
         g_loss = gan_model.train_on_batch(z_input, y_real2)
         # summarize loss on this batch
-        print('>%d, d1=%.3f, d2=%.3f g=%.3f' % (i + 1, d_loss1, d_loss2, g_loss))
+        print(">%d, d1=%.3f, d2=%.3f g=%.3f" % (i + 1, d_loss1, d_loss2, g_loss))
 
 
 # scale images to preferred size
@@ -341,7 +348,7 @@ def scale_dataset(images, new_shape):
 def summarize_performance(status, g_model, latent_dim, n_samples=25):
     # devise name
     gen_shape = g_model.output_shape
-    name = '%03dx%03d-%s' % (gen_shape[1], gen_shape[2], status)
+    name = "%03dx%03d-%s" % (gen_shape[1], gen_shape[2], status)
     # generate images
     X, _ = generate_fake_samples(g_model, latent_dim, n_samples)
     # normalize pixel values to the range [0,1]
@@ -350,16 +357,16 @@ def summarize_performance(status, g_model, latent_dim, n_samples=25):
     square = int(sqrt(n_samples))
     for i in range(n_samples):
         pyplot.subplot(square, square, 1 + i)
-        pyplot.axis('off')
+        pyplot.axis("off")
         pyplot.imshow(X[i])
     # save plot to file
-    filename1 = 'plot_%s.png' % (name)
+    filename1 = "plot_%s.png" % (name)
     pyplot.savefig(filename1)
     pyplot.close()
     # save the generator model
-    filename2 = 'model_%s.h5' % (name)
+    filename2 = "model_%s.h5" % (name)
     g_model.save(filename2)
-    print('>Saved: %s and %s' % (filename1, filename2))
+    print(">Saved: %s and %s" % (filename1, filename2))
 
 
 # train the generator and discriminator
@@ -369,10 +376,10 @@ def train(g_models, d_models, gan_models, dataset, latent_dim, e_norm, e_fadein,
     # scale dataset to appropriate size
     gen_shape = g_normal.output_shape
     scaled_data = scale_dataset(dataset, gen_shape[1:])
-    print('Scaled Data', scaled_data.shape)
+    print("Scaled Data", scaled_data.shape)
     # train normal or straight-through models
     train_epochs(g_normal, d_normal, gan_normal, scaled_data, e_norm[0], n_batch[0])
-    summarize_performance('tuned', g_normal, latent_dim)
+    summarize_performance("tuned", g_normal, latent_dim)
     # process each level of growth
     for i in range(1, len(g_models)):
         # retrieve models for this level of growth
@@ -382,13 +389,13 @@ def train(g_models, d_models, gan_models, dataset, latent_dim, e_norm, e_fadein,
         # scale dataset to appropriate size
         gen_shape = g_normal.output_shape
         scaled_data = scale_dataset(dataset, gen_shape[1:])
-        print('Scaled Data', scaled_data.shape)
+        print("Scaled Data", scaled_data.shape)
         # train fade-in models for next level of growth
         train_epochs(g_fadein, d_fadein, gan_fadein, scaled_data, e_fadein[i], n_batch[i], True)
-        summarize_performance('faded', g_fadein, latent_dim)
+        summarize_performance("faded", g_fadein, latent_dim)
         # train normal or straight-through models
         train_epochs(g_normal, d_normal, gan_normal, scaled_data, e_norm[i], n_batch[i])
-        summarize_performance('tuned', g_normal, latent_dim)
+        summarize_performance("tuned", g_normal, latent_dim)
 
 
 # number of growth phases, e.g. 6 == [4, 8, 16, 32, 64, 128]
@@ -402,8 +409,8 @@ g_models = define_generator(latent_dim, n_blocks)
 # define composite models
 gan_models = define_combined(d_models, g_models)
 # load image data
-dataset = load_real_samples('img_align_celeba_128.npz')
-print('Loaded', dataset.shape)
+dataset = load_real_samples("img_align_celeba_128.npz")
+print("Loaded", dataset.shape)
 # train model
 n_batch = [16, 16, 16, 8, 4, 4]
 # 10 epochs == 500K images per training phase

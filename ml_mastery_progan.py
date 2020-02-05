@@ -16,8 +16,6 @@ from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, U
 from keras.models import Model, Sequential
 from keras.optimizers import Adam
 from matplotlib import pyplot
-from numpy import asarray
-from numpy import ones
 from skimage.io import imread
 from skimage.transform import resize
 from tqdm import tqdm
@@ -257,7 +255,7 @@ def generate_real_samples(dataset, n_samples):
     """
     ix = np.random.randint(0, dataset.shape[0], n_samples)
     X = dataset[ix]
-    y = ones((n_samples, 1))
+    y = np.ones((n_samples, 1))
     return X, y
 
 
@@ -279,7 +277,7 @@ def generate_latent_points(latent_dim, n_samples):
 
 def generate_fake_samples(generator: Model, latent_dim: int, n_samples: int):
     """
-    Use the generator to generate fake images
+    Use the generator to generate fake images.
 
     Args:
         generator: Generator model to use
@@ -291,57 +289,69 @@ def generate_fake_samples(generator: Model, latent_dim: int, n_samples: int):
     """
     x_input = generate_latent_points(latent_dim, n_samples)
     X = generator.predict(x_input)
-    y = -ones((n_samples, 1))
+    y = -np.ones((n_samples, 1))
     return X, y
 
 
-# update the alpha value on each instance of WeightedSum
-def update_fadein(models, step, n_steps):
-    # calculate current alpha (linear from 0 to 1)
+def update_fadein(models: list, step: int, n_steps: int):
+    """
+    Updates the alpha values of the fade in layers
+
+    Args:
+        models: list of models to update
+        step: current training step
+        n_steps: overall number of training steps
+    """
     alpha = step / float(n_steps - 1)
-    # update the alpha for each model
     for model in models:
         for layer in model.layers:
             if isinstance(layer, WeightedSum):
-                backend.set_value(layer.alpha, alpha)
+                K.set_value(layer.alpha, alpha)
 
 
-# train a generator and discriminator
-def train_epochs(g_model, d_model, gan_model, dataset, n_epochs, n_batch, fadein=False):
-    # calculate the number of batches per training epoch
-    bat_per_epo = int(dataset.shape[0] / n_batch)
-    # calculate the number of training iterations
-    n_steps = bat_per_epo * n_epochs
-    # calculate the size of half a batch of samples
-    half_batch = int(n_batch / 2)
-    # manually enumerate epochs
+def train_epochs(g_model: Model, d_model: Model, gan_model: Model, dataset: np.array, n_epochs: int, batch_size: int,
+                 fadein: bool = False):
+    """
+    Trains the model
+
+    Args:
+        g_model: Generator model
+        d_model: Discriminator model
+        gan_model: Combined model
+        dataset: Trainset
+        n_epochs: Number of epochs
+        batch_size: Batch size
+        fadein: Fade in new layer?
+    """
+    n_batches = dataset.shape[0] // batch_size
+    n_steps = n_batches * n_epochs
+    half_batch = batch_size // 2
     for i in range(n_steps):
-        # update alpha for all WeightedSum layers when fading in new blocks
         if fadein:
             update_fadein([g_model, d_model, gan_model], i, n_steps)
-        # prepare real and fake samples
-        X_real, y_real = generate_real_samples(dataset, half_batch)
-        X_fake, y_fake = generate_fake_samples(g_model, latent_dim, half_batch)
-        # update discriminator model
-        d_loss1 = d_model.train_on_batch(X_real, y_real)
-        d_loss2 = d_model.train_on_batch(X_fake, y_fake)
-        # update the generator via the discriminator's error
-        z_input = generate_latent_points(latent_dim, n_batch)
-        y_real2 = ones((n_batch, 1))
+        x_real, y_real = generate_real_samples(dataset, half_batch)
+        x_fake, y_fake = generate_fake_samples(g_model, latent_dim, half_batch)
+        d_loss1 = d_model.train_on_batch(x_real, y_real)
+        d_loss2 = d_model.train_on_batch(x_fake, y_fake)
+        z_input = generate_latent_points(latent_dim, batch_size)
+        y_real2 = np.ones((batch_size, 1))
         g_loss = gan_model.train_on_batch(z_input, y_real2)
-        # summarize loss on this batch
         print(">%d, d1=%.3f, d2=%.3f g=%.3f" % (i + 1, d_loss1, d_loss2, g_loss))
 
 
-# scale images to preferred size
-def scale_dataset(images, new_shape):
+def scale_dataset(images: list, new_shape: tuple):
+    """
+    Scales images to desired size.
+
+    Args:
+        images: List of images
+        new_shape: Tuple of the desired image size
+    """
     images_list = list()
     for image in images:
-        # resize with nearest neighbor interpolation
         new_image = resize(image, new_shape, 0)
-        # store
         images_list.append(new_image)
-    return asarray(images_list)
+    return np.asarray(images_list)
 
 
 # generate samples and save as a plot and save the model

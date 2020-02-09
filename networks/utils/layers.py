@@ -3,7 +3,6 @@ from keras import backend as K
 from keras.engine import Layer
 from keras.initializers import _compute_fans
 from keras.layers import Add, Dense, Conv2D
-from keras.layers.merge import _Merge
 
 
 class MinibatchSd(Layer):
@@ -34,6 +33,27 @@ class MinibatchSd(Layer):
         return tuple(input_shape)
 
 
+class RandomWeightedAverage(Add):
+    """Takes a randomly-weighted average of two tensors. In geometric terms, this outputs a random point on the line
+    between each pair of input points.
+
+    Inheriting from _Merge is a little messy but it was the quickest solution I could
+    think of. Improvements appreciated
+
+    References:
+       See https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py for original source code
+    """
+
+    def __init__(self, batch_size, **kwargs):
+        super(RandomWeightedAverage, self).__init__(**kwargs)
+        self.batch_size = batch_size
+
+    def _merge_function(self, inputs):
+        assert (len(inputs) == 2)
+        weights = K.random_uniform((self.batch_size, 1, 1, 1))
+        return (weights * inputs[0]) + ((1 - weights) * inputs[1])
+
+
 class WeightedSum(Add):
 
     def __init__(self, alpha: float = 0.0, **kwargs):
@@ -49,14 +69,6 @@ class WeightedSum(Add):
         self.alpha = K.variable(alpha, name='ws_alpha')
 
     def _merge_function(self, inputs):
-        """
-        @TODO
-        Args:
-            inputs:
-
-        Returns:
-
-        """
         assert (len(inputs) == 2)
         output = ((1.0 - self.alpha) * inputs[0]) + (self.alpha * inputs[1])
         return output
@@ -64,9 +76,12 @@ class WeightedSum(Add):
 
 class ScaledDense(Dense):
 
-    def __init__(self, maps=None, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
-        """
-        @TODO
+    def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
+        """Dense layer with weight scaling.
+
+        Ordinary Dense layer, that scales the weights by He's scaling factor at each forward pass. He's scaling
+        factor is defined as sqrt(2/fan_in) where fan_in is the number of input units of the layer
+
         Args:
             maps:
             use_dynamic_wscale:
@@ -74,15 +89,11 @@ class ScaledDense(Dense):
         """
         super(ScaledDense, self).__init__(**kwargs)
         self.use_dynamic_wscale = use_dynamic_wscale
-        self.maps = maps
         self.gain = gain
 
     def call(self, inputs):
-        if self.maps is not None:
-            fan_in = np.prod(self.maps)
-        else:
-            fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
-        wscale = self.gain / np.sqrt(fan_in)
+        fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
+        wscale = self.gain / np.sqrt(max(1., fan_in))
         output = K.dot(inputs, self.kernel * wscale)
         if self.use_bias:
             output = K.bias_add(output, self.bias, data_format='channels_last')
@@ -93,7 +104,7 @@ class ScaledDense(Dense):
 
 class ScaledConv2D(Conv2D):
 
-    def __init__(self, maps: int = None, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
+    def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
         """
         @TODO
         Args:
@@ -103,16 +114,11 @@ class ScaledConv2D(Conv2D):
         """
         super(ScaledConv2D, self).__init__(**kwargs)
         self.use_dynamic_wscale = use_dynamic_wscale
-        self.maps = maps
         self.gain = gain
 
     def call(self, inputs):
-        if self.maps is not None:
-            fan_in = np.prod(self.maps)
-        else:
-            fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
-        wscale = self.gain / np.sqrt(fan_in)
-
+        fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
+        wscale = self.gain / np.sqrt(max(1., fan_in))
         outputs = K.conv2d(inputs, self.kernel * wscale, strides=self.strides, padding=self.padding,
                            data_format=self.data_format, dilation_rate=self.dilation_rate)
 
@@ -149,23 +155,3 @@ class PixelNorm(Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
-
-
-class RandomWeightedAverage(_Merge):
-    """Takes a randomly-weighted average of two tensors. In geometric terms, this outputs a random point on the line
-    between each pair of input points.
-
-    Inheriting from _Merge is a little messy but it was the quickest solution I could
-    think of. Improvements appreciated
-
-    References:
-       See https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py for original source code
-    """
-
-    def __init__(self, batch_size, **kwargs):
-        super(RandomWeightedAverage, self).__init__(**kwargs)
-        self.batch_size = batch_size
-
-    def _merge_function(self, inputs):
-        weights = K.random_uniform((self.batch_size, 1, 1, 1))
-        return (weights * inputs[0]) + ((1 - weights) * inputs[1])

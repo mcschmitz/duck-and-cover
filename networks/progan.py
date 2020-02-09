@@ -37,6 +37,7 @@ class ProGAN(GAN):
         gradient_penalty_weight: weight for the gradient penalty
         latent_size: Size of the latent vector that is used to generate the image
     """
+
     def __init__(self, gradient_penalty_weight: int = 10, latent_size: int = 256):
         super(ProGAN, self).__init__()
         self.img_height = None
@@ -51,12 +52,7 @@ class ProGAN(GAN):
         self.discriminator_models = None
 
     def build_models(
-        self,
-        optimizer,
-        discriminator_optimizer=None,
-        batch_size: int = None,
-        channels: int = None,
-        n_blocks: int = 1
+        self, optimizer, discriminator_optimizer=None, batch_size: int = None, channels: int = None, n_blocks: int = 1
     ):
         """
         Builds the desired GAN that allows to generate covers.
@@ -73,7 +69,7 @@ class ProGAN(GAN):
             n_blocks: Number of blocks to add. each block doubles the size of the output image starting by 4*4. So
                 n_blocks=1 will result in an image of size 8*8.
         """
-        img_height = img_width = 2**n_blocks + 2
+        img_height = img_width = 2 ** n_blocks + 2
         self.channels = channels if channels is not None else self.channels
         self.img_shape = (img_height, img_width, self.channels)
         self.batch_size = batch_size if batch_size is not None else self.batch_size

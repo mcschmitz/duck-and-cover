@@ -213,13 +213,11 @@ if __name__ == "__main__":
         if fade:
             gan.remove_fade_in_layers()
             gan.build_models(
-                optimizer=gan.combined_model.optimizer,
-                discriminator_optimizer=gan.discriminator_model.optimizer,
+                optimizer=gan.combined_model.optimizer, discriminator_optimizer=gan.discriminator_model.optimizer,
             )
             save_gan(gan, model_dump_path)
             gan.build_models(
-                optimizer=gan.combined_model.optimizer,
-                discriminator_optimizer=gan.discriminator_model.optimizer,
+                optimizer=gan.combined_model.optimizer, discriminator_optimizer=gan.discriminator_model.optimizer,
             )
             gan = load_gan(gan, model_dump_path, weights_only=True)
         plot_gan(gan, lp_path, str(resolution) + "_grown")

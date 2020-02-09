@@ -54,7 +54,7 @@ if __name__ == "__main__":
         )
 
         file_path_column = "file_path_{}".format(64 if resolution <= 64 else 256)
-        covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
+        covers = pd.read_json("../data/album_data_frame.json", orient="records", lines=True)
         covers.dropna(subset=[file_path_column], inplace=True)
         covers.reset_index(inplace=True)
         data_loader = ImageLoader(

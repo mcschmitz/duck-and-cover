@@ -437,7 +437,7 @@ latent_dim = 100
 d_models = define_discriminator(n_blocks)
 g_models = define_generator(latent_dim, n_blocks)
 gan_models = define_combined(d_models, g_models)
-dataset, img_idx = load_real_samples("data/celeba/all128.npy", size=128)
+dataset, img_idx = load_real_samples("../data/celeba/all128.npy", size=128)
 print("Loaded", dataset.shape)
 n_batch = [16, 16, 16, 8, 4, 4]
 n_epochs = [5, 8, 8, 10, 10, 10]

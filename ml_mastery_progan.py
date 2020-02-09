@@ -40,12 +40,12 @@ def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
     input_shape = (in_shape[-2].value * 2, in_shape[-2].value * 2, in_shape[-1].value)
     in_image = Input(shape=input_shape)
 
-    d = ScaledConv2D(128, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
+    d = ScaledConv2D(filters=128, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
     d = LeakyReLU(alpha=0.2)(d)
 
-    d = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
+    d = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
-    d = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
+    d = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
     d = AveragePooling2D(2, 2)(d)
     block_new = d
@@ -84,18 +84,18 @@ def define_discriminator(n_double: int, input_shape: tuple = (4, 4, 3)) -> list:
 
     in_image = Input(shape=input_shape)
 
-    d = ScaledConv2D(128, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
+    d = ScaledConv2D(filters=128, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
     d = LeakyReLU(alpha=0.2)(d)
 
     d = MinibatchSd()(d)
-    d = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
+    d = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
 
-    d = ScaledConv2D(128, kernel_size=(4, 4), padding="same", kernel_initializer=init)(d)
+    d = ScaledConv2D(filters=128, kernel_size=(4, 4), padding="same", kernel_initializer=init)(d)
     d = LeakyReLU(alpha=0.2)(d)
 
     d = Flatten()(d)
-    out_class = ScaledDense(1, gain=1)(d)
+    out_class = ScaledDense(units=1, gain=1)(d)
 
     model = Model(in_image, out_class)
     model.compile(loss=wasserstein_loss, optimizer=Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
@@ -122,13 +122,13 @@ def add_generator_block(old_model: Model) -> list:
 
     block_end = old_model.layers[-2].output
     upsampling = UpSampling2D()(block_end)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(upsampling)
+    g = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(upsampling)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
+    g = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding="same", kernel_initializer=init)(g)
+    out_image = ScaledConv2D(filters=3, kernel_size=(1, 1), padding="same", kernel_initializer=init)(g)
     model1 = Model(old_model.input, out_image)
 
     out_old = old_model.layers[-1]
@@ -146,7 +146,7 @@ def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> lis
     Args:
         latent_dim: Dimension of the latent space
         n_doublings: Number of doublings of the image resolution
-        img_dim: image input dimensoon
+        img_dim: image input dimension
 
     Returns:
     """
@@ -154,15 +154,15 @@ def define_generator(latent_dim: int, n_doublings: int, img_dim: int = 4) -> lis
     model_list = list()
 
     in_latent = Input(shape=(latent_dim,))
-    g = ScaledDense(128 * img_dim * img_dim, kernel_initializer=init, gain=np.sqrt(2) / 4)(in_latent)
+    g = ScaledDense(units=128 * img_dim * img_dim, kernel_initializer=init, gain=np.sqrt(2) / 4)(in_latent)
     g = Reshape((img_dim, img_dim, 128))(g)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
+    g = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    g = ScaledConv2D(128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
+    g = ScaledConv2D(filters=128, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
     g = PixelNorm()(g)
     g = LeakyReLU(alpha=0.2)(g)
-    out_image = ScaledConv2D(3, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1)(g)
+    out_image = ScaledConv2D(filters=3, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1)(g)
 
     model = Model(in_latent, out_image)
     model_list.append([model, model])
@@ -432,21 +432,13 @@ def train(g_models, d_models, gan_models, dataset, latent_dim, e_norm, e_fadein,
         summarize_performance("tuned", g_normal, latent_dim)
 
 
-# number of growth phases, e.g. 6 == [4, 8, 16, 32, 64, 128]
 n_blocks = 6
-# size of the latent space
 latent_dim = 100
-# define models
 d_models = define_discriminator(n_blocks)
-# define models
 g_models = define_generator(latent_dim, n_blocks)
-# define composite models
 gan_models = define_combined(d_models, g_models)
-# load image data
-dataset = load_real_samples("img_align_celeba_128.npz")
+dataset, img_idx = load_real_samples("data/celeba/all128.npy", size=128)
 print("Loaded", dataset.shape)
-# train model
 n_batch = [16, 16, 16, 8, 4, 4]
-# 10 epochs == 500K images per training phase
 n_epochs = [5, 8, 8, 10, 10, 10]
 train(g_models, d_models, gan_models, dataset, latent_dim, n_epochs, n_epochs, n_batch)

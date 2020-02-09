@@ -1,3 +1,7 @@
+"""
+Definition of the ProGAN class
+"""
+
 import functools
 
 import numpy as np

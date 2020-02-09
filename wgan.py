@@ -10,8 +10,8 @@ import seaborn as sns
 from keras.optimizers import Adam
 
 from Loader.cover_loader import ImageLoader
-from Networks import WGAN
-from Networks.utils import save_gan, load_gan
+from networks import WGAN
+from networks.utils import save_gan, load_gan
 from utils import create_dir, generate_images, AnimatedGif
 
 BATCH_SIZE = 64

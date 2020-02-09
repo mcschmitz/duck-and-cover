@@ -10,8 +10,8 @@ import seaborn as sns
 from keras.optimizers import Adam
 
 from Loader.cover_loader import ImageLoader
-from Networks import CoverGAN
-from Networks.utils import save_gan, load_cover_gan
+from networks import CoverGAN
+from networks.utils import save_gan, load_gan
 from utils import create_dir, generate_images, AnimatedGif
 
 BATCH_SIZE = 64
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     gan.build_models(combined_optimizer=Adam(0.0001, beta_1=0.5), discriminator_optimizer=Adam(0.000004))
 
     if WARM_START:
-        gan = load_cover_gan(gan, model_path)
+        gan = load_gan(gan, model_path)
 
     batch_idx = 0
     steps = TRAIN_STEPS // BATCH_SIZE

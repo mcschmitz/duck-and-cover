@@ -42,8 +42,13 @@ if __name__ == "__main__":
     disc_optimizer = GradientAccumulation(base_disc_optimizer, accumulation_steps=1)
 
     gan = ProGAN(gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT, latent_size=LATENT_SIZE)
-    gan.build_models(optimizer=optimizer, discriminator_optimizer=disc_optimizer, image_resolution=RESOLUTIONS[0],
-                     channels=3, batch_size=BATCH_SIZE)
+    gan.build_models(
+        optimizer=optimizer,
+        discriminator_optimizer=disc_optimizer,
+        n_blocks=N_BLOCKS,
+        channels=3,
+        batch_size=BATCH_SIZE,
+    )
 
     for resolution, fade in itertools.product(RESOLUTIONS, FADE):
         if init_burn_in and resolution == 4:
@@ -60,11 +65,6 @@ if __name__ == "__main__":
         model_dump_path = create_dir(os.path.join(lp_path, "model{}".format(resolution)))
 
         if WARM_START:
-            fade = True
-            gan.build_models(optimizer=gan.combined_model.optimizer,
-                             discriminator_optimizer=gan.discriminator_model.optimizer,
-                             image_resolution=resolution // 2)
-            model_dump_path = create_dir(os.path.join(lp_path, "model{}".format(resolution // 2)))
             gan = load_gan(gan, model_dump_path, weights_only=True)
 
         batch_size = BATCH_SIZE // ACCUMULATIVE_UPDATES[resolution]
@@ -73,15 +73,18 @@ if __name__ == "__main__":
 
         images = None
 
-        if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * .8):
+        if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * 0.8):
             images = np.load(DATA_PATH)
             img_idx = np.arange(0, images.shape[0])
         elif os.path.exists(DATA_PATH):
             pass
         else:
             try:
-                files = [os.path.join("data/celeba", f) for f in os.listdir("data/celeba") if
-                         os.path.splitext(os.path.join("data/celeba", f))[1] == ".jpg"]
+                files = [
+                    os.path.join("data/celeba", f)
+                    for f in os.listdir("data/celeba")
+                    if os.path.splitext(os.path.join("data/celeba", f))[1] == ".jpg"
+                ]
                 images = np.zeros((len(files), resolution, resolution, 3), dtype=K.floatx())
 
                 for i, file_path in tqdm(enumerate(files)):
@@ -104,8 +107,11 @@ if __name__ == "__main__":
 
         if fade:
             gan.add_fade_in_layers(target_resolution=resolution)
-            gan.build_models(optimizer=gan.combined_model.optimizer, batch_size=batch_size,
-                             discriminator_optimizer=gan.discriminator_model.optimizer, compile_only=True)
+            gan.build_models(
+                optimizer=gan.combined_model.optimizer,
+                batch_size=batch_size,
+                discriminator_optimizer=gan.discriminator_model.optimizer,
+            )
             plot_gan(gan, lp_path, str(resolution) + "_fade_in")
             alphas = np.linspace(0, 1, steps).tolist()
 
@@ -113,8 +119,10 @@ if __name__ == "__main__":
             if fade:
                 alpha = alphas.pop(0)
                 gan.update_alpha(alpha)
-            batch_idx = [i if i < images.shape[0] else i - images.shape[0] for i in
-                         np.arange(batch_idx, batch_idx + minibatch_size)]
+            batch_idx = [
+                i if i < images.shape[0] else i - images.shape[0]
+                for i in np.arange(batch_idx, batch_idx + minibatch_size)
+            ]
             if 0 in batch_idx and images.shape[0] in batch_idx:
                 np.random.shuffle(img_idx)
                 images = images[img_idx]
@@ -124,76 +132,95 @@ if __name__ == "__main__":
                 gan.train_on_batch(batch_images, n_critic=N_CRITIC)
             gan.images_shown += batch_size
 
-            if step % (steps//10) == 0:
-                print('Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss: {2:3,.3f} - '
-                      'Discriminator Loss + : {2:3,.3f} - Discriminator Loss - : {3:3,.3f} -'
-                      ' Discriminator Loss Dummies : {4:3,.3f}'.format(
-                    gan.images_shown, np.mean(gan.history["G_loss"]), np.mean(gan.history["D_loss"]),
-                    np.mean(gan.history["D_loss_positives"]), np.mean(gan.history["D_loss_negatives"]),
-                    np.mean(gan.history["D_loss_dummies"])))
+            if step % (steps // 10) == 0:
+                print(
+                    "Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss: {2:3,.3f} - "
+                    "Discriminator Loss + : {2:3,.3f} - Discriminator Loss - : {3:3,.3f} -"
+                    " Discriminator Loss Dummies : {4:3,.3f}".format(
+                        gan.images_shown,
+                        np.mean(gan.history["G_loss"]),
+                        np.mean(gan.history["D_loss"]),
+                        np.mean(gan.history["D_loss_positives"]),
+                        np.mean(gan.history["D_loss_negatives"]),
+                        np.mean(gan.history["D_loss_dummies"]),
+                    )
+                )
 
-                generate_images(gan.generator,
-                                os.path.join(lp_path, "step{}.png".format(gan.images_shown)),
-                                target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]))
-                generate_images(gan.generator,
-                                os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)),
-                                target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]), seed=101)
+                generate_images(
+                    gan.generator,
+                    os.path.join(lp_path, "step{}.png".format(gan.images_shown)),
+                    target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
+                )
+                generate_images(
+                    gan.generator,
+                    os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)),
+                    target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
+                    seed=101,
+                )
 
                 #########################################################
                 if fade:
                     alpha = 0
                     gan.update_alpha(alpha)
-                    generate_images(gan.generator,
-                                    os.path.join(lp_path, "fixed_step{}_alpha0.png".format(gan.images_shown)),
-                                    target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]), seed=101)
+                    generate_images(
+                        gan.generator,
+                        os.path.join(lp_path, "fixed_step{}_alpha0.png".format(gan.images_shown)),
+                        target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
+                        seed=101,
+                    )
                     alpha = 1
                     gan.update_alpha(alpha)
-                    generate_images(gan.generator,
-                                    os.path.join(lp_path, "fixed_step{}_alpha1.png".format(gan.images_shown)),
-                                    target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]), seed=101)
+                    generate_images(
+                        gan.generator,
+                        os.path.join(lp_path, "fixed_step{}_alpha1.png".format(gan.images_shown)),
+                        target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
+                        seed=101,
+                    )
                 #########################################################
 
                 x_axis = np.linspace(0, gan.images_shown, len(gan.history["D_loss"]))
                 ax = sns.lineplot(x_axis, gan.history["D_loss"])
-                plt.ylabel('Discriminator Loss')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_loss.png"))
                 plt.close()
 
                 x_axis = np.linspace(0, gan.images_shown, len(gan.history["D_loss_positives"]))
                 ax = sns.lineplot(x_axis, gan.history["D_loss_positives"])
-                plt.ylabel('Discriminator Loss on Positives')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss on Positives")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_lossP.png"))
                 plt.close()
 
                 ax = sns.lineplot(x_axis, gan.history["D_loss_negatives"])
-                plt.ylabel('Discriminator Loss on Negatives')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss on Negatives")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_lossN.png"))
                 plt.close()
 
                 ax = sns.lineplot(x_axis, gan.history["D_loss_dummies"])
-                plt.ylabel('Discriminator Loss on Dummies')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss on Dummies")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_lossD.png"))
                 plt.close()
 
                 ax = sns.lineplot(x_axis, gan.history["G_loss"])
-                plt.ylabel('Generator Loss')
-                plt.xlabel('Images shown')
+                plt.ylabel("Generator Loss")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "g_loss.png"))
                 plt.close()
 
         if fade:
             gan.remove_fade_in_layers()
-            gan.build_models(optimizer=gan.combined_model.optimizer,
-                             discriminator_optimizer=gan.discriminator_model.optimizer,
-                             image_resolution=resolution, compile_only=True)
+            gan.build_models(
+                optimizer=gan.combined_model.optimizer,
+                discriminator_optimizer=gan.discriminator_model.optimizer,
+            )
             save_gan(gan, model_dump_path)
-            gan.build_models(optimizer=gan.combined_model.optimizer,
-                             discriminator_optimizer=gan.discriminator_model.optimizer,
-                             image_resolution=resolution)
+            gan.build_models(
+                optimizer=gan.combined_model.optimizer,
+                discriminator_optimizer=gan.discriminator_model.optimizer,
+            )
             gan = load_gan(gan, model_dump_path, weights_only=True)
         plot_gan(gan, lp_path, str(resolution) + "_grown")
         save_gan(gan, model_dump_path)

@@ -1,5 +1,5 @@
 """
-Definition of the ProGAN class
+Definition of the ProGAN class.
 """
 
 import functools
@@ -22,9 +22,9 @@ from networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledC
 
 
 class ProGAN(GAN):
-
     def __init__(self, gradient_penalty_weight: int = 10, latent_size: int = 256):
-        """Progressive growing GAN
+        """
+        Progressive growing GAN.
 
         Progressive Growing GAN that iteratively adds convolutional blocks too generator and discriminator. This
         results in improved quality, stability, variation and a faster learning time. Initialization itself is
@@ -48,9 +48,18 @@ class ProGAN(GAN):
         self._gradient_penalty_weight = gradient_penalty_weight
         self.batch_size = None
 
-    def build_models(self, optimizer, discriminator_optimizer=None, batch_size: int = None,
-                     image_resolution: int = None, channels: int = None, compile_only: bool = False):
-        """Builds the desired GAN that allows to generate covers.
+    def build_models(
+        self,
+        optimizer,
+        discriminator_optimizer=None,
+        batch_size: int = None,
+        image_resolution: int = None,
+        channels: int = None,
+        compile_only: bool = False,
+    ):
+        """
+        Builds the desired GAN that allows to generate covers.
+
         @ TODO
         Builds the generator, the discriminator and the combined model for a WGAN using Wasserstein loss with gradient
         penalty to improve learning.
@@ -94,7 +103,9 @@ class ProGAN(GAN):
         self._build_combined_model(discriminator_optimizer)
 
     def _build_discriminator_model(self, optimizer):
-        """Builds the discriminator for the WGAN with gradient penalty
+        """
+        Builds the discriminator for the WGAN with gradient penalty.
+
         @ TODO
         The discriminator takes real images, generated ones and an average of both and optimizes the wasserstein loss
         for the real and the fake images as well as the gradient penalty for the averaged samples
@@ -106,16 +117,21 @@ class ProGAN(GAN):
         disc_image_image = self.discriminator(disc_input_image)
         avg_samples = RandomWeightedAverage(self.batch_size)([disc_input_image, gen_image_disc])
         disc_avg_disc = self.discriminator(avg_samples)
-        self.discriminator_model = Model(inputs=[disc_input_image, disc_input_noise],
-                                         outputs=[disc_image_image, disc_image_gen, disc_avg_disc])
-        partial_gp_loss = functools.partial(gradient_penalty_loss, averaged_samples=avg_samples,
-                                            gradient_penalty_weight=self._gradient_penalty_weight)
-        partial_gp_loss.__name__ = 'gradient_penalty'
-        self.discriminator_model.compile(loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss],
-                                         optimizer=optimizer)
+        self.discriminator_model = Model(
+            inputs=[disc_input_image, disc_input_noise], outputs=[disc_image_image, disc_image_gen, disc_avg_disc]
+        )
+        partial_gp_loss = functools.partial(
+            gradient_penalty_loss, averaged_samples=avg_samples, gradient_penalty_weight=self._gradient_penalty_weight
+        )
+        partial_gp_loss.__name__ = "gradient_penalty"
+        self.discriminator_model.compile(
+            loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer
+        )
 
     def _build_combined_model(self, optimizer):
-        """Build the combined GAN consisting of generator and discriminator
+        """
+        Build the combined GAN consisting of generator and discriminator.
+
         @ TODO
         Takes the latent input and generates an images out of it by applying the generator. Classifies the image via the
         discriminator. The model is compiled using the given optimizer
@@ -144,30 +160,49 @@ class ProGAN(GAN):
         x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
 
         while cur_resolution < self.img_shape[0]:
             x = UpSampling2D()(x)
             cur_resolution *= 2
             n_filters = self.calc_filters(cur_resolution)
-            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                             kernel_initializer=RandomNormal(0, 1))(x)
-            x = LeakyReLU(.2)(x)
+            x = ScaledConv2D(
+                filters=n_filters,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="same",
+                kernel_initializer=RandomNormal(0, 1),
+            )(x)
+            x = LeakyReLU(0.2)(x)
             x = PixelNorm()(x)
-            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                             kernel_initializer=RandomNormal(0, 1))(x)
-            x = LeakyReLU(.2)(x)
+            x = ScaledConv2D(
+                filters=n_filters,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="same",
+                kernel_initializer=RandomNormal(0, 1),
+            )(x)
+            x = LeakyReLU(0.2)(x)
             x = PixelNorm()(x)
 
-        generator_output = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                        kernel_initializer=RandomNormal(0, 1), gain=1, name="to_rgb_removable")(x)
+        generator_output = ScaledConv2D(
+            filters=self.channels,
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="same",
+            kernel_initializer=RandomNormal(0, 1),
+            gain=1,
+            name="to_rgb_removable",
+        )(x)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
@@ -182,32 +217,46 @@ class ProGAN(GAN):
         n_filters = self.calc_filters(cur_resolution)
 
         image_input = Input(self.img_shape)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(image_input)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(image_input)
+        x = LeakyReLU(0.2)(x)
 
         fused_set = False
         while cur_resolution > 4:
             name = "fuse_here" if not fused_set else None
-            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                             kernel_initializer=RandomNormal(0, 1), name=name)(x)
+            x = ScaledConv2D(
+                filters=n_filters,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="same",
+                kernel_initializer=RandomNormal(0, 1),
+                name=name,
+            )(x)
             fused_set = True
-            x = LeakyReLU(.2)(x)
+            x = LeakyReLU(0.2)(x)
             cur_resolution //= 2
             n_filters = self.calc_filters(cur_resolution)
-            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                             kernel_initializer=RandomNormal(0, 1))(x)
-            x = LeakyReLU(.2)(x)
+            x = ScaledConv2D(
+                filters=n_filters,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="same",
+                kernel_initializer=RandomNormal(0, 1),
+            )(x)
+            x = LeakyReLU(0.2)(x)
             x = AveragePooling2D(2, 2)(x)
 
         name = "fuse_here" if self.img_shape[0] == 4 else None
         x = MinibatchSd(name=name)(x)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(4, 4), strides=(4, 4), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(4, 4), strides=(4, 4), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
 
         x = Flatten()(x)
         x = ScaledDense(units=1, gain=1)(x)
@@ -216,7 +265,9 @@ class ProGAN(GAN):
         return discriminator_model
 
     def train_on_batch(self, real_images, n_critic: int = 5):
-        """Runs a single gradient update on a batch of data.
+        """
+        Runs a single gradient update on a batch of data.
+
         @ TODO
         Args:
             real_images: numpy array of real input images used for training
@@ -226,7 +277,7 @@ class ProGAN(GAN):
         real_y = np.ones((batch_size, 1)) * -1
 
         for i in range(n_critic):
-            discriminator_minibatch = real_images[i * batch_size:(i + 1) * batch_size]
+            discriminator_minibatch = real_images[i * batch_size : (i + 1) * batch_size]
             losses = self.train_discriminator(discriminator_minibatch)
 
         self.history["D_loss"].append(losses[0])
@@ -238,7 +289,9 @@ class ProGAN(GAN):
         self.history["G_loss"].append(self.combined_model.train_on_batch(noise, real_y))
 
     def train_discriminator(self, real_images):
-        """Runs a single gradient update on a batch of data.
+        """
+        Runs a single gradient update on a batch of data.
+
         @ TODO
         Args:
             real_images: numpy array of real input images used for training
@@ -283,17 +336,25 @@ class ProGAN(GAN):
         cur_resolution = x.shape[1].value
         n_filters = self.calc_filters(cur_resolution)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
         x = PixelNorm()(x)
 
-        generator_output = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                                        kernel_initializer=RandomNormal(0, 1), gain=1)(x)
+        generator_output = ScaledConv2D(
+            filters=self.channels,
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="same",
+            kernel_initializer=RandomNormal(0, 1),
+            gain=1,
+        )(x)
         return generator_output
 
     def _upsample_generator(self):
@@ -305,18 +366,26 @@ class ProGAN(GAN):
         cur_resolution = image_input.shape[1].value
         n_filters = self.calc_filters(cur_resolution)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(image_input)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(image_input)
+        x = LeakyReLU(0.2)(x)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1))(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
+        )(x)
+        x = LeakyReLU(0.2)(x)
         cur_resolution //= 2
         n_filters = self.calc_filters(cur_resolution)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same",
-                         kernel_initializer=RandomNormal(0, 1), gain=1)(x)
-        x = LeakyReLU(.2)(x)
+        x = ScaledConv2D(
+            filters=n_filters,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="same",
+            kernel_initializer=RandomNormal(0, 1),
+            gain=1,
+        )(x)
+        x = LeakyReLU(0.2)(x)
         x = AveragePooling2D(2, 2)(x)
         return x
 

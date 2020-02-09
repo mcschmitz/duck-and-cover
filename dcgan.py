@@ -33,7 +33,7 @@ if __name__ == "__main__":
     covers.reset_index(inplace=True)
     data_loader = ImageLoader(data=covers, path_column="file_path_64", image_size=image_size, image_ratio=image_ratio)
 
-    if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * .8):
+    if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * 0.8):
         images = np.load(DATA_PATH)
         img_idx = np.arange(0, images.shape[0])
     elif os.path.exists(DATA_PATH):
@@ -59,8 +59,9 @@ if __name__ == "__main__":
     steps = TRAIN_STEPS // BATCH_SIZE
     for step in range(gan.images_shown // BATCH_SIZE, steps):
         if images is not None:
-            batch_idx = [i if i < images.shape[0] else i - images.shape[0] for i in
-                         np.arange(batch_idx, batch_idx + BATCH_SIZE)]
+            batch_idx = [
+                i if i < images.shape[0] else i - images.shape[0] for i in np.arange(batch_idx, batch_idx + BATCH_SIZE)
+            ]
             if 0 in batch_idx and images.shape[0] in batch_idx:
                 np.random.shuffle(img_idx)
                 images = images[img_idx]
@@ -72,25 +73,33 @@ if __name__ == "__main__":
         gan.images_shown += BATCH_SIZE
 
         if step % 250 == 0:
-            print('Images shown {0}: Generator Loss: {1:2,.3f} - Discriminator Acc.: {2:3,.3f}'.format(
-                gan.images_shown, np.mean(gan.history["G_loss"]), np.mean(gan.history["D_accuracy"])))
+            print(
+                "Images shown {0}: Generator Loss: {1:2,.3f} - Discriminator Acc.: {2:3,.3f}".format(
+                    gan.images_shown, np.mean(gan.history["G_loss"]), np.mean(gan.history["D_accuracy"])
+                )
+            )
 
-            generate_images(gan.generator, os.path.join(lp_path, "step{}.png".format(gan.images_shown)),
-                            target_size=(64 * 10, 64))
-            generate_images(gan.generator, os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)),
-                            target_size=(64 * 10, 64), seed=101)
+            generate_images(
+                gan.generator, os.path.join(lp_path, "step{}.png".format(gan.images_shown)), target_size=(64 * 10, 64)
+            )
+            generate_images(
+                gan.generator,
+                os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)),
+                target_size=(64 * 10, 64),
+                seed=101,
+            )
 
-            ax = sns.lineplot(np.linspace(0, gan.images_shown, len(gan.history["D_accuracy"])),
-                              gan.history["D_accuracy"])
-            plt.ylabel('Discriminator Accucary')
-            plt.xlabel('Images shown')
+            ax = sns.lineplot(
+                np.linspace(0, gan.images_shown, len(gan.history["D_accuracy"])), gan.history["D_accuracy"]
+            )
+            plt.ylabel("Discriminator Accucary")
+            plt.xlabel("Images shown")
             plt.savefig(os.path.join(lp_path, "d_acc.png".format(PATH)))
             plt.close()
 
-            ax = sns.lineplot(np.linspace(0, gan.images_shown, len(gan.history["G_loss"])),
-                              gan.history["G_loss"])
-            plt.ylabel('Generator Loss')
-            plt.xlabel('Images shown')
+            ax = sns.lineplot(np.linspace(0, gan.images_shown, len(gan.history["G_loss"])), gan.history["G_loss"])
+            plt.ylabel("Generator Loss")
+            plt.xlabel("Images shown")
             plt.savefig(os.path.join(lp_path, "g_loss.png".format(PATH)))
             plt.close()
 
@@ -102,7 +111,7 @@ if __name__ == "__main__":
     labels = []
     for root, dirs, files in os.walk(lp_path):
         for file in files:
-            if 'fixed_step' in file:
+            if "fixed_step" in file:
                 images.append(imageio.imread(os.path.join(root, file)))
                 labels.append(int(re.findall("\d+", file)[0]))
 
@@ -110,6 +119,7 @@ if __name__ == "__main__":
     images = [images[i] for i in order]
     labels = [labels[i] for i in order]
     for img, lab in zip(images, labels):
-        animated_gif.add(img, label="{} Images shown".format(lab),
-                         label_position=(gif_size[0] * .7, gif_size[1] * .7))
-    animated_gif.save(os.path.join(lp_path, 'fixed.gif'), fps=len(images) / 30)
+        animated_gif.add(
+            img, label="{} Images shown".format(lab), label_position=(gif_size[0] * 0.7, gif_size[1] * 0.7)
+        )
+    animated_gif.save(os.path.join(lp_path, "fixed.gif"), fps=len(images) / 30)

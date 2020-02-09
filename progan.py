@@ -49,17 +49,19 @@ if __name__ == "__main__":
 
         lp_path = create_dir("learning_progress/{}".format(PATH))
         model_dump_path = create_dir(os.path.join(lp_path, "model{}".format(resolution)))
-        model_load_path = model_dump_path if warm_start and not fade else os.path.join(
-            lp_path, "model{}".format(resolution // 2))
+        model_load_path = (
+            model_dump_path if warm_start and not fade else os.path.join(lp_path, "model{}".format(resolution // 2))
+        )
 
         file_path_column = "file_path_{}".format(64 if resolution <= 64 else 256)
         covers = pd.read_json("data/album_data_frame.json", orient="records", lines=True)
         covers.dropna(subset=[file_path_column], inplace=True)
         covers.reset_index(inplace=True)
-        data_loader = ImageLoader(data=covers, path_column=file_path_column, image_size=resolution,
-                                  image_ratio=IMAGE_RATIO)
+        data_loader = ImageLoader(
+            data=covers, path_column=file_path_column, image_size=resolution, image_ratio=IMAGE_RATIO
+        )
 
-        if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * .8):
+        if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * 0.8):
             images = np.load(DATA_PATH)
             img_idx = np.arange(0, images.shape[0])
         elif os.path.exists(DATA_PATH):
@@ -75,8 +77,9 @@ if __name__ == "__main__":
         optimizer = AdamAcc(0.001, beta_1=0.0, beta_2=0.99, epsilon=10e-8, iters=ACCUMULATIVE_UPDATES[resolution])
         minibatch_size = BATCH_SIZE * N_CRITIC
         img_resolution = resolution if not fade else resolution // 2
-        gan = ProGAN(batch_size=RESOLUTIONS[-1], image_resolution=img_resolution,
-                     gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT)
+        gan = ProGAN(
+            batch_size=RESOLUTIONS[-1], image_resolution=img_resolution, gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT
+        )
         gan.build_models(optimizer=optimizer)
         plot_gan(gan, lp_path, str(resolution) + "_build")
 
@@ -99,8 +102,10 @@ if __name__ == "__main__":
                 gan.update_alpha(alpha)
 
             if images is not None:
-                batch_idx = [i if i < images.shape[0] else i - images.shape[0] for i in
-                             np.arange(batch_idx, batch_idx + minibatch_size)]
+                batch_idx = [
+                    i if i < images.shape[0] else i - images.shape[0]
+                    for i in np.arange(batch_idx, batch_idx + minibatch_size)
+                ]
                 if 0 in batch_idx and images.shape[0] in batch_idx:
                     np.random.shuffle(img_idx)
                     images = images[img_idx]
@@ -114,40 +119,51 @@ if __name__ == "__main__":
             gan.images_shown += RESOLUTIONS[-1]
 
             if step % (steps // 10) == 0:
-                print('Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss + : {2:3,.3f}'
-                      ' Discriminator Loss - : {3:3,.3f} - Discriminator Loss Dummies : {4:3,.3f}'.format(
-                    gan.images_shown, np.mean(gan.history["G_loss"]), np.mean(gan.history["D_loss_positives"]),
-                    np.mean(gan.history["D_loss_negatives"]), np.mean(gan.history["D_loss_dummies"])))
+                print(
+                    "Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss + : {2:3,.3f}"
+                    " Discriminator Loss - : {3:3,.3f} - Discriminator Loss Dummies : {4:3,.3f}".format(
+                        gan.images_shown,
+                        np.mean(gan.history["G_loss"]),
+                        np.mean(gan.history["D_loss_positives"]),
+                        np.mean(gan.history["D_loss_negatives"]),
+                        np.mean(gan.history["D_loss_dummies"]),
+                    )
+                )
 
-                generate_images(gan.generator,
-                                os.path.join(lp_path, "step{}.png".format(gan.images_shown)),
-                                target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]))
-                generate_images(gan.generator,
-                                os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)),
-                                target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]), seed=101)
+                generate_images(
+                    gan.generator,
+                    os.path.join(lp_path, "step{}.png".format(gan.images_shown)),
+                    target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
+                )
+                generate_images(
+                    gan.generator,
+                    os.path.join(lp_path, "fixed_step{}.png".format(gan.images_shown)),
+                    target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
+                    seed=101,
+                )
 
                 x_axis = np.linspace(0, gan.images_shown, len(gan.history["D_loss_positives"]))
                 ax = sns.lineplot(x_axis, gan.history["D_loss_positives"])
-                plt.ylabel('Discriminator Loss on Positives')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss on Positives")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_lossP.png"))
                 plt.close()
 
                 ax = sns.lineplot(x_axis, gan.history["D_loss_negatives"])
-                plt.ylabel('Discriminator Loss on Negatives')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss on Negatives")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_lossN.png"))
                 plt.close()
 
                 ax = sns.lineplot(x_axis, gan.history["D_loss_dummies"])
-                plt.ylabel('Discriminator Loss on Dummies')
-                plt.xlabel('Images shown')
+                plt.ylabel("Discriminator Loss on Dummies")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "d_lossD.png"))
                 plt.close()
 
                 ax = sns.lineplot(x_axis, gan.history["G_loss"])
-                plt.ylabel('Generator Loss')
-                plt.xlabel('Images shown')
+                plt.ylabel("Generator Loss")
+                plt.xlabel("Images shown")
                 plt.savefig(os.path.join(lp_path, "g_loss.png"))
                 plt.close()
 

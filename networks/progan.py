@@ -140,66 +140,32 @@ class ProGAN(GAN):
         self.combined_model = Model(gen_input_latent, disc_image)
         self.combined_model.compile(optimizer, loss=[wasserstein_loss])
 
-    def _build_generator(self):
-        """
-        @TODO
-        Returns:
-
-        """
+    def _build_generator(self, n_blocks):
+        init = RandomNormal(0, 1)
+        model_list = list()
         n_filters = self.latent_size
-        cur_resolution = 4
-        noise_input = Input((self.latent_size,))
-        x = PixelNorm()(noise_input)
-        x = ScaledDense(units=4 * 4 * self.latent_size, gain=np.sqrt(2) / 4)(x)
+
+        latent_input = Input(shape=(self.latent_size,))
+        x = ScaledDense(units=4 * 4 * self.latent_size, kernel_initializer=init, gain=np.sqrt(2) / 4)(latent_input)
         x = Reshape((4, 4, self.latent_size))(x)
-        x = LeakyReLU(0.2)(x)
+
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
+        x = LeakyReLU(alpha=0.2)(x)
         x = PixelNorm()(x)
 
-        x = ScaledConv2D(
-            filters=n_filters, kernel_size=(4, 4), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
-        )(x)
-        x = LeakyReLU(0.2)(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
         x = PixelNorm()(x)
-        x = ScaledConv2D(
-            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
-        )(x)
-        x = LeakyReLU(0.2)(x)
-        x = PixelNorm()(x)
+        x = LeakyReLU(alpha=0.2)(x)
+        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1)(x)
 
-        while cur_resolution < self.img_shape[0]:
-            x = UpSampling2D()(x)
-            cur_resolution *= 2
-            n_filters = self._calc_filters(cur_resolution)
-            x = ScaledConv2D(
-                filters=n_filters,
-                kernel_size=(3, 3),
-                strides=(1, 1),
-                padding="same",
-                kernel_initializer=RandomNormal(0, 1),
-            )(x)
-            x = LeakyReLU(0.2)(x)
-            x = PixelNorm()(x)
-            x = ScaledConv2D(
-                filters=n_filters,
-                kernel_size=(3, 3),
-                strides=(1, 1),
-                padding="same",
-                kernel_initializer=RandomNormal(0, 1),
-            )(x)
-            x = LeakyReLU(0.2)(x)
-            x = PixelNorm()(x)
+        model = Model(latent_input, out_image)
+        model_list.append([model, model])
 
-        generator_output = ScaledConv2D(
-            filters=self.channels,
-            kernel_size=(1, 1),
-            strides=(1, 1),
-            padding="same",
-            kernel_initializer=RandomNormal(0, 1),
-            gain=1,
-            name="to_rgb_removable",
-        )(x)
-        generator_model = Model(noise_input, generator_output)
-        return generator_model
+        for i in range(1, n_blocks):
+            old_model = model_list[i - 1][0]
+            models = self._add_generator_block(old_model, block=i)
+            model_list.append(models)
+        return model_list
 
     def _build_discriminator(self, n_blocks, optimizer, input_shape: tuple = (4, 4, 3)):
         init = RandomNormal(0, 1)
@@ -274,104 +240,12 @@ class ProGAN(GAN):
         losses = self.discriminator_model.train_on_batch([real_images, noise], [real_y, fake_y, dummy_y])
         return losses
 
-    def add_fade_in_layers(self, target_resolution):
-        upsampled_old_generator = self._upsample_generator()
-        new_generator = self._add_fade_in_layer_to_generator()
-        merged = WeightedSum(name="gen_weighted_sum_removable")([upsampled_old_generator, new_generator])
-        self.generator = Model(self.generator.inputs, merged)
-
-        image_input = Input((target_resolution, target_resolution, self.channels))
-        downsampled_old_discriminator = self._downsample_discriminator(image_input)
-        new_discriminator_layer = self._add_fade_in_layer_to_discriminator(image_input)
-        x = WeightedSum(name="dist_weighted_sum_removable")([downsampled_old_discriminator, new_discriminator_layer])
-        fuse_layer_passed = False
-        for layer in self.discriminator.layers:
-            if layer.name == "fuse_here":
-                fuse_layer_passed = True
-            if fuse_layer_passed:
-                x = layer(x)
-        self.discriminator = Model(image_input, x)
-
-        self.img_shape = (target_resolution, target_resolution, self.channels)
-        self.img_height = target_resolution
-        self.img_width = target_resolution
-
-    def _add_fade_in_layer_to_generator(self):
-        x = self.generator.layers[-2].output
-        x = UpSampling2D()(x)
-
-        cur_resolution = x.shape[1].value
-        n_filters = self._calc_filters(cur_resolution)
-
-        x = ScaledConv2D(
-            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
-        )(x)
-        x = LeakyReLU(0.2)(x)
-        x = PixelNorm()(x)
-        x = ScaledConv2D(
-            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
-        )(x)
-        x = LeakyReLU(0.2)(x)
-        x = PixelNorm()(x)
-
-        generator_output = ScaledConv2D(
-            filters=self.channels,
-            kernel_size=(1, 1),
-            strides=(1, 1),
-            padding="same",
-            kernel_initializer=RandomNormal(0, 1),
-            gain=1,
-        )(x)
-        return generator_output
-
-    def _upsample_generator(self):
-        x = self.generator.layers[-1].output
-        x = UpSampling2D(name="upsampling_removable")(x)
-        return x
-
-    def _add_fade_in_layer_to_discriminator(self, image_input):
-        cur_resolution = image_input.shape[1].value
-        n_filters = self._calc_filters(cur_resolution)
-
-        x = ScaledConv2D(
-            filters=n_filters, kernel_size=(1, 1), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
-        )(image_input)
-        x = LeakyReLU(0.2)(x)
-
-        x = ScaledConv2D(
-            filters=n_filters, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer=RandomNormal(0, 1)
-        )(x)
-        x = LeakyReLU(0.2)(x)
-        cur_resolution //= 2
-        n_filters = self._calc_filters(cur_resolution)
-        x = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding="same",
-            kernel_initializer=RandomNormal(0, 1),
-            gain=1,
-        )(x)
-        x = LeakyReLU(0.2)(x)
-        x = AveragePooling2D(2, 2)(x)
-        return x
-
     def update_alpha(self, alpha):
         models = [self.generator, self.discriminator, self.discriminator_model, self.combined_model]
         for model in models:
             for layer in model.layers:
                 if isinstance(layer, WeightedSum):
                     K.set_value(layer.alpha, alpha)
-
-    def remove_fade_in_layers(self):
-        self._remove_fade_in_layer_from_generator()
-
-    def _remove_fade_in_layer_from_generator(self):
-        x = self.generator.inputs[0]
-        for layer in self.generator.layers[1:]:
-            if "removable" not in layer.name:
-                x = layer(x)
-        self.generator = Model(self.generator.get_input_at(0), x)
 
     def _calc_filters(self, x):
         return int(min((4 * 4 * self.latent_size / x) * 2, self.latent_size))
@@ -410,4 +284,31 @@ class ProGAN(GAN):
             d = old_model.layers[i](d)
         model2 = Model(in_image, d)
         model2.compile(loss=wasserstein_loss, optimizer=optimizer)
+        return [model1, model2]
+
+    def _add_generator_block(self, old_model: Model, block: int) -> list:
+        cur_resolution = 2 ** (2 + block)
+        n_filters = self._calc_filters(cur_resolution)
+
+        init = RandomNormal(0, 1)
+
+        block_end = old_model.layers[-2].output
+        upsampling = UpSampling2D()(block_end)
+        g = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(upsampling)
+        g = LeakyReLU(alpha=0.2)(g)
+        g = PixelNorm()(g)
+
+        g = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
+        g = LeakyReLU(alpha=0.2)(g)
+        g = PixelNorm()(g)
+
+        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same",
+                                 kernel_initializer=init)(g)
+        model1 = Model(old_model.input, out_image)
+
+        out_old = old_model.layers[-1]
+        out_image2 = out_old(upsampling)
+        merged = WeightedSum()([out_image2, out_image])
+
+        model2 = Model(old_model.input, merged)
         return [model1, model2]

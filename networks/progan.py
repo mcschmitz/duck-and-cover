@@ -2,13 +2,11 @@
 Definition of the ProGAN class.
 """
 
-import functools
-
 import numpy as np
-from keras import Model
+from keras import Model, Sequential
 from keras import backend as K
 from keras.initializers import RandomNormal
-from keras.layers import *
+from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
 
 from networks import GAN
 from networks.utils import PixelNorm, RandomWeightedAverage, wasserstein_loss, gradient_penalty_loss
@@ -76,7 +74,7 @@ class ProGAN(GAN):
 
         discriminator_optimizer = optimizer if discriminator_optimizer is None else discriminator_optimizer
         self.discriminator_models = self._build_discriminator(n_blocks, optimizer=discriminator_optimizer)
-        self.generator = self._build_generator()
+        self.generator = self._build_generator(n_blocks)
 
         self.history["D_loss"] = []
         self.history["D_loss_positives"] = []
@@ -84,61 +82,27 @@ class ProGAN(GAN):
         self.history["D_loss_dummies"] = []
         self.history["G_loss"] = []
 
-        for layer in self.generator.layers:
-            layer.trainable = False
-        self.generator.trainable = False
-
-        self._build_discriminator_model(optimizer)
-        for layer in self.discriminator.layers:
-            layer.trainable = False
-        self.discriminator.trainable = False
-        for layer in self.generator.layers:
-            layer.trainable = True
-        self.generator.trainable = True
         self._build_combined_model(discriminator_optimizer)
 
-    def _build_discriminator_model(self, optimizer):
-        """
-        Builds the discriminator for the WGAN with gradient penalty.
-
-        @ TODO
-        The discriminator takes real images, generated ones and an average of both and optimizes the wasserstein loss
-        for the real and the fake images as well as the gradient penalty for the averaged samples
-        """
-        disc_input_image = Input(self.img_shape, name="Img_Input")
-        disc_input_noise = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
-        gen_image_disc = self.generator(disc_input_noise)
-        disc_image_gen = self.discriminator(gen_image_disc)
-        disc_image_image = self.discriminator(disc_input_image)
-        avg_samples = RandomWeightedAverage(self.batch_size)([disc_input_image, gen_image_disc])
-        disc_avg_disc = self.discriminator(avg_samples)
-        self.discriminator_model = Model(
-            inputs=[disc_input_image, disc_input_noise], outputs=[disc_image_image, disc_image_gen, disc_avg_disc]
-        )
-        partial_gp_loss = functools.partial(
-            gradient_penalty_loss, averaged_samples=avg_samples, gradient_penalty_weight=self._gradient_penalty_weight
-        )
-        partial_gp_loss.__name__ = "gradient_penalty"
-        self.discriminator_model.compile(
-            loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer
-        )
-
     def _build_combined_model(self, optimizer):
-        """
-        Build the combined GAN consisting of generator and discriminator.
+        model_list = list()
 
-        @ TODO
-        Takes the latent input and generates an images out of it by applying the generator. Classifies the image via the
-        discriminator. The model is compiled using the given optimizer
+        for idx, _ in enumerate(self.discriminator_models):
+            g_models, d_models = self.generator[idx], self.discriminator_models[idx]
+            d_models[0].trainable = False
+            model1 = Sequential()
+            model1.add(g_models[0])
+            model1.add(d_models[0])
+            model1.compile(loss=wasserstein_loss, optimizer=optimizer)
 
-        Args:
-            optimizer: which optimizer to use
-        """
-        gen_input_latent = Input((self.latent_size,), name="Latent_Input")
-        gen_image = self.generator(gen_input_latent)
-        disc_image = self.discriminator(gen_image)
-        self.combined_model = Model(gen_input_latent, disc_image)
-        self.combined_model.compile(optimizer, loss=[wasserstein_loss])
+            d_models[1].trainable = False
+            model2 = Sequential()
+            model2.add(g_models[1])
+            model2.add(d_models[1])
+            model2.compile(loss=wasserstein_loss, optimizer=optimizer)
+
+            model_list.append([model1, model2])
+        return model_list
 
     def _build_generator(self, n_blocks):
         init = RandomNormal(0, 1)
@@ -156,7 +120,9 @@ class ProGAN(GAN):
         x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
         x = PixelNorm()(x)
         x = LeakyReLU(alpha=0.2)(x)
-        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1)(x)
+        out_image = ScaledConv2D(
+            filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1
+        )(x)
 
         model = Model(latent_input, out_image)
         model_list.append([model, model])
@@ -302,8 +268,7 @@ class ProGAN(GAN):
         g = LeakyReLU(alpha=0.2)(g)
         g = PixelNorm()(g)
 
-        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same",
-                                 kernel_initializer=init)(g)
+        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init)(g)
         model1 = Model(old_model.input, out_image)
 
         out_old = old_model.layers[-1]

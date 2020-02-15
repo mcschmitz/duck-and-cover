@@ -1,6 +1,7 @@
 """
-Fairly basic set of tools for real-time data augmentation on image data. Can easily be extended to include new
-transformations, new preprocessing methods, etc...
+Fairly basic set of tools for real-time data augmentation on image data. Can
+easily be extended to include new transformations, new preprocessing methods,
+etc...
 
 Some of the  functions are from https://github.com/lim-anggun/Keras-ImageDataGenerator/blob/master/image.py
 """
@@ -12,6 +13,8 @@ import scipy.ndimage as ndi
 from keras.preprocessing.image import load_img, img_to_array
 from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
+
+from utils import scale_images
 
 
 def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
@@ -31,8 +34,7 @@ def random_channel_shift(x: np.array, intensity: float, channel_axis: int = 0):
     """
     x = np.rollaxis(x, channel_axis, 0)
     min_x, max_x = np.min(x), np.max(x)
-    channel_images = [np.clip(x_channel + np.random.uniform(-intensity, intensity), min_x, max_x)
-                      for x_channel in x]
+    channel_images = [np.clip(x_channel + np.random.uniform(-intensity, intensity), min_x, max_x) for x_channel in x]
     x = np.stack(channel_images, axis=0)
     x = np.rollaxis(x, 0, channel_axis + 1)
     return x
@@ -64,8 +66,9 @@ def transform_matrix_offset_center(matrix: np.array, x: int, y: int):
     return transform_matrix
 
 
-def apply_transform(x: np.array, transform_matrix: np.array, channel_axis: int = 0, fill_mode: str = 'nearest',
-                    cval: float = 0.):
+def apply_transform(
+    x: np.array, transform_matrix: np.array, channel_axis: int = 0, fill_mode: str = "nearest", cval: float = 0.0
+):
     """
     Apply the image transformation specified by a transformation matrix.
 
@@ -86,13 +89,12 @@ def apply_transform(x: np.array, transform_matrix: np.array, channel_axis: int =
     x = np.rollaxis(x, channel_axis, 0)
     final_affine_matrix = transform_matrix[:2, :2]
     final_offset = transform_matrix[:2, 2]
-    channel_images = [ndi.interpolation.affine_transform(
-        x_channel,
-        final_affine_matrix,
-        final_offset,
-        order=0,
-        mode=fill_mode,
-        cval=cval) for x_channel in x]
+    channel_images = [
+        ndi.interpolation.affine_transform(
+            x_channel, final_affine_matrix, final_offset, order=0, mode=fill_mode, cval=cval
+        )
+        for x_channel in x
+    ]
     x = np.stack(channel_images, axis=0)
     x = np.rollaxis(x, 0, channel_axis + 1)
     return x
@@ -100,7 +102,7 @@ def apply_transform(x: np.array, transform_matrix: np.array, channel_axis: int =
 
 def flip_axis(x: np.array, axis: int):
     """
-    Flips the axis of a given input matrix
+    Flips the axis of a given input matrix.
 
     Args:
         x: 2D numpy array, single image.
@@ -118,20 +120,6 @@ def flip_axis(x: np.array, axis: int):
     return x
 
 
-def scale_images(images: np.array):
-    """
-    Scales the images to [-1, 1]
-
-    Args:
-        images: numpy array of images
-
-    Returns:
-        The scaled images as numpy array
-    """
-    images = (images - 127.5) / 127.5
-    return images
-
-
 def rescale_images(images: np.array, drange_in=[-1, 1], drange_out=[0, 255]):
     """
     Scales the images back from a range of [-1, 1] to [0, 255]
@@ -145,22 +133,39 @@ def rescale_images(images: np.array, drange_in=[-1, 1], drange_out=[0, 255]):
         The rescaled images as numpy array
     """
     scale = (np.float32(drange_out[1]) - np.float32(drange_out[0])) / (
-            np.float32(drange_in[1]) - np.float32(drange_in[0]))
-    bias = (np.float32(drange_out[0]) - np.float32(drange_in[0]) * scale)
+        np.float32(drange_in[1]) - np.float32(drange_in[0])
+    )
+    bias = np.float32(drange_out[0]) - np.float32(drange_in[0]) * scale
     images = images * scale + bias
     images = np.rint(images).clip(0, 255).astype(np.uint8)
     return images
 
 
 class ImageLoader:
-    def __init__(self, data: pd.DataFrame, path_column: str, image_size: int = 256, image_ratio: tuple = (1, 1),
-                 binarizer: MultiLabelBinarizer = None, color_mode: str = "rgb", row_axis: int = 0, col_axis: int =
-                 1, channel_axis: int = 2, rotation_range: int = 0, height_shift_range: float = 0.0,
-                 width_shift_range: float = 0.0, shear_range: float = 0.0, zoom_range: tuple = (0.0, 0.0),
-                 channel_shift_range: float = 0.0, horizontal_flip: bool = False, vertical_flip: bool = False):
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        path_column: str,
+        image_size: int = 256,
+        image_ratio: tuple = (1, 1),
+        binarizer: MultiLabelBinarizer = None,
+        color_mode: str = "rgb",
+        row_axis: int = 0,
+        col_axis: int = 1,
+        channel_axis: int = 2,
+        rotation_range: int = 0,
+        height_shift_range: float = 0.0,
+        width_shift_range: float = 0.0,
+        shear_range: float = 0.0,
+        zoom_range: tuple = (0.0, 0.0),
+        channel_shift_range: float = 0.0,
+        horizontal_flip: bool = False,
+        vertical_flip: bool = False,
+    ):
         """
-        Image Loader that takes a pandas dataframe containing the file paths to the images and additional meta
-        information and loads the existing images. Also allows several image data augmentation applications.
+        Image Loader that takes a pandas dataframe containing the file paths to
+        the images and additional meta information and loads the existing
+        images. Also allows several image data augmentation applications.
 
         Args:
             data: pandas dataframe containing the file paths to the images and additional meta information
@@ -201,7 +206,9 @@ class ImageLoader:
         self.vertical_flip = vertical_flip
 
     def random_transform(self, x, seed=None):
-        """Randomly augment a single image tensor.
+        """
+        Randomly augment a single image tensor.
+
         # Arguments
             x: 3D tensor, single image.
             seed: random seed.
@@ -217,22 +224,22 @@ class ImageLoader:
             np.random.seed(seed)
 
         # use composition of homographies to generate final transform that needs to be applied
-        if self.rotation_range and np.random.random() > .5:
+        if self.rotation_range and np.random.random() > 0.5:
             theta = np.pi / 180 * np.random.uniform(-self.rotation_range, self.rotation_range)
         else:
             theta = 0
 
-        if self.height_shift_range and np.random.random() > .5:
+        if self.height_shift_range and np.random.random() > 0.5:
             tx = np.random.uniform(-self.height_shift_range, self.height_shift_range) * x.shape[img_row_axis]
         else:
             tx = 0
 
-        if self.width_shift_range and np.random.random() > .5:
+        if self.width_shift_range and np.random.random() > 0.5:
             ty = np.random.uniform(-self.width_shift_range, self.width_shift_range) * x.shape[img_col_axis]
         else:
             ty = 0
 
-        if self.shear_range and np.random.random() > .5:
+        if self.shear_range and np.random.random() > 0.5:
             shear = np.random.uniform(-self.shear_range, self.shear_range)
         else:
             shear = 0
@@ -244,35 +251,29 @@ class ImageLoader:
 
         transform_matrix = None
         if theta != 0:
-            rotation_matrix = np.array([[np.cos(theta), -np.sin(theta), 0],
-                                        [np.sin(theta), np.cos(theta), 0],
-                                        [0, 0, 1]])
+            rotation_matrix = np.array(
+                [[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]]
+            )
             transform_matrix = rotation_matrix
 
         if tx != 0 or ty != 0:
-            shift_matrix = np.array([[1, 0, tx],
-                                     [0, 1, ty],
-                                     [0, 0, 1]])
+            shift_matrix = np.array([[1, 0, tx], [0, 1, ty], [0, 0, 1]])
             transform_matrix = shift_matrix if transform_matrix is None else np.dot(transform_matrix, shift_matrix)
 
         if shear != 0:
-            shear_matrix = np.array([[1, -np.sin(shear), 0],
-                                     [0, np.cos(shear), 0],
-                                     [0, 0, 1]])
+            shear_matrix = np.array([[1, -np.sin(shear), 0], [0, np.cos(shear), 0], [0, 0, 1]])
             transform_matrix = shear_matrix if transform_matrix is None else np.dot(transform_matrix, shear_matrix)
 
-        if zx != 1 or zy != 1 and np.random.random() > .5:
-            zoom_matrix = np.array([[zx, 0, 0],
-                                    [0, zy, 0],
-                                    [0, 0, 1]])
+        if zx != 1 or zy != 1 and np.random.random() > 0.5:
+            zoom_matrix = np.array([[zx, 0, 0], [0, zy, 0], [0, 0, 1]])
             transform_matrix = zoom_matrix if transform_matrix is None else np.dot(transform_matrix, zoom_matrix)
 
-        if transform_matrix is not None and np.random.random() > .5:
+        if transform_matrix is not None and np.random.random() > 0.5:
             h, w = x.shape[img_row_axis], x.shape[img_col_axis]
             transform_matrix = transform_matrix_offset_center(transform_matrix, h, w)
             x = apply_transform(x, transform_matrix, img_channel_axis, fill_mode="constant", cval=0)
 
-        if self.channel_shift_range != 0 and np.random.random() > .5:
+        if self.channel_shift_range != 0 and np.random.random() > 0.5:
             x = random_channel_shift(x, self.channel_shift_range, img_channel_axis)
         if self.horizontal_flip and np.random.random() < 0.5:
             x = flip_axis(x, img_col_axis)
@@ -296,7 +297,7 @@ class ImageLoader:
                 information if requested
         """
         batch_x = np.zeros((batch_size, self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        grayscale = self.color_mode == 'grayscale'
+        grayscale = self.color_mode == "grayscale"
         year_x = np.zeros((batch_size, 1)) if year else None
         genres_x = np.zeros((batch_size, len(self.binarizer.classes_))) if genre else None
 
@@ -319,7 +320,7 @@ class ImageLoader:
 
     def load_all(self, year: bool = False, genre: bool = False):
         """
-        Loads all images from the data frame
+        Loads all images from the data frame.
 
         Args:
             year: whether to load the release year information as well.
@@ -330,7 +331,7 @@ class ImageLoader:
                 information if requested
         """
         batch_x = np.zeros((len(self.data), self.image_shape[0], self.image_shape[1], 3), dtype=K.floatx())
-        grayscale = self.color_mode == 'grayscale'
+        grayscale = self.color_mode == "grayscale"
         year_x = np.zeros((len(self.data), 1)) if year else None
         genres_x = np.zeros((len(self.data), len(self.binarizer.classes_))) if genre else None
 

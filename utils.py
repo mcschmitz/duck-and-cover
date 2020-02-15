@@ -1,16 +1,25 @@
+"""
+Utility functions to train the GAN.
+"""
 import os
 
 import matplotlib.animation as anim
 import matplotlib.pyplot as plt
 import numpy as np
+import psutil
+from keras import backend as K
 from keras.preprocessing.image import array_to_img
+from skimage.io import imread
+from skimage.transform import resize
+from tqdm import tqdm
 
 plt.ioff()
 
 
 def create_dir(directory_path):
     """
-    Creates a directory to the given path if it does not exist and returns the path
+    Creates a directory to the given path if it does not exist and returns the
+    path.
 
     Args:
         directory_path: path directory
@@ -24,7 +33,8 @@ def create_dir(directory_path):
 
 
 def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = None, target_size: tuple = (64, 64)):
-    """Generates a list of images by predicting with the given generator
+    """
+    Generates a list of images by predicting with the given generator.
 
     Feeds normal distributed random numbers into the generator to generate `n_imgs`, tiles the image, rescales it and
     and saves the output to a PNG file.
@@ -48,7 +58,8 @@ def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = N
 
 
 def tile_images(image_stack):
-    """Tiles the given images to one big image
+    """
+    Tiles the given images to one big image.
 
     Given a stacked array of images, reshapes them into a horizontal tiling for display.
 
@@ -63,8 +74,7 @@ def tile_images(image_stack):
     return tiled_images
 
 
-class AnimatedGif:
-
+class AnimatedGif(object):
     def __init__(self, size: tuple = (640, 480)):
         """
         @TODO + Refs https://tomroelandts.com/articles/how-to-create-animated-gifs-with-python
@@ -80,11 +90,62 @@ class AnimatedGif:
         ax.set_yticks([])
         self.images = []
 
-    def add(self, image, label='', label_position: tuple = (1, 1)):
+    def add(self, image, label="", label_position: tuple = (1, 1)):
         plt_im = plt.imshow(image, vmin=0, vmax=1, animated=True)
-        plt_txt = plt.text(label_position[0], label_position[1], label, color='black')
+        plt_txt = plt.text(label_position[0], label_position[1], label, color="black")
         self.images.append([plt_im, plt_txt])
 
     def save(self, filename, fps: float = 10):
         animation = anim.ArtistAnimation(self.fig, self.images)
-        animation.save(filename, writer='imagemagick', fps=fps)
+        animation.save(filename, writer="imagemagick", fps=fps)
+
+
+def load_data(path: str, size: int = 4):
+    """
+    Loads the image dataset.
+
+    Args:
+        path: path to the image files
+        size: target resolution of the image tensor
+
+    Returns:
+        list of image tensor and image index
+    """
+    path = os.path.join(path, "all{0}.npy".format(size))
+    if os.path.exists(path) and os.stat(path).st_size < (psutil.virtual_memory().total * 0.8):
+        images = np.load(path)
+        img_idx = np.arange(0, images.shape[0])
+        return images, img_idx
+    elif os.path.exists(path):
+        print("Data does not fit inside Memory. Preallocation is not possible, use iterator instead")
+    else:
+        try:
+            files = [
+                os.path.join(path, f) for f in os.listdir(path) if os.path.splitext(os.path.join(path, f))[1] == ".jpg"
+            ]
+            images = np.zeros((len(files), size, size, 3), dtype=K.floatx())
+
+            for i, file_path in tqdm(enumerate(files)):
+                img = imread(file_path)
+                img = resize(img, (size, size, 3))
+                img = scale_images(img)
+                images[i] = img
+            np.save(path, images)
+            img_idx = np.arange(0, images.shape[0])
+            return images, img_idx
+        except MemoryError as _:
+            print("Data does not fit inside Memory. Preallocation is not possible.")
+
+
+def scale_images(images: np.array):
+    """
+    Scales the images to [-1, 1]
+
+    Args:
+        images: numpy array of images
+
+    Returns:
+        The scaled images as numpy array
+    """
+    images = (images - 127.5) / 127.5
+    return images

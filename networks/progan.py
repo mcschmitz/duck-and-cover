@@ -9,7 +9,7 @@ from keras.initializers import RandomNormal
 from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
 
 from networks import GAN
-from networks.utils import PixelNorm, RandomWeightedAverage, wasserstein_loss, gradient_penalty_loss
+from networks.utils import PixelNorm, wasserstein_loss
 from networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D
 
 
@@ -38,10 +38,8 @@ class ProGAN(GAN):
 
     def __init__(self, gradient_penalty_weight: int = 10, latent_size: int = 256):
         super(ProGAN, self).__init__()
-        self.img_height = None
-        self.img_width = None
+        self.img_shape = ()
         self.channels = None
-        self.img_shape = (self.img_height, self.img_width, self.channels)
         self.latent_size = latent_size
         self.discriminator_loss = []
         self._gradient_penalty_weight = gradient_penalty_weight
@@ -67,7 +65,7 @@ class ProGAN(GAN):
             n_blocks: Number of blocks to add. each block doubles the size of the output image starting by 4*4. So
                 n_blocks=1 will result in an image of size 8*8.
         """
-        img_height = img_width = 2 ** n_blocks + 2
+        img_height = img_width = 2 ** (n_blocks + 1)
         self.channels = channels if channels is not None else self.channels
         self.img_shape = (img_height, img_width, self.channels)
         self.batch_size = batch_size if batch_size is not None else self.batch_size
@@ -113,13 +111,11 @@ class ProGAN(GAN):
         x = ScaledDense(units=4 * 4 * self.latent_size, kernel_initializer=init, gain=np.sqrt(2) / 4)(latent_input)
         x = Reshape((4, 4, self.latent_size))(x)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = PixelNorm()(x)
+        for _ in range(2):
+            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
+            x = LeakyReLU(alpha=0.2)(x)
+            x = PixelNorm()(x)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
-        x = PixelNorm()(x)
-        x = LeakyReLU(alpha=0.2)(x)
         out_image = ScaledConv2D(
             filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1
         )(x)
@@ -156,10 +152,9 @@ class ProGAN(GAN):
         model.compile(loss=wasserstein_loss, optimizer=optimizer)
         model_list.append([model, model])
 
-        model_list.append([model, model])
         for i in range(1, n_blocks):
             old_model = model_list[i - 1][0]
-            models = self._add_discriminator_block(old_model, block=i, optimizer=optimizer)
+            models = self._add_discriminator_block(old_model, optimizer=optimizer)
             model_list.append(models)
         return model_list
 
@@ -213,12 +208,11 @@ class ProGAN(GAN):
                 if isinstance(layer, WeightedSum):
                     K.set_value(layer.alpha, alpha)
 
-    def _calc_filters(self, x):
+    def _calc_filters(self, x: int):
         return int(min((4 * 4 * self.latent_size / x) * 2, self.latent_size))
 
-    def _add_discriminator_block(self, old_model: Model, optimizer, block: int, n_input_layers: int = 3) -> list:
-        cur_resolution = 2 ** (2 + block)
-        n_filters = self._calc_filters(cur_resolution)
+    def _add_discriminator_block(self, old_model: Model, optimizer, n_input_layers: int = 3) -> list:
+        n_filters = self.img_shape[0]
 
         init = RandomNormal(0, 1)
         in_shape = list(old_model.input.shape)

@@ -4,22 +4,19 @@ Trains the ProGAN.
 
 import os
 import itertools
-import keras.backend as K
 import matplotlib.pyplot as plt
 import numpy as np
-import psutil
 import seaborn as sns
-from tqdm import tqdm
 from keras_gradient_accumulation import GradientAccumulation
 from keras.optimizers import Adam
-from Loader.cover_loader import load_img, img_to_array, scale_images
 from networks import ProGAN
 from networks.utils import plot_gan, save_gan, load_gan
-from utils import create_dir, generate_images
+from utils import create_dir, generate_images, load_data
 
 N_BLOCKS = 6
 RESOLUTIONS = 2 ** np.arange(2, N_BLOCKS + 2)
 LATENT_SIZE = RESOLUTIONS[-1]
+DATA_PATH = "data/celeba"
 
 PATH = "celeba/2_progan_1"
 FADE = [True, False]
@@ -69,33 +66,7 @@ if __name__ == "__main__":
 
         batch_size = BATCH_SIZE // ACCUMULATIVE_UPDATES[resolution]
 
-        DATA_PATH = "data/celeba/all{}.npy".format(resolution)
-
-        images = None
-
-        if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * 0.8):
-            images = np.load(DATA_PATH)
-            img_idx = np.arange(0, images.shape[0])
-        elif os.path.exists(DATA_PATH):
-            pass
-        else:
-            try:
-                files = [
-                    os.path.join("data/celeba", f)
-                    for f in os.listdir("data/celeba")
-                    if os.path.splitext(os.path.join("data/celeba", f))[1] == ".jpg"
-                ]
-                images = np.zeros((len(files), resolution, resolution, 3), dtype=K.floatx())
-
-                for i, file_path in tqdm(enumerate(files)):
-                    img = load_img(file_path, grayscale=False, target_size=(resolution, resolution, 3))
-                    x = img_to_array(img)
-                    x = scale_images(x)
-                    images[i] = x
-                np.save(DATA_PATH, images)
-                img_idx = np.arange(0, images.shape[0])
-            except MemoryError as ex:
-                print("Data does not fit inside Memory. Preallocation is not possible.")
+        images, img_idx = load_data(DATA_PATH, size=128)
 
         minibatch_size = batch_size * N_CRITIC
         img_resolution = resolution if not fade else resolution // 2

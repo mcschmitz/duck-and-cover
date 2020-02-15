@@ -5,22 +5,19 @@ keras-for-synthesizing-faces/, whereby some functions and classes are modified
 or enhanced.
 """
 
-import os
 from math import sqrt
 
 import numpy as np
-import psutil
 from keras import backend as K
 from keras.initializers import RandomNormal
 from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
 from keras.models import Model, Sequential
 from keras.optimizers import Adam
 from matplotlib import pyplot
-from skimage.io import imread
 from skimage.transform import resize
-from tqdm import tqdm
 
 from networks.utils import PixelNorm, MinibatchSd, WeightedSum, ScaledConv2D, ScaledDense, wasserstein_loss
+from utils import load_data
 
 
 def add_discriminator_block(old_model: Model, n_input_layers: int = 3) -> list:
@@ -204,42 +201,6 @@ def define_combined(discriminators: list, generators: list) -> list:
 
         model_list.append([model1, model2])
     return model_list
-
-
-def load_real_samples(path: str, size: int = 4):
-    """
-    Loads the image dataset.
-
-    Args:
-        path: path to the image files
-        size: target resolution of the image tensor
-
-    Returns:
-        list of image tensor and image index
-    """
-    if os.path.exists(path) and os.stat(path).st_size < (psutil.virtual_memory().total * 0.8):
-        images = np.load(path)
-        img_idx = np.arange(0, images.shape[0])
-        return images, img_idx
-    elif os.path.exists(path):
-        print("Data does not fit inside Memory. Preallocation is not possible, use iterator instead")
-    else:
-        try:
-            files = [
-                os.path.join(path, f) for f in os.listdir(path) if os.path.splitext(os.path.join(path, f))[1] == ".jpg"
-            ]
-            images = np.zeros((len(files), size, size, 3), dtype=K.floatx())
-
-            for i, file_path in tqdm(enumerate(files)):
-                x = imread(file_path)
-                x = resize(x, (size, size, 3))
-                x = (x - 127.5) / 127.5
-                images[i] = x
-            np.save(path, images)
-            img_idx = np.arange(0, images.shape[0])
-            return images, img_idx
-        except MemoryError as _:
-            print("Data does not fit inside Memory. Preallocation is not possible.")
 
 
 def generate_real_samples(dataset, n_samples):
@@ -437,7 +398,7 @@ latent_dim = 100
 d_models = define_discriminator(n_blocks)
 g_models = define_generator(latent_dim, n_blocks)
 gan_models = define_combined(d_models, g_models)
-dataset, img_idx = load_real_samples("../data/celeba/all128.npy", size=128)
+dataset, img_idx = load_data("../data/celeba/all128.npy", size=128)
 print("Loaded", dataset.shape)
 n_batch = [16, 16, 16, 8, 4, 4]
 n_epochs = [5, 8, 8, 10, 10, 10]

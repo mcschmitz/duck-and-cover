@@ -9,8 +9,9 @@ from keras.initializers import RandomNormal
 from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
 
 from networks import GAN
-from networks.utils import PixelNorm, wasserstein_loss
-from networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D
+from networks.utils import PixelNorm, wasserstein_loss, gradient_penalty_loss
+from networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D, RandomWeightedAverage
+import functools
 
 
 #  TODO Add release year information
@@ -44,8 +45,7 @@ class ProGAN(GAN):
         self.discriminator_loss = []
         self._gradient_penalty_weight = gradient_penalty_weight
         self.batch_size = None
-
-        self.discriminator_models = None
+        self.discriminator_model = []
 
     def build_models(
         self, optimizer, discriminator_optimizer=None, batch_size: int = None, channels: int = None, n_blocks: int = 1
@@ -71,8 +71,25 @@ class ProGAN(GAN):
         self.batch_size = batch_size if batch_size is not None else self.batch_size
 
         discriminator_optimizer = optimizer if discriminator_optimizer is None else discriminator_optimizer
-        self.discriminator_models = self._build_discriminator(n_blocks, optimizer=discriminator_optimizer)
+        self.discriminator = self._build_discriminator(n_blocks, optimizer=discriminator_optimizer)
         self.generator = self._build_generator(n_blocks)
+
+        for block in range(n_blocks):
+            for i in [0, 1]:
+                for layer in self.generator[block][i].layers:
+                    layer.trainable = False
+                self.generator[block][i].trainable = False
+
+        self._build_discriminator_model(optimizer, n_blocks)
+
+        for block in range(n_blocks):
+            for i in [0, 1]:
+                for layer in self.discriminator_model[block][i].layers:
+                    layer.trainable = False
+                self.discriminator_model[block][i].trainable = False
+                for layer in self.generator[block][i].layers:
+                    layer.trainable = True
+                self.generator[block][i].trainable = True
 
         self.history["D_loss"] = []
         self.history["D_loss_positives"] = []
@@ -80,13 +97,41 @@ class ProGAN(GAN):
         self.history["D_loss_dummies"] = []
         self.history["G_loss"] = []
 
-        self._build_combined_model(discriminator_optimizer)
+        self.combined_model = self._build_combined_model(discriminator_optimizer)
+
+    def _build_discriminator_model(self, optimizer, n_blocks):
+        for block in range(n_blocks):
+            discriminator_models = []
+            for i in [0, 1]:
+                disc_input_shp = self.generator[block][i].output_shape[1:]
+                disc_input_image = Input(disc_input_shp, name="Img_Input")
+                disc_input_noise = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
+                gen_image_disc = self.generator[block][i](disc_input_noise)
+                disc_image_gen = self.discriminator[block][i](gen_image_disc)
+                disc_image_image = self.discriminator[block][i](disc_input_image)
+                avg_samples = RandomWeightedAverage(self.batch_size)([disc_input_image, gen_image_disc])
+                disc_avg_disc = self.discriminator[block][i](avg_samples)
+                discriminator_model = Model(
+                    inputs=[disc_input_image, disc_input_noise],
+                    outputs=[disc_image_image, disc_image_gen, disc_avg_disc],
+                )
+                partial_gp_loss = functools.partial(
+                    gradient_penalty_loss,
+                    averaged_samples=avg_samples,
+                    gradient_penalty_weight=self._gradient_penalty_weight,
+                )
+                partial_gp_loss.__name__ = "gradient_penalty"
+                discriminator_model.compile(
+                    loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer
+                )
+                discriminator_models.append(discriminator_model)
+            self.discriminator_model.append(discriminator_models)
 
     def _build_combined_model(self, optimizer):
         model_list = list()
 
-        for idx, _ in enumerate(self.discriminator_models):
-            g_models, d_models = self.generator[idx], self.discriminator_models[idx]
+        for idx, _ in enumerate(self.discriminator):
+            g_models, d_models = self.generator[idx], self.discriminator[idx]
             d_models[0].trainable = False
             model1 = Sequential()
             model1.add(g_models[0])
@@ -158,7 +203,7 @@ class ProGAN(GAN):
             model_list.append(models)
         return model_list
 
-    def train_on_batch(self, real_images, n_critic: int = 5):
+    def train_on_batch(self, real_images, block: int, fade: bool, n_critic: int = 5):
         """
         Runs a single gradient update on a batch of data.
 
@@ -167,12 +212,13 @@ class ProGAN(GAN):
             real_images: numpy array of real input images used for training
             n_critic: number of discriminator updates for each iteration
         """
+        f_idx = 1 if fade else 0
         batch_size = real_images.shape[0] // n_critic
         real_y = np.ones((batch_size, 1)) * -1
 
         for i in range(n_critic):
             discriminator_minibatch = real_images[i * batch_size : (i + 1) * batch_size]
-            losses = self.train_discriminator(discriminator_minibatch)
+            losses = self.train_discriminator(discriminator_minibatch, block, fade)
 
         self.history["D_loss"].append(losses[0])
         self.history["D_loss_positives"].append(losses[1])
@@ -180,9 +226,9 @@ class ProGAN(GAN):
         self.history["D_loss_dummies"].append(losses[3])
 
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        self.history["G_loss"].append(self.combined_model.train_on_batch(noise, real_y))
+        self.history["G_loss"].append(self.combined_model[block][f_idx].train_on_batch(noise, real_y))
 
-    def train_discriminator(self, real_images):
+    def train_discriminator(self, real_images, block: int, fade: bool):
         """
         Runs a single gradient update on a batch of data.
 
@@ -193,16 +239,17 @@ class ProGAN(GAN):
         Returns:
             the losses for this training iteration
         """
+        f_idx = 1 if fade else 0
         batch_size = len(real_images)
         fake_y = np.ones((batch_size, 1))
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        losses = self.discriminator_model.train_on_batch([real_images, noise], [real_y, fake_y, dummy_y])
+        losses = self.discriminator_model[block][f_idx].train_on_batch([real_images, noise], [real_y, fake_y, dummy_y])
         return losses
 
-    def update_alpha(self, alpha):
-        models = [self.generator, self.discriminator, self.discriminator_model, self.combined_model]
+    def update_alpha(self, alpha, block):
+        models = [self.generator[block][1], self.discriminator_model[block][1], self.combined_model[block][1]]
         for model in models:
             for layer in model.layers:
                 if isinstance(layer, WeightedSum):

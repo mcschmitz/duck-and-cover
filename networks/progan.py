@@ -48,7 +48,7 @@ class ProGAN(GAN):
         self.discriminator_model = []
 
     def build_models(
-        self, optimizer, discriminator_optimizer=None, batch_size: int = None, channels: int = None, n_blocks: int = 1
+        self, optimizer, discriminator_optimizer=None, batch_size: list = None, channels: int = None, n_blocks: int = 1
     ):
         """
         Builds the desired GAN that allows to generate covers.
@@ -109,7 +109,7 @@ class ProGAN(GAN):
                 gen_image_disc = self.generator[block][i](disc_input_noise)
                 disc_image_gen = self.discriminator[block][i](gen_image_disc)
                 disc_image_image = self.discriminator[block][i](disc_input_image)
-                avg_samples = RandomWeightedAverage(self.batch_size)([disc_input_image, gen_image_disc])
+                avg_samples = RandomWeightedAverage(self.batch_size[block])([disc_input_image, gen_image_disc])
                 disc_avg_disc = self.discriminator[block][i](avg_samples)
                 discriminator_model = Model(
                     inputs=[disc_input_image, disc_input_noise],

@@ -30,6 +30,7 @@ TRAIN_STEPS = int(10e3)
 
 
 if __name__ == "__main__":
+    batch_size = [BATCH_SIZE // ACCUMULATIVE_UPDATES[r] for r in RESOLUTIONS]
     lp_path = create_dir("learning_progress/{}".format(PATH))
     base_optimizer = Adam(0.001, beta_1=0.0, beta_2=0.99)
     base_disc_optimizer = Adam(0.001, beta_1=0.0, beta_2=0.99)
@@ -42,12 +43,12 @@ if __name__ == "__main__":
         discriminator_optimizer=disc_optimizer,
         n_blocks=N_BLOCKS,
         channels=3,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
     )
 
     for block in range(N_BLOCKS):
         resolution = RESOLUTIONS[block]
-        print("\n\nStarting burn in with resolution {}\n\n".format(resolution))
+        print("\n\nStarting training for resolution {}\n\n".format(resolution))
         images, img_idx = load_data(DATA_PATH, size=resolution)
 
         batch_size = BATCH_SIZE // ACCUMULATIVE_UPDATES[resolution]

@@ -15,9 +15,14 @@ from utils import create_dir
 
 
 class SpotifyInfoCollector:
-
-    def __init__(self, spotify_token: str, spotify_id: str, spotify_secret: str, cover_frame: pd.DataFrame = None,
-                 artist_genres_map: dict = None):
+    def __init__(
+        self,
+        spotify_token: str,
+        spotify_id: str,
+        spotify_secret: str,
+        cover_frame: pd.DataFrame = None,
+        artist_genres_map: dict = None,
+    ):
         """
         Collector that gathers information about artists via the spotify API
         Args:
@@ -38,27 +43,40 @@ class SpotifyInfoCollector:
         if cover_frame is not None:
             self.cover_frame = cover_frame
         else:
-            self.cover_frame = pd.DataFrame([], columns=["artist_id", "artist_name", "artist_genre",
-                                                         "album_id", "album_name", "album_release",
-                                                         "album_cover_url300", "album_cover_url64"])
+            self.cover_frame = pd.DataFrame(
+                [],
+                columns=[
+                    "artist_id",
+                    "artist_name",
+                    "artist_genre",
+                    "album_id",
+                    "album_name",
+                    "album_release",
+                    "album_cover_url300",
+                    "album_cover_url64",
+                ],
+            )
 
     def create_new_token(self):
         """
-        Generates a new token for the Spotify API from the class object client id and client secret
+        Generates a new token for the Spotify API from the class object client
+        id and client secret.
         """
         return util.oauth2.SpotifyClientCredentials(self.client_id, self.client_secret).get_access_token()
 
     def create_spotify_session(self):
         """
-        Generates a new Spotify session object based on the provided token and returns it
+        Generates a new Spotify session object based on the provided token and
+        returns it.
         """
         return spotipy.Spotify(self.token)
 
-    def get_top_artists_for_genre(self, genres, save_on: int = 100, result_path: str = None,
-                                  remaining_path: str = None):
+    def get_top_artists_for_genre(
+        self, genres, save_on: int = 100, result_path: str = None, remaining_path: str = None
+    ):
         """
-        Collects top artists for a list of genres and their recommended artists and saves their corresponding genres
-        to the result path
+        Collects top artists for a list of genres and their recommended artists
+        and saves their corresponding genres to the result path.
 
         Args:
             genres: List of genres
@@ -97,7 +115,7 @@ class SpotifyInfoCollector:
     @staticmethod
     def write_to_json(obj, path):
         """
-        Writes a given object as a JSON file to the path
+        Writes a given object as a JSON file to the path.
 
         Args:
             obj: The object to save
@@ -110,7 +128,7 @@ class SpotifyInfoCollector:
     @staticmethod
     def write_to_txt(obj, path):
         """
-        Writes a given object as a text file to the path
+        Writes a given object as a text file to the path.
 
         Args:
             obj: The object to save
@@ -123,8 +141,9 @@ class SpotifyInfoCollector:
 
     def get_artist_ids_from_search(self, result, fallback_genre: str = None):
         """
-        Gets the artist IDs from a spotipy search result and writes an entry to the artist_genres dict that links the
-        IDs with the provided genres. If the genre is missing the fallback genre is used
+        Gets the artist IDs from a spotipy search result and writes an entry to
+        the artist_genres dict that links the IDs with the provided genres. If
+        the genre is missing the fallback genre is used.
 
         Args:
             result: spotipy search result
@@ -146,13 +165,15 @@ class SpotifyInfoCollector:
                     related_id = related_artist["id"]
                     if related_id not in self.artist_genres:
                         self.artist_genres[artist_id] = {
-                            "genre": artist["genres"] if artist["genres"] else [fallback_genre]}
+                            "genre": artist["genres"] if artist["genres"] else [fallback_genre]
+                        }
 
-    def build_cover_data_frame(self, artists: dict = None, save_on: int = 100, result_path: str = None,
-                               remaining_path: str = None):
+    def build_cover_data_frame(
+        self, artists: dict = None, save_on: int = 100, result_path: str = None, remaining_path: str = None
+    ):
         """
-        Builds a dataframe containing all albums, their release date and an url to their cover for a given set of
-        artists
+        Builds a dataframe containing all albums, their release date and an url
+        to their cover for a given set of artists.
 
         Args:
             artists: Dictionary of Spotify artist Ids and their gernes
@@ -195,7 +216,9 @@ class SpotifyInfoCollector:
         os.remove(remaining_path)
 
     def get_artist_album_data(self, artist: str = None, genre: list = None):
-        """Collects essential information about all  albums released by the given artist
+        """
+        Collects essential information about all  albums released by the given
+        artist.
 
         Args:
             artist: Spotify artist Id
@@ -221,19 +244,24 @@ class SpotifyInfoCollector:
                             cover_url300 = cover_url300[0] if cover_url300 else ""
                             cover_url64 = cover_url64[0] if cover_url64 else ""
                             release_year = int(album["release_date"][:4])
-                            album_summary = {"artist_id": artist, "artist_name": album["artists"][0]["name"],
-                                             "artist_genre": genre,
-                                             "album_id": album["id"], "album_name": album["name"],
-                                             "album_release": release_year,
-                                             "album_cover_url64": cover_url64,
-                                             "album_cover_url300": cover_url300}
+                            album_summary = {
+                                "artist_id": artist,
+                                "artist_name": album["artists"][0]["name"],
+                                "artist_genre": genre,
+                                "album_id": album["id"],
+                                "album_name": album["name"],
+                                "album_release": release_year,
+                                "album_cover_url64": cover_url64,
+                                "album_cover_url300": cover_url300,
+                            }
                             result.append(album_summary)
             return result
         else:
             return []
 
     def collect_album_cover(self, target_dir: str, size: int = 64):
-        """Collects the album covers
+        """
+        Collects the album covers.
 
         Downloads the album all_covers in the `cover_frame` and saves them to the given target directory under path
         `target_dir`/`artist_id`/`album_id.jpg`. Size determines whether do download the large 300x300 images or the
@@ -265,7 +293,8 @@ class SpotifyInfoCollector:
                     continue
 
     def add_file_path_to_frame(self, target_dir: str, size: int = 64):
-        """Add the file path to the dataframe
+        """
+        Add the file path to the dataframe.
 
         Adds a new column to the data frame. The name of this column is either `file_path_64` or `fie_path_300`
         depending on the selected size.
@@ -308,23 +337,26 @@ if __name__ == "__main__":
         with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
             file.close()
-            artist_info_collector = SpotifyInfoCollector(spotify_token=token, spotify_id=client_id,
-                                                         spotify_secret=client_secret,
-                                                         artist_genres_map=artists_to_process)
+            artist_info_collector = SpotifyInfoCollector(
+                spotify_token=token,
+                spotify_id=client_id,
+                spotify_secret=client_secret,
+                artist_genres_map=artists_to_process,
+            )
     else:
         genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
-    artists_to_process = artist_info_collector.get_top_artists_for_genre(genres=genres_to_process,
-                                                                         result_path=ARTISTS_FILE,
-                                                                         remaining_path=REMAINING_GENRES_PATH,
-                                                                         save_on=100)
+    artists_to_process = artist_info_collector.get_top_artists_for_genre(
+        genres=genres_to_process, result_path=ARTISTS_FILE, remaining_path=REMAINING_GENRES_PATH, save_on=100
+    )
 
     if os.path.isfile(REMAINING_ARTISTS):
         with open(REMAINING_ARTISTS, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
             file.close()
         album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
-        artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
-                                                     cover_frame=album_data)
+        artist_info_collector = SpotifyInfoCollector(
+            token, spotify_id=client_id, spotify_secret=client_secret, cover_frame=album_data
+        )
     else:
         with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
@@ -337,9 +369,11 @@ if __name__ == "__main__":
     artist_info_collector.collect_album_cover(target_dir="data/covers64", size=64)
 
     album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
-    artist_info_collector = SpotifyInfoCollector(token, spotify_id=client_id, spotify_secret=client_secret,
-                                                 cover_frame=album_data)
+    artist_info_collector = SpotifyInfoCollector(
+        token, spotify_id=client_id, spotify_secret=client_secret, cover_frame=album_data
+    )
     for size in [64, 300]:
         artist_info_collector.cover_frame = artist_info_collector.add_file_path_to_frame(
-            target_dir="data/all_covers{}".format(size), size=size)
+            target_dir="data/all_covers{}".format(size), size=size
+        )
     artist_info_collector.cover_frame.to_json(ALBUM_DATA_PATH, lines=True, orient="records")

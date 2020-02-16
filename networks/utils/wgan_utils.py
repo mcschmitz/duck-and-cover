@@ -28,7 +28,8 @@ def wasserstein_loss(y_true, y_pred):
 
 
 def gradient_penalty_loss(y_true, y_pred, averaged_samples, gradient_penalty_weight: float):
-    """Calculates the gradient penalty loss for a batch of "averaged" samples.
+    """
+    Calculates the gradient penalty loss for a batch of "averaged" samples.
 
     In Improved WGANs, the 1-Lipschitz constraint is enforced by adding a term to the loss function that penalizes
     the network if the gradient norm moves away from 1. However, it is impossible to evaluate this function at all

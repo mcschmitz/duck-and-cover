@@ -6,12 +6,13 @@ from keras.layers import Add, Dense, Conv2D
 
 
 class MinibatchSd(Layer):
-
     def __init__(self, **kwargs):
-        """Calculates the minibatch standard deviation and adds it to the output
+        """
+        Calculates the minibatch standard deviation and adds it to the output.
 
-        Calculates the average standard deviation of each value in the input map across the channels and
-        concatenates a blown up version of it (same size as the input map) to the input
+        Calculates the average standard deviation of each value in the
+        input map across the channels and concatenates a blown up
+        version of it (same size as the input map) to the input
         """
         super(MinibatchSd, self).__init__(**kwargs)
 
@@ -34,8 +35,9 @@ class MinibatchSd(Layer):
 
 
 class RandomWeightedAverage(Add):
-    """Takes a randomly-weighted average of two tensors. In geometric terms, this outputs a random point on the line
-    between each pair of input points.
+    """
+    Takes a randomly-weighted average of two tensors. In geometric terms, this
+    outputs a random point on the line between each pair of input points.
 
     Inheriting from _Merge is a little messy but it was the quickest solution I could
     think of. Improvements appreciated
@@ -49,15 +51,15 @@ class RandomWeightedAverage(Add):
         self.batch_size = batch_size
 
     def _merge_function(self, inputs):
-        assert (len(inputs) == 2)
+        assert len(inputs) == 2
         weights = K.random_uniform((self.batch_size, 1, 1, 1))
         return (weights * inputs[0]) + ((1 - weights) * inputs[1])
 
 
 class WeightedSum(Add):
-
     def __init__(self, alpha: float = 0.0, **kwargs):
-        """Weighted sum layer that outputs the weighted sum of two input tensors
+        """
+        Weighted sum layer that outputs the weighted sum of two input tensors.
 
         Calculates the weighted sum a * (1 - alpha) + b * (alpha) for the input tensors a and b and weight alpha
 
@@ -66,18 +68,18 @@ class WeightedSum(Add):
             **kwargs: keyword args passed to parent class
         """
         super(WeightedSum, self).__init__(**kwargs)
-        self.alpha = K.variable(alpha, name='ws_alpha')
+        self.alpha = K.variable(alpha, name="ws_alpha")
 
     def _merge_function(self, inputs):
-        assert (len(inputs) == 2)
+        assert len(inputs) == 2
         output = ((1.0 - self.alpha) * inputs[0]) + (self.alpha * inputs[1])
         return output
 
 
 class ScaledDense(Dense):
-
     def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
-        """Dense layer with weight scaling.
+        """
+        Dense layer with weight scaling.
 
         Ordinary Dense layer, that scales the weights by He's scaling factor at each forward pass. He's scaling
         factor is defined as sqrt(2/fan_in) where fan_in is the number of input units of the layer
@@ -93,17 +95,16 @@ class ScaledDense(Dense):
 
     def call(self, inputs):
         fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
-        wscale = self.gain / np.sqrt(max(1., fan_in))
+        wscale = self.gain / np.sqrt(max(1.0, fan_in))
         output = K.dot(inputs, self.kernel * wscale)
         if self.use_bias:
-            output = K.bias_add(output, self.bias, data_format='channels_last')
+            output = K.bias_add(output, self.bias, data_format="channels_last")
         if self.activation is not None:
             output = self.activation(output)
         return output
 
 
 class ScaledConv2D(Conv2D):
-
     def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
         """
         @TODO
@@ -118,15 +119,18 @@ class ScaledConv2D(Conv2D):
 
     def call(self, inputs):
         fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
-        wscale = self.gain / np.sqrt(max(1., fan_in))
-        outputs = K.conv2d(inputs, self.kernel * wscale, strides=self.strides, padding=self.padding,
-                           data_format=self.data_format, dilation_rate=self.dilation_rate)
+        wscale = self.gain / np.sqrt(max(1.0, fan_in))
+        outputs = K.conv2d(
+            inputs,
+            self.kernel * wscale,
+            strides=self.strides,
+            padding=self.padding,
+            data_format=self.data_format,
+            dilation_rate=self.dilation_rate,
+        )
 
         if self.use_bias:
-            outputs = K.bias_add(
-                outputs,
-                self.bias,
-                data_format=self.data_format)
+            outputs = K.bias_add(outputs, self.bias, data_format=self.data_format)
 
         if self.activation is not None:
             return self.activation(outputs)
@@ -136,8 +140,8 @@ class ScaledConv2D(Conv2D):
 class PixelNorm(Layer):
     def __init__(self, **kwargs):
         """
-        Pixel normalization layer that normalizes an input tensor along its channel axis by scaling its features
-        along this axis to unit length
+        Pixel normalization layer that normalizes an input tensor along its
+        channel axis by scaling its features along this axis to unit length.
 
         Args:
             channel_axis: channel axis. tensor value will be normalized along this axis

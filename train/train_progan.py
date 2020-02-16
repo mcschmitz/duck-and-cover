@@ -9,8 +9,8 @@ import seaborn as sns
 from keras_gradient_accumulation import GradientAccumulation
 from keras.optimizers import Adam
 from networks import ProGAN
-from networks.utils import plot_gan, save_gan, load_gan
-from utils import create_dir, generate_images, load_data, resize_images
+from networks.utils import plot_progan, save_gan, load_gan
+from utils import create_dir, generate_images, load_data
 
 N_BLOCKS = 6
 RESOLUTIONS = 2 ** np.arange(2, N_BLOCKS + 2)
@@ -26,7 +26,7 @@ ACCUMULATIVE_UPDATES = {r: i for r, i in zip(RESOLUTIONS, [1, 1, 2, 4, 8, 16, 32
 MINIBATCH_REPS = 1
 GRADIENT_PENALTY_WEIGHT = 10
 N_CRITIC = 1
-TRAIN_STEPS = int(10e5)
+TRAIN_STEPS = int(10e3)
 
 
 if __name__ == "__main__":
@@ -63,6 +63,7 @@ if __name__ == "__main__":
         steps = TRAIN_STEPS // batch_size
         alphas = np.linspace(0, 1, steps).tolist()
 
+        plot_progan(gan, block, lp_path, str(resolution))
         for fade in FADE:
             if fade and block == 0:
                 continue
@@ -115,7 +116,7 @@ if __name__ == "__main__":
                         alpha = 0
                         gan.update_alpha(alpha, block)
                         generate_images(
-                            gan.generator[block],
+                            gan.generator[block][f_idx],
                             os.path.join(lp_path, "fixed_step{}_alpha0.png".format(gan.images_shown)),
                             target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
                             seed=101,
@@ -123,7 +124,7 @@ if __name__ == "__main__":
                         alpha = 1
                         gan.update_alpha(alpha, block)
                         generate_images(
-                            gan.generator[block],
+                            gan.generator[block][f_idx],
                             os.path.join(lp_path, "fixed_step{}_alpha1.png".format(gan.images_shown)),
                             target_size=(RESOLUTIONS[-1] * 10, RESOLUTIONS[-1]),
                             seed=101,
@@ -162,7 +163,6 @@ if __name__ == "__main__":
                 plt.savefig(os.path.join(lp_path, "g_loss.png"))
                 plt.close()
 
-        plot_gan(gan, lp_path, str(resolution) + "_grown")
         save_gan(gan, model_dump_path)
         if resolution == 4:
             init_burn_in = True

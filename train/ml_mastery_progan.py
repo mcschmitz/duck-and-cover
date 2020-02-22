@@ -6,7 +6,7 @@ or enhanced.
 """
 
 from math import sqrt
-
+from tqdm import tqdm
 import numpy as np
 from keras import backend as K
 from keras.initializers import RandomNormal
@@ -14,8 +14,6 @@ from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, U
 from keras.models import Model, Sequential
 from keras.optimizers import Adam
 from matplotlib import pyplot
-from skimage.transform import resize
-
 from networks.utils import PixelNorm, MinibatchSd, WeightedSum, ScaledConv2D, ScaledDense, wasserstein_loss
 from utils import load_data
 
@@ -220,7 +218,7 @@ def generate_real_samples(dataset, n_samples):
     return X, y
 
 
-def generate_latent_points(latent_dim, n_samples):
+def generate_latent_points(latent_dim, n_samples, seed: int = None):
     """
     Samples random points.
 
@@ -231,12 +229,16 @@ def generate_latent_points(latent_dim, n_samples):
     Returns:
         sampled points
     """
+    if seed is not None:
+        np.random.seed(seed)
     x_input = np.random.randn(latent_dim * n_samples)
     x_input = x_input.reshape(n_samples, latent_dim)
+    if seed is not None:
+        np.random.seed()
     return x_input
 
 
-def generate_fake_samples(generator: Model, latent_dim: int, n_samples: int):
+def generate_fake_samples(generator: Model, latent_dim: int, n_samples: int, seed=None):
     """
     Use the generator to generate fake images.
 
@@ -248,7 +250,7 @@ def generate_fake_samples(generator: Model, latent_dim: int, n_samples: int):
     Returns:
         generated samples and their class
     """
-    x_input = generate_latent_points(latent_dim, n_samples)
+    x_input = generate_latent_points(latent_dim, n_samples, seed)
     X = generator.predict(x_input)
     y = -np.ones((n_samples, 1))
     return X, y
@@ -294,32 +296,16 @@ def train_epochs(
     n_batches = dataset.shape[0] // batch_size
     n_steps = n_batches * n_epochs
     half_batch = batch_size // 2
-    for i in range(n_steps):
+    for i in tqdm(range(n_steps)):
         if fadein:
             update_fadein([g_model, d_model, gan_model], i, n_steps)
         x_real, y_real = generate_real_samples(dataset, half_batch)
         x_fake, y_fake = generate_fake_samples(g_model, latent_dim, half_batch)
-        d_loss1 = d_model.train_on_batch(x_real, y_real)
-        d_loss2 = d_model.train_on_batch(x_fake, y_fake)
+        d_model.train_on_batch(x_real, y_real)
+        d_model.train_on_batch(x_fake, y_fake)
         z_input = generate_latent_points(latent_dim, batch_size)
         y_real2 = np.ones((batch_size, 1))
-        g_loss = gan_model.train_on_batch(z_input, y_real2)
-        print(">%d, d1=%.3f, d2=%.3f g=%.3f" % (i + 1, d_loss1, d_loss2, g_loss))
-
-
-def scale_dataset(images: list, new_shape: tuple):
-    """
-    Scales images to desired size.
-
-    Args:
-        images: List of images
-        new_shape: Tuple of the desired image size
-    """
-    images_list = list()
-    for image in images:
-        new_image = resize(image, new_shape, 0)
-        images_list.append(new_image)
-    return np.asarray(images_list)
+        gan_model.train_on_batch(z_input, y_real2)
 
 
 def summarize_performance(status, g_model, latent_dim, n_samples=25):
@@ -338,7 +324,7 @@ def summarize_performance(status, g_model, latent_dim, n_samples=25):
     gen_shape = g_model.output_shape
     name = "%03dx%03d-%s" % (gen_shape[1], gen_shape[2], status)
 
-    X, _ = generate_fake_samples(g_model, latent_dim, n_samples)
+    X, _ = generate_fake_samples(g_model, latent_dim, n_samples, seed=101)
     X = (X - X.min()) / (X.max() - X.min())
 
     square = int(sqrt(n_samples))
@@ -371,9 +357,9 @@ def train(g_models, d_models, gan_models, dataset, latent_dim, e_norm, e_fadein,
     g_normal, d_normal, gan_normal = g_models[0][0], d_models[0][0], gan_models[0][0]
 
     gen_shape = g_normal.output_shape
-    scaled_data = scale_dataset(dataset, gen_shape[1:])
-    print("Scaled Data", scaled_data.shape)
+    scaled_data, _ = load_data(dataset, gen_shape[1])
 
+    print("\n\nBurn in model_{0}".format(gen_shape))
     train_epochs(g_normal, d_normal, gan_normal, scaled_data, e_norm[0], n_batch[0])
     summarize_performance("tuned", g_normal, latent_dim)
 
@@ -383,23 +369,23 @@ def train(g_models, d_models, gan_models, dataset, latent_dim, e_norm, e_fadein,
         [gan_normal, gan_fadein] = gan_models[i]
 
         gen_shape = g_normal.output_shape
-        scaled_data = scale_dataset(dataset, gen_shape[1:])
-        print("Scaled Data", scaled_data.shape)
+        scaled_data, _ = load_data(dataset, gen_shape[1])
 
+        print("\n\nFade in model_{0}".format(gen_shape))
         train_epochs(g_fadein, d_fadein, gan_fadein, scaled_data, e_fadein[i], n_batch[i], True)
         summarize_performance("faded", g_fadein, latent_dim)
 
+        print("\n\nBurn in model_{0}".format(gen_shape))
         train_epochs(g_normal, d_normal, gan_normal, scaled_data, e_norm[i], n_batch[i])
         summarize_performance("tuned", g_normal, latent_dim)
 
 
 n_blocks = 6
-latent_dim = 100
+latent_dim = 128
 d_models = define_discriminator(n_blocks)
 g_models = define_generator(latent_dim, n_blocks)
 gan_models = define_combined(d_models, g_models)
-dataset, img_idx = load_data("../data/celeba/all128.npy", size=128)
-print("Loaded", dataset.shape)
-n_batch = [16, 16, 16, 8, 4, 4]
-n_epochs = [5, 8, 8, 10, 10, 10]
-train(g_models, d_models, gan_models, dataset, latent_dim, n_epochs, n_epochs, n_batch)
+data_path = "data/celeba"
+n_batch = [128, 128, 64, 32, 16, 8, 4]
+n_epochs = [10, 10, 10, 10, 10, 10]
+train(g_models, d_models, gan_models, data_path, latent_dim, n_epochs, n_epochs, n_batch)

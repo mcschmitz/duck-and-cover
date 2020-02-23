@@ -380,12 +380,13 @@ def train(g_models, d_models, gan_models, dataset, latent_dim, e_norm, e_fadein,
         summarize_performance("tuned", g_normal, latent_dim)
 
 
-n_blocks = 6
-latent_dim = 128
-d_models = define_discriminator(n_blocks)
-g_models = define_generator(latent_dim, n_blocks)
-gan_models = define_combined(d_models, g_models)
-data_path = "data/celeba"
-n_batch = [128, 128, 64, 32, 16, 8, 4]
-n_epochs = [10, 10, 10, 10, 10, 10]
-train(g_models, d_models, gan_models, data_path, latent_dim, n_epochs, n_epochs, n_batch)
+if __name__ == "__main__":
+    n_blocks = 6
+    latent_dim = 128
+    d_models = define_discriminator(n_blocks)
+    g_models = define_generator(latent_dim, n_blocks)
+    gan_models = define_combined(d_models, g_models)
+    data_path = "data/celeba"
+    n_batch = [128, 128, 64, 32, 16, 8, 4]
+    n_epochs = [10, 10, 10, 10, 10, 10]
+    train(g_models, d_models, gan_models, data_path, latent_dim, n_epochs, n_epochs, n_batch)

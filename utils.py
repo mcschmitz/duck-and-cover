@@ -55,6 +55,8 @@ def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = N
     tiled_output = array_to_img(tiled_output, scale=True)
     tiled_output = tiled_output.resize(size=target_size)
     tiled_output.save(output_dir)
+    if seed is not None:
+        np.random.seed()
 
 
 def tile_images(image_stack):

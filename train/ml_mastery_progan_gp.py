@@ -145,4 +145,5 @@ for block in range(N_BLOCKS):
 gan_models = define_combined(d_models, g_models)
 data_path = "data/celeba"
 epochs = [10, 10, 10, 10, 10, 10]
+
 train(g_models, disc_models, gan_models, data_path, LATENT_DIM, epochs, BATCH_SIZE)

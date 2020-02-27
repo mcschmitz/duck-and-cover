@@ -6,12 +6,28 @@ import numpy as np
 from keras import Model, Sequential
 from keras import backend as K
 from keras.initializers import RandomNormal
-from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
+from keras.layers import (
+    AveragePooling2D,
+    Flatten,
+    Input,
+    LeakyReLU,
+    Reshape,
+    UpSampling2D,
+)
 
 from networks import GAN
 from networks.utils import PixelNorm, wasserstein_loss, gradient_penalty_loss
-from networks.utils.layers import MinibatchSd, WeightedSum, ScaledDense, ScaledConv2D, RandomWeightedAverage
+from networks.utils.layers import (
+    MinibatchSd,
+    WeightedSum,
+    ScaledDense,
+    ScaledConv2D,
+    RandomWeightedAverage,
+)
 import functools
+import os
+from utils import generate_images, plot_metric
+from tqdm import tqdm
 
 
 #  TODO Add release year information
@@ -24,17 +40,17 @@ class ProGAN(GAN):
     """
     Progressive growing GAN.
 
-    Progressive Growing GAN that iteratively adds convolutional blocks too generator and discriminator. This
-    results in improved quality, stability, variation and a faster learning time. Initialization itself is
-    similar to the a normal Wasserstein GAN. Training, however, is slightly different: Initialization of the
-    training phase should be done on a small scale image (e.g. 4x4). After an initial burn-in phase (train the
-    GAN on the current resolution), a fade-in phase follows; meaning that on fades in the 8x8 upscale layer using
-    the add add_fade_in_layers method. This phase is followed by another burn-in phase on the current image
-    resolution. The procedure is repeated until the output image has the desired resolution.
+    Progressive Growing GAN that iteratively adds convolutional blocks to generator and discriminator. This results
+    in improved quality, stability, variation and a faster learning time. Initialization itself is similar to the a
+    normal Wasserstein GAN. Training, however, is slightly different: Initialization of the training phase should be
+    done on a small scale image (e.g. 4x4). After an initial burn-in phase (train the GAN on the current resolution), a
+    fade-in phase follows; meaning that on fades in the 8x8 upscale layer using the add add_fade_in_layers method. This
+    phase is followed by another burn-in phase on the current image resolution. The procedure is repeated until the
+    output image has the desired resolution.
 
     Args:
-        gradient_penalty_weight: weight for the gradient penalty
-        latent_size: Size of the latent vector that is used to generate the image
+        gradient_penalty_weight: Weight for the gradient penalty loss.
+        latent_size: Size of the latent vector that is used to generate the image.
     """
 
     def __init__(self, gradient_penalty_weight: int = 10, latent_size: int = 256):
@@ -48,7 +64,7 @@ class ProGAN(GAN):
         self.discriminator_model = []
 
     def build_models(
-        self, optimizer, discriminator_optimizer=None, batch_size: list = None, channels: int = None, n_blocks: int = 1
+        self, optimizer, batch_size: list = None, channels: int = None, n_blocks: int = 1,
     ):
         """
         Builds the desired GAN that allows to generate covers.
@@ -58,8 +74,7 @@ class ProGAN(GAN):
         the learning.
 
         Args:
-            optimizer: Which optimizer to use for the combinded model
-            discriminator_optimizer: Which optimizer to use for the discriminator model
+            optimizer: Which optimizer to use for the combined model
             channels: number of channels of the output image
             batch_size: batch size of the GAN
             n_blocks: Number of blocks to add. each block doubles the size of the output image starting by 4*4. So
@@ -70,15 +85,8 @@ class ProGAN(GAN):
         self.img_shape = (img_height, img_width, self.channels)
         self.batch_size = batch_size if batch_size is not None else self.batch_size
 
-        discriminator_optimizer = optimizer if discriminator_optimizer is None else discriminator_optimizer
-        self.discriminator = self._build_discriminator(n_blocks, optimizer=discriminator_optimizer)
+        self.discriminator = self._build_discriminator(n_blocks, optimizer=optimizer)
         self.generator = self._build_generator(n_blocks)
-
-        for block in range(n_blocks):
-            for i in [0, 1]:
-                for layer in self.generator[block][i].layers:
-                    layer.trainable = False
-                self.generator[block][i].trainable = False
 
         self._build_discriminator_model(optimizer, n_blocks)
 
@@ -87,9 +95,6 @@ class ProGAN(GAN):
                 for layer in self.discriminator_model[block][i].layers:
                     layer.trainable = False
                 self.discriminator_model[block][i].trainable = False
-                for layer in self.generator[block][i].layers:
-                    layer.trainable = True
-                self.generator[block][i].trainable = True
 
         self.history["D_loss"] = []
         self.history["D_loss_positives"] = []
@@ -97,23 +102,21 @@ class ProGAN(GAN):
         self.history["D_loss_dummies"] = []
         self.history["G_loss"] = []
 
-        self.combined_model = self._build_combined_model(discriminator_optimizer)
+        self.combined_model = self._build_combined_model(optimizer)
 
     def _build_discriminator_model(self, optimizer, n_blocks):
         for block in range(n_blocks):
             discriminator_models = []
             for i in [0, 1]:
-                disc_input_shp = self.generator[block][i].output_shape[1:]
-                disc_input_image = Input(disc_input_shp, name="Img_Input")
-                disc_input_noise = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
-                gen_image_disc = self.generator[block][i](disc_input_noise)
-                disc_image_gen = self.discriminator[block][i](gen_image_disc)
-                disc_image_image = self.discriminator[block][i](disc_input_image)
-                avg_samples = RandomWeightedAverage(self.batch_size[block])([disc_input_image, gen_image_disc])
+                disc_input_shp = self.discriminator[block][i].input_shape[1:]
+                real_input = Input(disc_input_shp, name="Real_mg_Input")
+                fake_input = Input(disc_input_shp, name="Fake_Img_Input")
+                disc_fake = self.discriminator[block][i](fake_input)
+                disc_real = self.discriminator[block][i](real_input)
+                avg_samples = RandomWeightedAverage(self.batch_size[block])([real_input, fake_input])
                 disc_avg_disc = self.discriminator[block][i](avg_samples)
                 discriminator_model = Model(
-                    inputs=[disc_input_image, disc_input_noise],
-                    outputs=[disc_image_image, disc_image_gen, disc_avg_disc],
+                    inputs=[real_input, fake_input], outputs=[disc_real, disc_fake, disc_avg_disc],
                 )
                 partial_gp_loss = functools.partial(
                     gradient_penalty_loss,
@@ -122,7 +125,7 @@ class ProGAN(GAN):
                 )
                 partial_gp_loss.__name__ = "gradient_penalty"
                 discriminator_model.compile(
-                    loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer
+                    loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer,
                 )
                 discriminator_models.append(discriminator_model)
             self.discriminator_model.append(discriminator_models)
@@ -157,12 +160,12 @@ class ProGAN(GAN):
         x = Reshape((4, 4, self.latent_size))(x)
 
         for _ in range(2):
-            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
+            x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init,)(x)
             x = LeakyReLU(alpha=0.2)(x)
             x = PixelNorm()(x)
 
         out_image = ScaledConv2D(
-            filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1
+            filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init, gain=1,
         )(x)
 
         model = Model(latent_input, out_image)
@@ -180,14 +183,14 @@ class ProGAN(GAN):
         n_filters = self._calc_filters(4)
         image_input = Input(input_shape)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), padding="same", kernel_initializer=init)(image_input)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), padding="same", kernel_initializer=init,)(image_input)
         x = LeakyReLU(0.2)(x)
 
         x = MinibatchSd()(x)
-        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init,)(x)
         x = LeakyReLU(0.2)(x)
 
-        x = ScaledConv2D(filters=n_filters, kernel_size=(4, 4), padding="same", kernel_initializer=init)(x)
+        x = ScaledConv2D(filters=n_filters, kernel_size=(4, 4), padding="same", kernel_initializer=init,)(x)
         x = LeakyReLU(0.2)(x)
 
         x = Flatten()(x)
@@ -203,7 +206,103 @@ class ProGAN(GAN):
             model_list.append(models)
         return model_list
 
-    def train_on_batch(self, real_images, block: int, fade: bool, n_critic: int = 5):
+    def train(self, x, idx, block, steps, batch_size, fade, **kwargs):
+        """
+        @TODO
+        Args:
+            x:
+            idx:
+            block:
+            steps:
+            batch_size:
+            fade:
+            **kwargs:
+
+        Returns:
+
+        """
+        verbose = kwargs.get("verbose", False)
+        minibatch_size = kwargs.get("minbatch_size", 1)
+        minibatch_reps = kwargs.get("minibatch_reps", 1)
+        n_critic = kwargs.get("n_critic", 1)
+        path = kwargs.get("path", ".")
+
+        n = x.shape[0]
+        batch_idx = 0
+        initial_iter = len(self.history["G_loss"])
+        alphas = np.linspace(0, 1, steps).tolist()
+        f_idx = 1 if fade else 0
+        gan = self.combined_model[block][f_idx]
+        discriminator = self.discriminator_model[block][f_idx]
+        generator = self.generator[block][f_idx]
+
+        for step in tqdm(range(initial_iter // batch_size, steps)):
+
+            if fade:
+                alpha = alphas.pop(0)
+                self._update_alpha(alpha, block)
+            batch_idx = [i if i < n else i - n for i in np.arange(batch_idx, batch_idx + minibatch_size)]
+            if 0 in batch_idx and n in batch_idx:
+                np.random.shuffle(idx)
+                x = x[idx]
+            batch = x[batch_idx]
+            batch_idx = batch_idx[-1] + 1
+
+            for _ in range(minibatch_reps):
+                self.train_on_batch(gan, discriminator, generator, batch, n_critic=n_critic)
+            self.images_shown += batch_size
+
+            if step % (steps // 10) == 0 and verbose:
+                self._print_output()
+
+                final_resolution = self.img_shape[0]
+                target_size = (final_resolution * 10, final_resolution)
+                img_path = os.path.join(path, "step{}.png".format(self.images_shown))
+                generate_images(generator, img_path, n_imgs=10, target_size=target_size)
+
+                img_path = os.path.join(path, "fixed_step{}.png".format(self.images_shown))
+                generate_images(generator, img_path, n_imgs=10, target_size=target_size, seed=101)
+
+                if fade:
+                    for a in [0, 1]:
+                        self._update_alpha(a, block)
+                        img_path = os.path.join(path, "fixed_step{}_alpha{}.png".format(self.images_shown, a))
+                        generate_images(generator, img_path, n_imgs=10, target_size=target_size, seed=101)
+
+            metric = [
+                self.history["D_loss"],
+                self.history["D_loss_positives"],
+                self.history["D_loss_negatives"],
+                self.history["D_loss_dummies"],
+                self.history["G_loss"],
+            ]
+            file_names = ["d_loss.png", "d_lossP.png", "d_lossN.png", "d_lossD.png", "g_loss.png"]
+            labels = [
+                "Discriminator Loss.png",
+                "Discriminator Loss (positives).png",
+                "Discriminator Loss (" "negatives).png",
+                "Discriminator Loss (Dummies).png",
+                "Generator Loss.png",
+            ]
+
+            for metric, file_name, label in zip(metric, file_names, labels):
+                plot_metric(path, steps=self.images_shown, metric=metric, y_label=label, file_name=file_name)
+
+    def _print_output(self):
+        print(
+            "Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss: {2:3,.3f} - "
+            "Discriminator Loss + : {2:3,.3f} - Discriminator Loss - : {3:3,.3f} -"
+            " Discriminator Loss Dummies : {4:3,.3f}".format(
+                self.images_shown,
+                np.mean(self.history["G_loss"]),
+                np.mean(self.history["D_loss"]),
+                np.mean(self.history["D_loss_positives"]),
+                np.mean(self.history["D_loss_negatives"]),
+                np.mean(self.history["D_loss_dummies"]),
+            )
+        )
+
+    def train_on_batch(self, gan, discriminator, generator, real_images, n_critic: int = 5):
         """
         Runs a single gradient update on a batch of data.
 
@@ -212,13 +311,12 @@ class ProGAN(GAN):
             real_images: numpy array of real input images used for training
             n_critic: number of discriminator updates for each iteration
         """
-        f_idx = 1 if fade else 0
         batch_size = real_images.shape[0] // n_critic
         real_y = np.ones((batch_size, 1)) * -1
 
         for i in range(n_critic):
             discriminator_minibatch = real_images[i * batch_size : (i + 1) * batch_size]
-            losses = self.train_discriminator(discriminator_minibatch, block, fade)
+            losses = self.train_discriminator(discriminator, generator, discriminator_minibatch)
 
         self.history["D_loss"].append(losses[0])
         self.history["D_loss_positives"].append(losses[1])
@@ -226,30 +324,34 @@ class ProGAN(GAN):
         self.history["D_loss_dummies"].append(losses[3])
 
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        self.history["G_loss"].append(self.combined_model[block][f_idx].train_on_batch(noise, real_y))
+        self.history["G_loss"].append(gan.train_on_batch(noise, real_y))
 
-    def train_discriminator(self, real_images, block: int, fade: bool):
+    def train_discriminator(self, discriminator, generator, x):
         """
         Runs a single gradient update on a batch of data.
 
         @ TODO
         Args:
-            real_images: numpy array of real input images used for training
+            x: numpy array of real input images used for training
 
         Returns:
             the losses for this training iteration
         """
-        f_idx = 1 if fade else 0
-        batch_size = len(real_images)
+        batch_size = len(x)
         fake_y = np.ones((batch_size, 1))
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        losses = self.discriminator_model[block][f_idx].train_on_batch([real_images, noise], [real_y, fake_y, dummy_y])
+        fake_x = generator.predict(noise)
+        losses = discriminator.train_on_batch([x, fake_x], [real_y, fake_y, dummy_y])
         return losses
 
-    def update_alpha(self, alpha, block):
-        models = [self.generator[block][1], self.discriminator_model[block][1], self.combined_model[block][1]]
+    def _update_alpha(self, alpha, block):
+        models = [
+            self.generator[block][1],
+            self.discriminator_model[block][1],
+            self.combined_model[block][1],
+        ]
         for model in models:
             for layer in model.layers:
                 if isinstance(layer, WeightedSum):
@@ -263,15 +365,19 @@ class ProGAN(GAN):
 
         init = RandomNormal(0, 1)
         in_shape = list(old_model.input.shape)
-        input_shape = (in_shape[-2].value * 2, in_shape[-2].value * 2, in_shape[-1].value)
+        input_shape = (
+            in_shape[-2].value * 2,
+            in_shape[-2].value * 2,
+            in_shape[-1].value,
+        )
         in_image = Input(shape=input_shape)
 
-        d = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), padding="same", kernel_initializer=init)(in_image)
+        d = ScaledConv2D(filters=n_filters, kernel_size=(1, 1), padding="same", kernel_initializer=init,)(in_image)
         d = LeakyReLU(alpha=0.2)(d)
 
-        d = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
+        d = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init,)(d)
         d = LeakyReLU(alpha=0.2)(d)
-        d = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(d)
+        d = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init,)(d)
         d = LeakyReLU(alpha=0.2)(d)
         d = AveragePooling2D(2, 2)(d)
         block_new = d
@@ -301,15 +407,15 @@ class ProGAN(GAN):
 
         block_end = old_model.layers[-2].output
         upsampling = UpSampling2D()(block_end)
-        g = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(upsampling)
+        g = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init,)(upsampling)
         g = LeakyReLU(alpha=0.2)(g)
         g = PixelNorm()(g)
 
-        g = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init)(g)
+        g = ScaledConv2D(filters=n_filters, kernel_size=(3, 3), padding="same", kernel_initializer=init,)(g)
         g = LeakyReLU(alpha=0.2)(g)
         g = PixelNorm()(g)
 
-        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init)(g)
+        out_image = ScaledConv2D(filters=self.channels, kernel_size=(1, 1), padding="same", kernel_initializer=init,)(g)
         model1 = Model(old_model.input, out_image)
 
         out_old = old_model.layers[-1]

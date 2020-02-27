@@ -107,10 +107,15 @@ class ScaledDense(Dense):
 class ScaledConv2D(Conv2D):
     def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
         """
-        @TODO
+        Scaled Convolutional Layer.
+
+        Scales the weights on each forward pass down to by He's initialization factor. For Progressive Growing GANS
+        this results in an equalized learning rate for all layers, where bigger layers are scaled down.
+
         Args:
-            maps:
-            use_dynamic_wscale:
+            gain: Constant to upscale the weight sclaing
+            use_dynamic_wscale: Switch on or off dynamic weight scaling. Switching it off results in a ordinary 2D
+                convolutional layer.
             **kwargs:
         """
         super(ScaledConv2D, self).__init__(**kwargs)

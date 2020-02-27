@@ -12,6 +12,8 @@ from keras.preprocessing.image import array_to_img
 from skimage.io import imread
 from skimage.transform import resize
 from tqdm import tqdm
+import seaborn as sns
+from datetime import datetime
 
 plt.ioff()
 
@@ -166,3 +168,22 @@ def resize_images(images: np.array, new_shape: tuple):
         new_image = resize(image, new_shape, 0)
         images_list.append(new_image)
     return np.asarray(images_list)
+
+
+def plot_metric(path, steps, metric, **kwargs):
+    """
+    @TODO
+    Args:
+        path:
+        steps:
+        metric:
+
+    Returns:
+
+    """
+    x_axis = np.linspace(0, steps, len(metric))
+    ax = sns.lineplot(x_axis, metric)
+    plt.ylabel(kwargs.get("y_label", ""))
+    plt.xlabel(kwargs.get("x_label", "steps"))
+    plt.savefig(os.path.join(path, kwargs.get("file_name", hash(datetime.now()))))
+    plt.close()

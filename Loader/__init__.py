@@ -1,1 +1,1 @@
-from .cover_loader import ImageLoader, rescale_images
+from .data_loader import DataLoader, rescale_images

@@ -1,12 +1,12 @@
-import keras.backend as K
-import numpy as np
-from sklearn.preprocessing import MultiLabelBinarizer
-from tqdm import tqdm
 import os
-from utils import scale_images
+
+import keras.backend as K  # noqa: WPS301
+import numpy as np
 import psutil
 from skimage.io import imread
 from skimage.transform import resize
+from sklearn.preprocessing import MultiLabelBinarizer
+from tqdm import tqdm
 
 
 class DataLoader(object):
@@ -31,34 +31,24 @@ class DataLoader(object):
             self._images = np.load(np_path)
             self._iterator = np.arange(0, self._images.shape[0])
         elif os.path.exists(np_path):
-            self._images = []
-            for dirpath, dirnames, filenames in os.walk(image_path):
-                for filename in [f for f in filenames if f.endswith(".jpg")]:
-                    self._images.append(os.path.join(dirpath, filename))
+            self._images = get_image_paths(image_path)
         else:
             try:
-                files = []
-                for dirpath, dirnames, filenames in os.walk(image_path):
-                    for filename in [f for f in filenames if f.endswith(".jpg")]:
-                        files.append(os.path.join(dirpath, filename))
+                files = get_image_paths(image_path)
                 self._images = np.zeros((len(files), image_size, image_size, 3), dtype=K.floatx())
 
                 for i, file_path in tqdm(enumerate(files)):
                     img = imread(file_path)
                     img = resize(img, (image_size, image_size, 3))
-                    img = scale_images(img)
                     self._images[i] = img
                 np.save(np_path, self._images)
                 self._iterator = np.arange(0, self._images.shape[0])
             except MemoryError:
-                self._images = []
-                for dirpath, dirnames, filenames in os.walk(image_path):
-                    for filename in [f for f in filenames if f.endswith(".jpg")]:
-                        self._images.append(os.path.join(dirpath, filename))
+                self._images = get_image_paths(image_path)
 
-        self._n_images = self._images.shape[0]
+        self.n_images = len(self._images)
 
-    def next(self, batch_size: int = 32):
+    def get_next_batch(self, batch_size: int = 32):
         """
         Loads the next batch of images.
 
@@ -70,29 +60,25 @@ class DataLoader(object):
                 information if requested
         """
         batch_x = np.zeros((batch_size, self.image_size, self.image_size, 3), dtype=K.floatx())
-
-        if isinstance(self._images, np.array):
-            batch_idx = [
-                i if i < self._n_images else i - self._n_images
-                for i in np.arange(self._iterator_i, self._iterator_i + batch_size)
-            ]
+        batch_idx = [
+            i if i < self.n_images else i - self.n_images
+            for i in np.arange(self._iterator_i, self._iterator_i + batch_size)
+        ]
+        if isinstance(self._images, np.ndarray):
             batch_x = self._images[batch_idx]
         else:
-            batch_idx = [
-                i if i < self._n_images else i - self._n_images
-                for i in np.arange(self._iterator_i, self._iterator_i + batch_size)
-            ]
             for i, b_idx in enumerate(batch_idx):
                 file_path = self._images[b_idx]
                 img = imread(file_path)
                 img = resize(img, (self.image_size, self.image_size, 3))
-                batch_x[i] = scale_images(img)
+                batch_x[i] = img
         if 0 in batch_idx:
             np.random.shuffle(self._images)
-        return self._wrap_output(batch_x)
+        self._iterator_i = batch_idx[-1]
+        return DataLoader._wrap_output(batch_x)
 
-    @staticmethod
-    def _wrap_output(x: np.array = None, genres: np.array = None, year: np.array = None):
+    @classmethod
+    def _wrap_output(cls, x: np.array = None, genres: np.array = None, year: np.array = None):
         """
         Wraps the output of the data loader to one object.
 
@@ -115,3 +101,11 @@ class DataLoader(object):
         if len(return_values) == 1:
             return return_values[0]
         return return_values
+
+
+def get_image_paths(image_path):
+    paths = []
+    for dirpath, dirnames, filenames in os.walk(image_path):
+        for filename in [f for f in filenames if f.endswith(".jpg")]:
+            paths.append(os.path.join(dirpath, filename))
+    return paths

@@ -32,7 +32,7 @@ def save_gan(obj, path: str):
 
 def load_progan(obj, path: str, weights_only: bool = False):
     """
-    Loads the weights of the Cover GAN.
+    Loads the Cover GAN.
 
     Loads the weights of the GAN and meta information like train history and number of already trained epochs. The
     path should include a file D.h5 (weights of the discriminator), G.h5 (weights of the generator), C.5(weights of
@@ -41,7 +41,6 @@ def load_progan(obj, path: str, weights_only: bool = False):
     Args:
         obj: CoverGAN instance for which the weights are loaded
         path: Directory to the weights folder
-        verbose: Whether to print model summaries after loading the models
 
     Returns:
         The CoverGAN instance with loaded weights

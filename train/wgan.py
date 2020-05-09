@@ -9,15 +9,15 @@ import psutil
 import seaborn as sns
 from keras.optimizers import Adam
 
-from Loader.cover_loader import ImageLoader
+from Loader.data_loader import DataLoader
 from networks import WGAN
-from networks.utils import save_gan, load_gan
-from utils import create_dir, generate_images, AnimatedGif
+from networks.utils import load_progan, save_gan
+from utils import AnimatedGif, create_dir, generate_images
 
 BATCH_SIZE = 64
 PATH = "1_wgan"
 WARM_START = False
-DATA_PATH = "../data/all_covers/all64.npy"
+DATA_PATH = "../data/covers64/all64.npy"
 TRAIN_STEPS = int(2 * 10e5)
 
 image_size = 64
@@ -33,7 +33,9 @@ if __name__ == "__main__":
     covers = pd.read_json("../data/album_data_frame.json", orient="records", lines=True)
     covers.dropna(subset=["file_path_64"], inplace=True)
     covers.reset_index(inplace=True)
-    data_loader = ImageLoader(data=covers, path_column="file_path_64", image_size=image_size, image_ratio=image_ratio)
+    data_loader = DataLoader(
+        image_path=covers, path_column="file_path_64", image_size=image_size, image_ratio=image_ratio
+    )
 
     if os.path.exists(DATA_PATH) and os.stat(DATA_PATH).st_size < (psutil.virtual_memory().total * 0.8):
         images = np.load(DATA_PATH)
@@ -62,7 +64,7 @@ if __name__ == "__main__":
     gan.build_models(optimizer=Adam(0.0001, beta_1=0.5))
 
     if WARM_START:
-        gan = load_gan(gan, model_path)
+        gan = load_progan(gan, model_path)
 
     batch_idx = 0
     steps = TRAIN_STEPS // BATCH_SIZE
@@ -79,7 +81,7 @@ if __name__ == "__main__":
             batch_idx = batch_idx[-1] + 1
 
         else:
-            batch_images = data_loader.next(batch_size=minibatch_size)
+            batch_images = data_loader.get_next_batch(batch_size=minibatch_size)
         gan.train_on_batch(batch_images)
         gan.images_shown += BATCH_SIZE
 

@@ -2,18 +2,18 @@
 Utility functions to train the GAN.
 """
 import os
+from datetime import datetime
 
 import matplotlib.animation as anim
 import matplotlib.pyplot as plt
 import numpy as np
 import psutil
+import seaborn as sns
 from keras import backend as K
 from keras.preprocessing.image import array_to_img
 from skimage.io import imread
 from skimage.transform import resize
 from tqdm import tqdm
-import seaborn as sns
-from datetime import datetime
 
 plt.ioff()
 
@@ -52,30 +52,25 @@ def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = N
         np.random.seed(seed)
     else:
         np.random.seed()
-    generated_images = generator_model.predict(np.random.normal(size=(n_imgs, generator_model.input_shape[1])))
-    tiled_output = tile_images(generated_images)
-    tiled_output = array_to_img(tiled_output, scale=True)
-    tiled_output = tiled_output.resize(size=target_size)
-    tiled_output.save(output_dir)
-    if seed is not None:
-        np.random.seed()
 
+    image_size = (target_size[0] // n_imgs, target_size[1] // n_imgs)
+    idx = 1
+    plt.figure(figsize=((target_size[0] * 2) // 100, (target_size[0] * 2) // 100), dpi=100)
+    for i in range(n_imgs):
+        x0 = np.random.normal(size=generator_model.input_shape[1])
+        x1 = np.random.normal(size=generator_model.input_shape[1])
+        x = np.linspace(x0, x1, n_imgs)
+        generated_images = generator_model.predict(x)
+        for img in generated_images:
+            img = array_to_img(img, scale=True)
+            img = img.resize(size=image_size)
+            plt.subplot(n_imgs, n_imgs, idx)
+            plt.axis("off")
+            plt.imshow(img)
+            idx += 1
 
-def tile_images(image_stack):
-    """
-    Tiles the given images to one big image.
-
-    Given a stacked array of images, reshapes them into a horizontal tiling for display.
-
-    Args:
-        image_stack: numpy array of images
-
-    Returns:
-        The tiled image consisting of all images in the stack
-    """
-    image_list = [image_stack[i, :, :] for i in range(image_stack.shape[0])]
-    tiled_images = np.concatenate(image_list, axis=1)
-    return tiled_images
+    plt.savefig(output_dir, dpi=100)
+    plt.close()
 
 
 class AnimatedGif(object):
@@ -115,18 +110,19 @@ def load_data(path: str, size: int = 4):
     Returns:
         list of image tensor and image index
     """
-    path = os.path.join(path, "all{0}.npy".format(size))
-    if os.path.exists(path) and os.stat(path).st_size < (psutil.virtual_memory().total * 0.8):
-        images = np.load(path)
+    np_path = os.path.join(path, "all{0}.npy".format(size))
+    if os.path.exists(np_path) and os.stat(np_path).st_size < (psutil.virtual_memory().total * 0.8):
+        images = np.load(np_path)
         img_idx = np.arange(0, images.shape[0])
         return images, img_idx
-    elif os.path.exists(path):
+    elif os.path.exists(np_path):
         print("Data does not fit inside Memory. Preallocation is not possible, use iterator instead")
     else:
         try:
-            files = [
-                os.path.join(path, f) for f in os.listdir(path) if os.path.splitext(os.path.join(path, f))[1] == ".jpg"
-            ]
+            files = []
+            for dirpath, dirnames, filenames in os.walk(path):
+                for filename in [f for f in filenames if f.endswith(".jpg")]:
+                    files.append(os.path.join(dirpath, filename))
             images = np.zeros((len(files), size, size, 3), dtype=K.floatx())
 
             for i, file_path in tqdm(enumerate(files)):
@@ -134,7 +130,7 @@ def load_data(path: str, size: int = 4):
                 img = resize(img, (size, size, 3))
                 img = scale_images(img)
                 images[i] = img
-            np.save(path, images)
+            np.save(np_path, images)
             img_idx = np.arange(0, images.shape[0])
             return images, img_idx
         except MemoryError as _:
@@ -182,7 +178,7 @@ def plot_metric(path, steps, metric, **kwargs):
 
     """
     x_axis = np.linspace(0, steps, len(metric))
-    ax = sns.lineplot(x_axis, metric)
+    sns.lineplot(x_axis, metric)
     plt.ylabel(kwargs.get("y_label", ""))
     plt.xlabel(kwargs.get("x_label", "steps"))
     plt.savefig(os.path.join(path, kwargs.get("file_name", hash(datetime.now()))))

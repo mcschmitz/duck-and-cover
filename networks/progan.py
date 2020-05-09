@@ -2,33 +2,21 @@
 Definition of the ProGAN class.
 """
 
+
+import copy
+import functools
+import os
+
 import numpy as np
 from keras import Model, Sequential
 from keras import backend as K
 from keras.initializers import RandomNormal
-from keras.layers import (
-    AveragePooling2D,
-    Flatten,
-    Input,
-    LeakyReLU,
-    Reshape,
-    UpSampling2D,
-)
+from keras.layers import AveragePooling2D, Flatten, Input, LeakyReLU, Reshape, UpSampling2D
 
 from networks import GAN
-from networks.utils import PixelNorm, wasserstein_loss, gradient_penalty_loss
-from networks.utils.layers import (
-    MinibatchSd,
-    WeightedSum,
-    ScaledDense,
-    ScaledConv2D,
-    RandomWeightedAverage,
-)
-import functools
-import os
+from networks.utils import PixelNorm, gradient_penalty_loss, save_gan, wasserstein_loss
+from networks.utils.layers import MinibatchSd, RandomWeightedAverage, ScaledConv2D, ScaledDense, WeightedSum
 from utils import generate_images, plot_metric
-from tqdm import tqdm
-
 
 #  TODO Add release year information
 #  TODO Add genre information
@@ -109,7 +97,7 @@ class ProGAN(GAN):
             discriminator_models = []
             for i in [0, 1]:
                 disc_input_shp = self.discriminator[block][i].input_shape[1:]
-                real_input = Input(disc_input_shp, name="Real_mg_Input")
+                real_input = Input(disc_input_shp, name="Real_Img_Input")
                 fake_input = Input(disc_input_shp, name="Fake_Img_Input")
                 disc_fake = self.discriminator[block][i](fake_input)
                 disc_real = self.discriminator[block][i](real_input)
@@ -124,6 +112,7 @@ class ProGAN(GAN):
                     gradient_penalty_weight=self._gradient_penalty_weight,
                 )
                 partial_gp_loss.__name__ = "gradient_penalty"
+                optimizer = copy.copy(optimizer)
                 discriminator_model.compile(
                     loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer,
                 )
@@ -139,12 +128,14 @@ class ProGAN(GAN):
             model1 = Sequential()
             model1.add(g_models[0])
             model1.add(d_models[0])
+            optimizer = copy.copy(optimizer)
             model1.compile(loss=wasserstein_loss, optimizer=optimizer)
 
             d_models[1].trainable = False
             model2 = Sequential()
             model2.add(g_models[1])
             model2.add(d_models[1])
+            optimizer = copy.copy(optimizer)
             model2.compile(loss=wasserstein_loss, optimizer=optimizer)
 
             model_list.append([model1, model2])
@@ -197,21 +188,22 @@ class ProGAN(GAN):
         x = ScaledDense(units=1, gain=1)(x)
 
         model = Model(image_input, x)
+        optimizer = copy.copy(optimizer)
         model.compile(loss=wasserstein_loss, optimizer=optimizer)
         model_list.append([model, model])
 
         for i in range(1, n_blocks):
             old_model = model_list[i - 1][0]
+            optimizer = copy.copy(optimizer)
             models = self._add_discriminator_block(old_model, optimizer=optimizer)
             model_list.append(models)
         return model_list
 
-    def train(self, x, idx, block, steps, batch_size, fade, **kwargs):
+    def train(self, data_loader, block, steps, batch_size, fade, **kwargs):
         """
         @TODO
         Args:
-            x:
-            idx:
+            data_loader:
             block:
             steps:
             batch_size:
@@ -222,13 +214,11 @@ class ProGAN(GAN):
 
         """
         verbose = kwargs.get("verbose", False)
-        minibatch_size = kwargs.get("minbatch_size", 1)
+        model_dump_path = kwargs.get("write_model_to", None)
         minibatch_reps = kwargs.get("minibatch_reps", 1)
         n_critic = kwargs.get("n_critic", 1)
         path = kwargs.get("path", ".")
 
-        n = x.shape[0]
-        batch_idx = 0
         initial_iter = len(self.history["G_loss"])
         alphas = np.linspace(0, 1, steps).tolist()
         f_idx = 1 if fade else 0
@@ -236,17 +226,12 @@ class ProGAN(GAN):
         discriminator = self.discriminator_model[block][f_idx]
         generator = self.generator[block][f_idx]
 
-        for step in tqdm(range(initial_iter // batch_size, steps)):
+        for step in range(initial_iter // batch_size, steps):
 
             if fade:
                 alpha = alphas.pop(0)
                 self._update_alpha(alpha, block)
-            batch_idx = [i if i < n else i - n for i in np.arange(batch_idx, batch_idx + minibatch_size)]
-            if 0 in batch_idx and n in batch_idx:
-                np.random.shuffle(idx)
-                x = x[idx]
-            batch = x[batch_idx]
-            batch_idx = batch_idx[-1] + 1
+            batch = data_loader.get_next_batch(batch_size)
 
             for _ in range(minibatch_reps):
                 self.train_on_batch(gan, discriminator, generator, batch, n_critic=n_critic)
@@ -256,51 +241,40 @@ class ProGAN(GAN):
                 self._print_output()
 
                 final_resolution = self.img_shape[0]
-                target_size = (final_resolution * 10, final_resolution)
+                target_size = (final_resolution * 9, final_resolution * 9)
                 img_path = os.path.join(path, "step{}.png".format(self.images_shown))
-                generate_images(generator, img_path, n_imgs=10, target_size=target_size)
+                generate_images(generator, img_path, n_imgs=9, target_size=target_size)
 
                 img_path = os.path.join(path, "fixed_step{}.png".format(self.images_shown))
-                generate_images(generator, img_path, n_imgs=10, target_size=target_size, seed=101)
+                generate_images(generator, img_path, n_imgs=9, target_size=target_size, seed=101)
 
                 if fade:
                     for a in [0, 1]:
                         self._update_alpha(a, block)
                         img_path = os.path.join(path, "fixed_step{}_alpha{}.png".format(self.images_shown, a))
-                        generate_images(generator, img_path, n_imgs=10, target_size=target_size, seed=101)
+                        generate_images(generator, img_path, n_imgs=9, target_size=target_size, seed=101)
 
-            metric = [
-                self.history["D_loss"],
-                self.history["D_loss_positives"],
-                self.history["D_loss_negatives"],
-                self.history["D_loss_dummies"],
-                self.history["G_loss"],
-            ]
-            file_names = ["d_loss.png", "d_lossP.png", "d_lossN.png", "d_lossD.png", "g_loss.png"]
-            labels = [
-                "Discriminator Loss.png",
-                "Discriminator Loss (positives).png",
-                "Discriminator Loss (" "negatives).png",
-                "Discriminator Loss (Dummies).png",
-                "Generator Loss.png",
-            ]
+                metric = [
+                    self.history["D_loss"],
+                    self.history["D_loss_positives"],
+                    self.history["D_loss_negatives"],
+                    self.history["D_loss_dummies"],
+                    self.history["G_loss"],
+                ]
+                file_names = ["d_loss.png", "d_lossP.png", "d_lossN.png", "d_lossD.png", "g_loss.png"]
+                labels = [
+                    "Discriminator Loss.png",
+                    "Discriminator Loss (positives).png",
+                    "Discriminator Loss (" "negatives).png",
+                    "Discriminator Loss (Dummies).png",
+                    "Generator Loss.png",
+                ]
 
-            for metric, file_name, label in zip(metric, file_names, labels):
-                plot_metric(path, steps=self.images_shown, metric=metric, y_label=label, file_name=file_name)
+                for metric, file_name, label in zip(metric, file_names, labels):
+                    plot_metric(path, steps=self.images_shown, metric=metric, y_label=label, file_name=file_name)
 
-    def _print_output(self):
-        print(
-            "Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss: {2:3,.3f} - "
-            "Discriminator Loss + : {2:3,.3f} - Discriminator Loss - : {3:3,.3f} -"
-            " Discriminator Loss Dummies : {4:3,.3f}".format(
-                self.images_shown,
-                np.mean(self.history["G_loss"]),
-                np.mean(self.history["D_loss"]),
-                np.mean(self.history["D_loss_positives"]),
-                np.mean(self.history["D_loss_negatives"]),
-                np.mean(self.history["D_loss_dummies"]),
-            )
-        )
+                if model_dump_path:
+                    save_gan(self, model_dump_path)
 
     def train_on_batch(self, gan, discriminator, generator, real_images, n_critic: int = 5):
         """
@@ -325,6 +299,20 @@ class ProGAN(GAN):
 
         noise = np.random.normal(size=(batch_size, self.latent_size))
         self.history["G_loss"].append(gan.train_on_batch(noise, real_y))
+
+    def _print_output(self):
+        print(
+            "Images shown {0}: Generator Loss: {1:3,.3f} - Discriminator Loss: {2:3,.3f} - "
+            "Discriminator Loss + : {2:3,.3f} - Discriminator Loss - : {3:3,.3f} -"
+            " Discriminator Loss Dummies : {4:3,.3f}".format(
+                self.images_shown,
+                np.mean(self.history["G_loss"]),
+                np.mean(self.history["D_loss"]),
+                np.mean(self.history["D_loss_positives"]),
+                np.mean(self.history["D_loss_negatives"]),
+                np.mean(self.history["D_loss_dummies"]),
+            )
+        )
 
     def train_discriminator(self, discriminator, generator, x):
         """

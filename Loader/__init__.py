@@ -1,1 +1,1 @@
-from .data_loader import DataLoader, rescale_images
+from Loader.data_loader import DataLoader

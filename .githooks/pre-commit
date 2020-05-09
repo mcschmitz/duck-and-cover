@@ -1,8 +1,10 @@
 #!/bin/sh
+#
 # An example hook script to verify what is about to be committed.
 # Called by "git commit" with no arguments.  The hook should
 # exit with non-zero status after issuing an appropriate message if
 # it wants to stop the commit.
+#
 if git rev-parse --verify HEAD >/dev/null 2>&1
 then
  against=HEAD
@@ -36,19 +38,37 @@ fi
 
 pythonfiles=$(find . -type f -name "*.py" | xargs git diff --cached --name-only $against | awk '{print $1}' | paste -d' ' -s)
 echo "Started pre-commit git hook"
-echo "*********************FORMAT*********************"
+echo "**********************BLACK**********************"
 if [ -z "$pythonfiles" ]
 then
   echo "No changes in pythonfiles"
 else
-  autoflake -i --expand-star-imports --remove-all-unused-imports --ignore-init-module-imports --remove-duplicate-keys --remove-unused-variables "$pythonfiles"
-  docformatter -i --make-summary-multi-line --pre-summary-newline $pythonfiles
+  pip install -q autoflake docformatter black
+  autoflake -i --expand-star-imports --remove-all-unused-imports --ignore-init-module-imports --remove-duplicate-keys --remove-unused-variables $pythonfiles
+  docformatter -i --make-summary-multi-line --pre-summary-newline  $pythonfiles
+  isort $pythonfiles
   black $pythonfiles -l 120
   ret=$?
   if [ $ret -ne 0 ]; then
-    echo "Error commiting changes: Please format (black) your code."
-    exit 1
+      echo "Error committing changes: Please format (black) your code."
+      exit 1
+  fi
+  git add $pythonfiles
+fi
+echo "********************FLAKE8***********************"
+if [ -z "$pythonfiles" ]
+then
+  echo "No changes in pythonfiles"
+else
+  pip install -q wemake-python-styleguide
+  wget "https://raw.githubusercontent.com/ebot7/eb7-styleguide/master/settings/setup_ml_githooks.cfg"
+  echo $pythonfiles
+  flake8 $pythonfiles --config=setup_ml_githooks.cfg
+  ret=$?
+  rm setup_ml_githooks.cfg
+  if [ $ret -ne 0 ]; then
+          echo "Error committing changes: Please check syntax errors."
+          exit 1
   fi
 fi
-git add $pythonfiles
 echo "Ended pre-commit git hook"

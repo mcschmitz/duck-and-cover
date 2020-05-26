@@ -61,7 +61,7 @@ then
   echo "No changes in pythonfiles"
 else
   pip install -q wemake-python-styleguide
-  wget "https://raw.githubusercontent.com/ebot7/eb7-styleguide/master/settings/setup_ml_githooks.cfg"
+  wget -o setup_ml_githooks.cfg "https://raw.githubusercontent.com/ebot7/eb7-styleguide/master/settings/setup_ml_githooks.cfg"
   echo $pythonfiles
   flake8 $pythonfiles --config=setup_ml_githooks.cfg
   ret=$?

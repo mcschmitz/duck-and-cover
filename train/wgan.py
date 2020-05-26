@@ -9,9 +9,9 @@ import psutil
 import seaborn as sns
 from keras.optimizers import Adam
 
-from Loader.data_loader import DataLoader
+from Loader import DataLoader
 from networks import WGAN
-from networks.utils import load_progan, save_gan
+from networks import load_progan, save_gan
 from utils import AnimatedGif, create_dir, generate_images
 
 BATCH_SIZE = 64

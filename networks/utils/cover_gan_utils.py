@@ -2,7 +2,7 @@ import copy
 import os
 
 import joblib
-from keras.utils import plot_model
+from tensorflow.keras.utils import plot_model
 
 
 def save_gan(obj, path: str):
@@ -19,9 +19,15 @@ def save_gan(obj, path: str):
     gan = copy.copy(obj)
     for block, _ in enumerate(gan.combined_model):
         for i in [0, 1]:
-            gan.combined_model[block][i].save_weights(os.path.join(path, "C_{0}_{1}.h5".format(block, i)))
-            gan.discriminator[block][i].save_weights(os.path.join(path, "D_{0}_{1}.h5".format(block, i)))
-            gan.generator[block][i].save_weights(os.path.join(path, "G_{0}_{1}.h5".format(block, i)))
+            gan.combined_model[block][i].save_weights(
+                os.path.join(path, "C_{0}_{1}.h5".format(block, i))
+            )
+            gan.discriminator[block][i].save_weights(
+                os.path.join(path, "D_{0}_{1}.h5".format(block, i))
+            )
+            gan.generator[block][i].save_weights(
+                os.path.join(path, "G_{0}_{1}.h5".format(block, i))
+            )
 
     gan.discriminator = None
     gan.generator = None
@@ -47,9 +53,15 @@ def load_progan(obj, path: str, weights_only: bool = False):
     """
     for block, _ in enumerate(obj.combined_model):
         for i in [0, 1]:
-            obj.combined_model[block][i].load_weights(os.path.join(path, "C_{0}_{1}.h5".format(block, i)))
-            obj.discriminator[block][i].load_weights(os.path.join(path, "D_{0}_{1}.h5".format(block, i)))
-            obj.generator[block][i].load_weights(os.path.join(path, "G_{0}_{1}.h5".format(block, i)))
+            obj.combined_model[block][i].load_weights(
+                os.path.join(path, "C_{0}_{1}.h5".format(block, i))
+            )
+            obj.discriminator[block][i].load_weights(
+                os.path.join(path, "D_{0}_{1}.h5".format(block, i))
+            )
+            obj.generator[block][i].load_weights(
+                os.path.join(path, "G_{0}_{1}.h5".format(block, i))
+            )
     if not weights_only:
         gan = joblib.load(os.path.join(path, "GAN.pkl"))
         obj.images_shown = gan.images_shown
@@ -61,12 +73,12 @@ def load_progan(obj, path: str, weights_only: bool = False):
 def plot_progan(model, block: int, path: str, suffix: str = None):
     for i in [0, 1]:
         suffix += "_fade_in" if i == 1 else ""
-        plot_model(
-            model.discriminator_model[block][i],
-            to_file=os.path.join(path, "disc_m{}.png".format(suffix)),
-            show_shapes=True,
-            expand_nested=True,
-        )
+        # plot_model(
+        #     model.discriminator_model[block][i],
+        #     to_file=os.path.join(path, "disc_m{}.png".format(suffix)),
+        #     show_shapes=True,
+        #     expand_nested=True,
+        # )
         plot_model(
             model.generator[block][i],
             to_file=os.path.join(path, "gen{}.png".format(suffix)),

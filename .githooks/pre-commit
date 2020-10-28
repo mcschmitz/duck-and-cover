@@ -43,11 +43,11 @@ if [ -z "$pythonfiles" ]
 then
   echo "No changes in pythonfiles"
 else
-  pip install -q autoflake docformatter black
+  pip install -q autoflake docformatter black==20.8b1 isort
   autoflake -i --expand-star-imports --remove-all-unused-imports --ignore-init-module-imports --remove-duplicate-keys --remove-unused-variables $pythonfiles
   docformatter -i --make-summary-multi-line --pre-summary-newline  $pythonfiles
   isort $pythonfiles
-  black $pythonfiles -l 120
+  black $pythonfiles -l 79
   ret=$?
   if [ $ret -ne 0 ]; then
       echo "Error committing changes: Please format (black) your code."

@@ -1,4 +1,4 @@
-import keras.backend as K
+from tensorflow.keras import backend as K
 import numpy as np
 
 
@@ -27,7 +27,9 @@ def wasserstein_loss(y_true, y_pred):
     return K.mean(y_true * y_pred)
 
 
-def gradient_penalty_loss(y_true, y_pred, averaged_samples, gradient_penalty_weight: float):
+def gradient_penalty_loss(
+    y_true, y_pred, averaged_samples, gradient_penalty_weight: float
+):
     """
     Calculates the gradient penalty loss for a batch of "averaged" samples.
 
@@ -58,7 +60,9 @@ def gradient_penalty_loss(y_true, y_pred, averaged_samples, gradient_penalty_wei
 
     gradients = K.gradients(y_pred, averaged_samples)[0]
     gradients_sqr = K.square(gradients)
-    gradients_sqr_sum = K.sum(gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape)))
+    gradients_sqr_sum = K.sum(
+        gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape))
+    )
     gradient_l2_norm = K.sqrt(gradients_sqr_sum)
     gradient_penalty = gradient_penalty_weight * K.square(1 - gradient_l2_norm)
     return K.mean(gradient_penalty)

@@ -2,9 +2,9 @@ import itertools
 import os
 
 import numpy as np
-from keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
 
-from Loader import DataLoader
+from loader import DataLoader
 from networks import ProGAN
 from networks.utils import load_progan, plot_progan, save_gan
 from utils import create_dir
@@ -26,12 +26,15 @@ TRAIN_STEPS = int(10e5)
 
 starting_from_block = 0
 
-base_data_path = "/opt/input/data/covers{}"
-# base_data_path = "data/covers{}"
+base_data_path = "data/covers{}"
 
 optimizer = Adam(0.001, beta_1=0.0, beta_2=0.99)
-gan = ProGAN(gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT, latent_size=LATENT_SIZE)
-gan.build_models(optimizer=optimizer, n_blocks=N_BLOCKS, channels=3, batch_size=BATCH_SIZE)
+gan = ProGAN(
+    gradient_penalty_weight=GRADIENT_PENALTY_WEIGHT, latent_size=LATENT_SIZE
+)
+gan.build_models(
+    optimizer=optimizer, n_blocks=N_BLOCKS, channels=3, batch_size=BATCH_SIZE
+)
 
 for block, fade in itertools.product(range(0, 1), FADE):  # len(RESOLUTIONS)
     if fade and block == 0:
@@ -46,7 +49,9 @@ for block, fade in itertools.product(range(0, 1), FADE):  # len(RESOLUTIONS)
     minibatch_size = batch_size * N_CRITIC
 
     lp_path = os.path.join("learning_progress", PATH)
-    model_dump_path = create_dir(os.path.join(lp_path, "model{}".format(resolution)))
+    model_dump_path = create_dir(
+        os.path.join(lp_path, "model{}".format(resolution))
+    )
     if WARM_START:
         model_path = (
             model_dump_path
@@ -56,7 +61,6 @@ for block, fade in itertools.product(range(0, 1), FADE):  # len(RESOLUTIONS)
         gan = load_progan(gan, model_path)
     plot_progan(gan, block, lp_path, str(resolution))
 
-    print("\n\nStarting training for resolution {}\n\n".format(resolution))
     steps = TRAIN_STEPS // batch_size
 
     gan.train(

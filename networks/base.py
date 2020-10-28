@@ -5,11 +5,23 @@ import functools
 from abc import abstractmethod, ABC
 
 import numpy as np
-from keras import Model
-from keras.layers import *
-from keras.losses import binary_crossentropy
+from tensorflow.keras import Model
+from tensorflow.keras.layers import (
+    Activation,
+    BatchNormalization,
+    Conv2D,
+    Dense,
+    Dropout,
+    Flatten,
+    Input,
+    LeakyReLU,
+    Reshape,
+    UpSampling2D,
+)
+from tensorflow.keras.losses import binary_crossentropy
 
-from networks.utils import wasserstein_loss, RandomWeightedAverage, gradient_penalty_loss, MinibatchSd
+from networks.utils import wasserstein_loss, gradient_penalty_loss
+from networks.utils.layers import RandomWeightedAverage, MinibatchSd
 
 
 class GAN(ABC):
@@ -30,46 +42,47 @@ class GAN(ABC):
         """
         Abstract method to build the models for the GAN.
         """
-        pass
 
     @abstractmethod
     def _build_discriminator(self):
         """
         Abstract method to define the discriminator architecture.
         """
-        pass
 
     @abstractmethod
     def _build_combined_model(self, *args):
         """
         Abstract method to build the combined model.
         """
-        pass
 
     @abstractmethod
     def _build_generator(self):
         """
         Abstract method to define the generator architecture.
         """
-        pass
 
     @abstractmethod
     def train_on_batch(self, *args):
         """
         Abstract method to train the combined model on a batch of data.
         """
-        pass
 
     @abstractmethod
     def train_discriminator(self, *args):
         """
         Abstract method to train the discriminator on a batch of data.
         """
-        pass
 
 
 class CoverGAN(GAN):
-    def __init__(self, batch_size: int, img_height: int, img_width: int, channels: int = 3, latent_size: int = 128):
+    def __init__(
+        self,
+        batch_size: int,
+        img_height: int,
+        img_width: int,
+        channels: int = 3,
+        latent_size: int = 128,
+    ):
         """
         Simple Deep Convolutional GAN.
 
@@ -103,7 +116,11 @@ class CoverGAN(GAN):
             combined_optimizer: Which optimizer to use for the combined model
             discriminator_optimizer: Which optimizer to use for the discriminator model
         """
-        discriminator_optimizer = combined_optimizer if discriminator_optimizer is None else discriminator_optimizer
+        discriminator_optimizer = (
+            combined_optimizer
+            if discriminator_optimizer is None
+            else discriminator_optimizer
+        )
         self.discriminator = self._build_discriminator()
         self.generator = self._build_generator()
         for layer in self.generator.layers:
@@ -130,7 +147,11 @@ class CoverGAN(GAN):
         Args:
             optimizer: Which optimizer to use
         """
-        self.discriminator.compile(loss=[binary_crossentropy], optimizer=optimizer, metrics=["accuracy"])
+        self.discriminator.compile(
+            loss=[binary_crossentropy],
+            optimizer=optimizer,
+            metrics=["accuracy"],
+        )
 
     def _build_combined_model(self, optimizer):
         """
@@ -165,22 +186,36 @@ class CoverGAN(GAN):
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
         x = Reshape((4, 4, 512))(x)
-        x = Conv2D(512, kernel_size=(1, 1), strides=(1, 1), padding="same", kernel_initializer="he_normal")(x)
+        x = Conv2D(
+            512,
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="same",
+            kernel_initializer="he_normal",
+        )(x)
 
         cur_img_size = 4
         n_channels = 256
         while cur_img_size < self.img_shape[0]:
             x = UpSampling2D()(x)
-            x = Conv2D(n_channels, kernel_size=(3, 3), strides=(1, 1), padding="same", kernel_initializer="he_normal")(
-                x
-            )
+            x = Conv2D(
+                n_channels,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="same",
+                kernel_initializer="he_normal",
+            )(x)
             x = BatchNormalization()(x)
             x = LeakyReLU()(x)
             cur_img_size *= 2
             n_channels //= 2
 
         generator_output = Conv2D(
-            self.channels, kernel_size=(1, 1), strides=(1, 1), padding="same", kernel_initializer="he_normal"
+            self.channels,
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="same",
+            kernel_initializer="he_normal",
         )(x)
         generator_output = Activation("tanh")(generator_output)
         generator_model = Model(noise_input, generator_output)
@@ -198,14 +233,26 @@ class CoverGAN(GAN):
             The DCGAN discriminator
         """
         image_input = Input(self.img_shape)
-        x = Conv2D(32, kernel_size=(3, 3), strides=(2, 2), padding="same", kernel_initializer="he_normal")(image_input)
+        x = Conv2D(
+            32,
+            kernel_size=(3, 3),
+            strides=(2, 2),
+            padding="same",
+            kernel_initializer="he_normal",
+        )(image_input)
         x = LeakyReLU()(x)
         x = Dropout(0.3)(x)
 
         cur_img_size = self.img_shape[0] // 2
         n_channels = 64
         while cur_img_size > 4:
-            x = Conv2D(64, kernel_size=(3, 3), strides=(2, 2), padding="same", kernel_initializer="he_normal")(x)
+            x = Conv2D(
+                64,
+                kernel_size=(3, 3),
+                strides=(2, 2),
+                padding="same",
+                kernel_initializer="he_normal",
+            )(x)
             x = LeakyReLU()(x)
             x = Dropout(0.3)(x)
             n_channels *= 2
@@ -213,7 +260,9 @@ class CoverGAN(GAN):
 
         x = MinibatchSd()(x)
         x = Flatten()(x)
-        discriminator_output = Dense(1, kernel_initializer="he_normal", activation="sigmoid")(x)
+        discriminator_output = Dense(
+            1, kernel_initializer="he_normal", activation="sigmoid"
+        )(x)
         discriminative_model = Model(image_input, discriminator_output)
         return discriminative_model
 
@@ -234,12 +283,18 @@ class CoverGAN(GAN):
         discriminator_y = np.concatenate((fake, real))
 
         self.train_discriminator(generated_images, real_images)
-        discriminator_batch_acc = self.discriminator.evaluate(discriminator_x, discriminator_y, verbose=0)[1]
+        discriminator_batch_acc = self.discriminator.evaluate(
+            discriminator_x, discriminator_y, verbose=0
+        )[1]
         self.history["D_accuracy"].append(discriminator_batch_acc)
 
-        self.history["G_loss"].append(self.combined_model.train_on_batch(noise, real))
+        self.history["G_loss"].append(
+            self.combined_model.train_on_batch(noise, real)
+        )
 
-    def train_discriminator(self, generated_images: np.array, real_images: np.array):
+    def train_discriminator(
+        self, generated_images: np.array, real_images: np.array
+    ):
         """
         Runs a single gradient update for the discriminator.
 
@@ -328,14 +383,24 @@ class WGAN(GAN):
             The WGAN discriminator
         """
         image_input = Input(self.img_shape)
-        x = Conv2D(64, kernel_size=(3, 3), strides=(1, 1), kernel_initializer="he_normal", padding="same")(image_input)
+        x = Conv2D(
+            64,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            kernel_initializer="he_normal",
+            padding="same",
+        )(image_input)
 
         cur_img_size = self.img_shape[0]
         n_channels = 64
         while cur_img_size > 4:
-            x = Conv2D(n_channels, kernel_size=(3, 3), strides=(2, 2), kernel_initializer="he_normal", padding="same")(
-                x
-            )
+            x = Conv2D(
+                n_channels,
+                kernel_size=(3, 3),
+                strides=(2, 2),
+                kernel_initializer="he_normal",
+                padding="same",
+            )(x)
             x = LeakyReLU()(x)
             n_channels *= 2
             cur_img_size //= 2
@@ -356,21 +421,29 @@ class WGAN(GAN):
         averaged samples
         """
         disc_input_image = Input(self.img_shape, name="Img_Input")
-        disc_input_noise = Input((self.latent_size,), name="Noise_Input_for_Discriminator")
+        disc_input_noise = Input(
+            (self.latent_size,), name="Noise_Input_for_Discriminator"
+        )
         gen_image_disc = self.generator(disc_input_noise)
         disc_image_gen = self.discriminator(gen_image_disc)
         disc_image_image = self.discriminator(disc_input_image)
-        avg_samples = RandomWeightedAverage(self.batch_size)([disc_input_image, gen_image_disc])
+        avg_samples = RandomWeightedAverage(self.batch_size)(
+            [disc_input_image, gen_image_disc]
+        )
         disc_avg_disc = self.discriminator(avg_samples)
         self.discriminator_model = Model(
-            inputs=[disc_input_image, disc_input_noise], outputs=[disc_image_image, disc_image_gen, disc_avg_disc]
+            inputs=[disc_input_image, disc_input_noise],
+            outputs=[disc_image_image, disc_image_gen, disc_avg_disc],
         )
         partial_gp_loss = functools.partial(
-            gradient_penalty_loss, averaged_samples=avg_samples, gradient_penalty_weight=self._gradient_penalty_weight
+            gradient_penalty_loss,
+            averaged_samples=avg_samples,
+            gradient_penalty_weight=self._gradient_penalty_weight,
         )
         partial_gp_loss.__name__ = "gradient_penalty"
         self.discriminator_model.compile(
-            loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss], optimizer=optimizer
+            loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss],
+            optimizer=optimizer,
         )
 
     def _build_combined_model(self, optimizer):
@@ -458,7 +531,9 @@ class WGAN(GAN):
         real_y = np.ones((batch_size, 1)) * -1
 
         for i in range(n_critic):
-            discriminator_minibatch = real_images[i * batch_size : (i + 1) * batch_size]
+            discriminator_minibatch = real_images[
+                i * batch_size : (i + 1) * batch_size
+            ]
             losses = self.train_discriminator(discriminator_minibatch)
 
         self.history["D_loss_positives"].append(losses[0])
@@ -466,7 +541,9 @@ class WGAN(GAN):
         self.history["D_loss_dummies"].append(losses[2])
 
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        self.history["G_loss"].append(self.combined_model.train_on_batch(noise, real_y))
+        self.history["G_loss"].append(
+            self.combined_model.train_on_batch(noise, real_y)
+        )
 
     def train_discriminator(self, real_images):
         """
@@ -483,5 +560,7 @@ class WGAN(GAN):
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        losses = self.discriminator_model.train_on_batch([real_images, noise], [real_y, fake_y, dummy_y])
+        losses = self.discriminator_model.train_on_batch(
+            [real_images, noise], [real_y, fake_y, dummy_y]
+        )
         return losses

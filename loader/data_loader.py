@@ -1,6 +1,6 @@
 import os
 
-import keras.backend as K  # noqa: WPS301
+import tensorflow.keras.backend as K  # noqa: WPS301
 import numpy as np
 import psutil
 from skimage.io import imread
@@ -11,10 +11,13 @@ from tqdm import tqdm
 
 class DataLoader(object):
     def __init__(
-        self, image_path: str, image_size: int = 256, binarizer: MultiLabelBinarizer = None,
+        self,
+        image_path: str,
+        image_size: int = 256,
+        binarizer: MultiLabelBinarizer = None,
     ):
         """
-        Image Loader that takes a path and crawls the directory and
+        Image loader that takes a path and crawls the directory and
         subdirectories for images and loads them.
 
         Args:
@@ -27,7 +30,9 @@ class DataLoader(object):
         self.image_size = image_size
 
         np_path = os.path.join(image_path, "all{0}.npy".format(image_size))
-        if os.path.exists(np_path) and os.stat(np_path).st_size < (psutil.virtual_memory().total * 0.8):
+        if os.path.exists(np_path) and os.stat(np_path).st_size < (
+            psutil.virtual_memory().total * 0.8
+        ):
             self._images = np.load(np_path)
             self._iterator = np.arange(0, self._images.shape[0])
         elif os.path.exists(np_path):
@@ -35,7 +40,9 @@ class DataLoader(object):
         else:
             try:
                 files = get_image_paths(image_path)
-                self._images = np.zeros((len(files), image_size, image_size, 3), dtype=K.floatx())
+                self._images = np.zeros(
+                    (len(files), image_size, image_size, 3), dtype=K.floatx()
+                )
 
                 for i, file_path in tqdm(enumerate(files)):
                     img = imread(file_path)
@@ -59,7 +66,9 @@ class DataLoader(object):
             List of return values. Contains numpy array of images and release year information as well as genre
                 information if requested
         """
-        batch_x = np.zeros((batch_size, self.image_size, self.image_size, 3), dtype=K.floatx())
+        batch_x = np.zeros(
+            (batch_size, self.image_size, self.image_size, 3), dtype=K.floatx()
+        )
         batch_idx = [
             i if i < self.n_images else i - self.n_images
             for i in np.arange(self._iterator_i, self._iterator_i + batch_size)
@@ -78,7 +87,9 @@ class DataLoader(object):
         return DataLoader._wrap_output(batch_x)
 
     @classmethod
-    def _wrap_output(cls, x: np.array = None, genres: np.array = None, year: np.array = None):
+    def _wrap_output(
+        cls, x: np.array = None, genres: np.array = None, year: np.array = None
+    ):
         """
         Wraps the output of the data loader to one object.
 

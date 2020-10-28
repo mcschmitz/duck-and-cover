@@ -1,8 +1,8 @@
 import numpy as np
-from keras import backend as K
-from keras.engine import Layer
-from keras.initializers import _compute_fans
-from keras.layers import Add, Dense, Conv2D
+from tensorflow.keras import backend as K
+import tensorflow as tf
+from tensorflow.python.ops.init_ops_v2 import _compute_fans
+from tensorflow.keras.layers import Add, Dense, Conv2D, Layer
 
 
 class MinibatchSd(Layer):
@@ -77,7 +77,12 @@ class WeightedSum(Add):
 
 
 class ScaledDense(Dense):
-    def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
+    def __init__(
+        self,
+        gain: float = np.sqrt(2),
+        use_dynamic_wscale: bool = True,
+        **kwargs
+    ):
         """
         Dense layer with weight scaling.
 
@@ -94,9 +99,9 @@ class ScaledDense(Dense):
         self.gain = gain
 
     def call(self, inputs):
-        fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
+        fan_in = float(_compute_fans(self.weights[0].shape)[0])
         wscale = self.gain / np.sqrt(max(1.0, fan_in))
-        output = K.dot(inputs, self.kernel * wscale)
+        output = tf.tensordot(inputs, self.kernel * wscale, 1)
         if self.use_bias:
             output = K.bias_add(output, self.bias, data_format="channels_last")
         if self.activation is not None:
@@ -105,7 +110,12 @@ class ScaledDense(Dense):
 
 
 class ScaledConv2D(Conv2D):
-    def __init__(self, gain: float = np.sqrt(2), use_dynamic_wscale: bool = True, **kwargs):
+    def __init__(
+        self,
+        gain: float = np.sqrt(2),
+        use_dynamic_wscale: bool = True,
+        **kwargs
+    ):
         """
         Scaled Convolutional Layer.
 
@@ -123,7 +133,7 @@ class ScaledConv2D(Conv2D):
         self.gain = gain
 
     def call(self, inputs):
-        fan_in = float(_compute_fans(self.weights[0].shape)[0].value)
+        fan_in = float(_compute_fans(self.weights[0].shape)[0])
         wscale = self.gain / np.sqrt(max(1.0, fan_in))
         outputs = K.conv2d(
             inputs,
@@ -135,7 +145,9 @@ class ScaledConv2D(Conv2D):
         )
 
         if self.use_bias:
-            outputs = K.bias_add(outputs, self.bias, data_format=self.data_format)
+            outputs = K.bias_add(
+                outputs, self.bias, data_format=self.data_format
+            )
 
         if self.activation is not None:
             return self.activation(outputs)

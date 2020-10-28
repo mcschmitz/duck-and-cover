@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import psutil
 import seaborn as sns
-from keras import backend as K
-from keras.preprocessing.image import array_to_img
+from tensorflow.keras import backend as K
+from tensorflow.keras.preprocessing.image import array_to_img
 from skimage.io import imread
 from skimage.transform import resize
 from tqdm import tqdm
@@ -34,7 +34,13 @@ def create_dir(directory_path):
     return directory_path
 
 
-def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = None, target_size: tuple = (64, 64)):
+def generate_images(
+    generator_model,
+    output_dir,
+    n_imgs: int = 10,
+    seed: int = None,
+    target_size: tuple = (64, 64),
+):
     """
     Generates a list of images by predicting with the given generator.
 
@@ -55,7 +61,10 @@ def generate_images(generator_model, output_dir, n_imgs: int = 10, seed: int = N
 
     image_size = (target_size[0] // n_imgs, target_size[1] // n_imgs)
     idx = 1
-    plt.figure(figsize=((target_size[0] * 2) // 100, (target_size[0] * 2) // 100), dpi=100)
+    plt.figure(
+        figsize=((target_size[0] * 2) // 100, (target_size[0] * 2) // 100),
+        dpi=100,
+    )
     for i in range(n_imgs):
         x0 = np.random.normal(size=generator_model.input_shape[1])
         x1 = np.random.normal(size=generator_model.input_shape[1])
@@ -91,7 +100,9 @@ class AnimatedGif(object):
 
     def add(self, image, label="", label_position: tuple = (1, 1)):
         plt_im = plt.imshow(image, vmin=0, vmax=1, animated=True)
-        plt_txt = plt.text(label_position[0], label_position[1], label, color="black")
+        plt_txt = plt.text(
+            label_position[0], label_position[1], label, color="black"
+        )
         self.images.append([plt_im, plt_txt])
 
     def save(self, filename, fps: float = 10):
@@ -111,12 +122,16 @@ def load_data(path: str, size: int = 4):
         list of image tensor and image index
     """
     np_path = os.path.join(path, "all{0}.npy".format(size))
-    if os.path.exists(np_path) and os.stat(np_path).st_size < (psutil.virtual_memory().total * 0.8):
+    if os.path.exists(np_path) and os.stat(np_path).st_size < (
+        psutil.virtual_memory().total * 0.8
+    ):
         images = np.load(np_path)
         img_idx = np.arange(0, images.shape[0])
         return images, img_idx
     elif os.path.exists(np_path):
-        print("Data does not fit inside Memory. Preallocation is not possible, use iterator instead")
+        print(
+            "Data does not fit inside Memory. Preallocation is not possible, use iterator instead"
+        )
     else:
         try:
             files = []
@@ -133,8 +148,10 @@ def load_data(path: str, size: int = 4):
             np.save(np_path, images)
             img_idx = np.arange(0, images.shape[0])
             return images, img_idx
-        except MemoryError as _:
-            print("Data does not fit inside Memory. Preallocation is not possible.")
+        except MemoryError:
+            print(
+                "Data does not fit inside Memory. Preallocation is not possible."
+            )
 
 
 def scale_images(images: np.array):
@@ -181,5 +198,29 @@ def plot_metric(path, steps, metric, **kwargs):
     sns.lineplot(x_axis, metric)
     plt.ylabel(kwargs.get("y_label", ""))
     plt.xlabel(kwargs.get("x_label", "steps"))
-    plt.savefig(os.path.join(path, kwargs.get("file_name", hash(datetime.now()))))
+    plt.savefig(
+        os.path.join(path, kwargs.get("file_name", hash(datetime.now())))
+    )
     plt.close()
+
+
+import logging
+import boto3
+from botocore.exceptions import ClientError
+
+
+def upload_file(file_name, bucket, object_name=None):
+    """
+    Upload a file to an S3 bucket.
+    """
+
+    # If S3 object_name was not specified, use file_name
+    if object_name is None:
+        object_name = file_name
+
+    # Upload the file
+    s3_client = boto3.client("s3")
+    try:
+        s3_client.upload_file(file_name, bucket, object_name)
+    except ClientError as e:
+        logging.error(e)

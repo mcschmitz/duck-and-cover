@@ -1,7 +1,16 @@
 import numpy as np
 from tensorflow.python.keras import Input, Model
-from tensorflow.python.keras.layers import Dense, BatchNormalization, LeakyReLU, \
-    Reshape, Conv2D, UpSampling2D, Activation, Dropout, Flatten
+from tensorflow.python.keras.layers import (
+    Dense,
+    BatchNormalization,
+    LeakyReLU,
+    Reshape,
+    Conv2D,
+    UpSampling2D,
+    Activation,
+    Dropout,
+    Flatten,
+)
 from tensorflow.python.keras.losses import binary_crossentropy
 import seaborn as sns
 from networks import GAN
@@ -264,9 +273,7 @@ class CoverGAN(GAN):
                     path, "step{}.png".format(self.images_shown)
                 )
                 generate_images(
-                    self.generator,
-                    img_path,
-                    target_size=(64 * 10, 64),
+                    self.generator, img_path, target_size=(64 * 10, 64),
                 )
 
                 img_path = os.path.join(
@@ -309,6 +316,7 @@ class CoverGAN(GAN):
         logger.info(
             f"Images shown {self.images_shown}: Generator Loss: {g_loss} - Discriminator Acc.: {d_acc}"
         )
+
 
 from utils import generate_images, plot_metric
 import os

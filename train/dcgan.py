@@ -31,10 +31,7 @@ images = None
 lp_path = create_dir(f"learning_progress/{PATH}")
 model_path = create_dir(os.path.join(lp_path, "model"))
 
-data_loader = DataLoader(
-    image_path=COVERS_PATH,
-    image_size=IMAGE_SIZE,
-)
+data_loader = DataLoader(image_path=COVERS_PATH, image_size=IMAGE_SIZE,)
 
 image_width = IMAGE_SIZE * image_ratio[0]
 image_height = IMAGE_SIZE * image_ratio[1]
@@ -54,7 +51,12 @@ if WARM_START:
     logger.info(f"Apply warm start. Load models from {model_path}")
     gan = load_progan(gan, model_path)
 
-gan.train(data_loader=data_loader, global_steps=TRAIN_STEPS, batch_size=BATCH_SIZE, path=lp_path)
+gan.train(
+    data_loader=data_loader,
+    global_steps=TRAIN_STEPS,
+    batch_size=BATCH_SIZE,
+    path=lp_path,
+)
 
 gif_size = (image_width * 10, image_height + 50)
 animated_gif = AnimatedGif(size=gif_size)

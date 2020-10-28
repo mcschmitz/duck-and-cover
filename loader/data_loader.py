@@ -15,6 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 
+
 class DataLoader(object):
     def __init__(
         self,
@@ -58,7 +59,9 @@ class DataLoader(object):
                 np.save(np_path, self._images)
                 self._iterator = np.arange(0, self._images.shape[0])
             except MemoryError:
-                logger.warning("Data does not fit into memory. Data will be streamed from disk")
+                logger.warning(
+                    "Data does not fit into memory. Data will be streamed from disk"
+                )
                 self._images = get_image_paths(image_path)
 
         self.n_images = len(self._images)

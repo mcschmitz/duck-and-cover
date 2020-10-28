@@ -26,6 +26,8 @@ if __name__ == "__main__":
     labels = [labels[i] for i in order]
     for img, lab in zip(images, labels):
         animated_gif.add(
-            img, label="{} Images shown".format(lab), label_position=(gif_size[0] * 0.9, gif_size[1] * 0.9)
+            img,
+            label="{} Images shown".format(lab),
+            label_position=(gif_size[0] * 0.9, gif_size[1] * 0.9),
         )
     animated_gif.save(os.path.join(lp_path, "fixed.gif"), fps=len(images) / 60)

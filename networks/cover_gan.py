@@ -12,7 +12,8 @@ from tensorflow.python.keras.layers import (
     Flatten,
 )
 from tensorflow.python.keras.losses import binary_crossentropy
-import seaborn as sns
+from utils import generate_images, plot_metric
+import os
 from networks import GAN
 from networks.utils.layers import MinibatchSd
 from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
@@ -316,7 +317,3 @@ class CoverGAN(GAN):
         logger.info(
             f"Images shown {self.images_shown}: Generator Loss: {g_loss} - Discriminator Acc.: {d_acc}"
         )
-
-
-from utils import generate_images, plot_metric
-import os

@@ -4,6 +4,7 @@ import os
 import numpy as np
 from tensorflow.keras.optimizers import Adam
 
+from constants import BASE_DATA_PATH
 from loader import DataLoader
 from networks import ProGAN
 from networks.utils import load_progan, plot_progan, save_gan
@@ -11,7 +12,6 @@ from utils import create_dir
 
 N_BLOCKS = 7
 RESOLUTIONS = 2 ** np.arange(2, N_BLOCKS + 2)
-RESOLUTIONS = RESOLUTIONS if isinstance(RESOLUTIONS, list) else RESOLUTIONS
 LATENT_SIZE = 1024
 
 PATH = "2_progan/base"
@@ -25,8 +25,6 @@ N_CRITIC = 1
 TRAIN_STEPS = int(10e5)
 
 starting_from_block = 0
-
-base_data_path = "data/covers{}"
 
 optimizer = Adam(0.001, beta_1=0.0, beta_2=0.99)
 gan = ProGAN(
@@ -42,7 +40,7 @@ for block, fade in itertools.product(range(0, 1), FADE):  # len(RESOLUTIONS)
     resolution = RESOLUTIONS[block]
     block += starting_from_block
     print("\n\nStarting training for resolution {}\n\n".format(resolution))
-    data_path = base_data_path.format(300 if resolution > 64 else 64)
+    data_path = BASE_DATA_PATH.format(300 if resolution > 64 else 64)
     data_loader = DataLoader(data_path, image_size=resolution)
 
     batch_size = BATCH_SIZE[block]

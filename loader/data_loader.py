@@ -7,7 +7,13 @@ from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
+from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+import logging
 
+logging.basicConfig(
+    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
+)
+logger = logging.getLogger(__file__)
 
 class DataLoader(object):
     def __init__(
@@ -29,13 +35,14 @@ class DataLoader(object):
         self._iterator_i = 0
         self.image_size = image_size
 
-        np_path = os.path.join(image_path, "all{0}.npy".format(image_size))
+        np_path = os.path.join(image_path, f"all{image_size}.npy")
         if os.path.exists(np_path) and os.stat(np_path).st_size < (
             psutil.virtual_memory().total * 0.8
         ):
             self._images = np.load(np_path)
             self._iterator = np.arange(0, self._images.shape[0])
         elif os.path.exists(np_path):
+            logger.info(f"Load data from {np_path}")
             self._images = get_image_paths(image_path)
         else:
             try:
@@ -44,13 +51,14 @@ class DataLoader(object):
                     (len(files), image_size, image_size, 3), dtype=K.floatx()
                 )
 
-                for i, file_path in tqdm(enumerate(files)):
+                for i, file_path in enumerate(tqdm(files)):
                     img = imread(file_path)
                     img = resize(img, (image_size, image_size, 3))
                     self._images[i] = img
                 np.save(np_path, self._images)
                 self._iterator = np.arange(0, self._images.shape[0])
             except MemoryError:
+                logger.warning("Data does not fit into memory. Data will be streamed from disk")
                 self._images = get_image_paths(image_path)
 
         self.n_images = len(self._images)

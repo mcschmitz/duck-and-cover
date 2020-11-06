@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import psutil
 import seaborn as sns
-from tensorflow.keras import backend as K
-from tensorflow.keras.preprocessing.image import array_to_img
 from skimage.io import imread
 from skimage.transform import resize
+from tensorflow.keras import backend as K
+from tensorflow.keras.preprocessing.image import array_to_img
 from tqdm import tqdm
 
 plt.ioff()
@@ -44,8 +44,9 @@ def generate_images(
     """
     Generates a list of images by predicting with the given generator.
 
-    Feeds normal distributed random numbers into the generator to generate `n_imgs`, tiles the image, rescales it and
-    and saves the output to a PNG file.
+    Feeds normal distributed random numbers into the generator to generate
+    `n_imgs`, tiles the image, rescales it and and saves the output to a PNG
+    file.
 
     Args:
         generator_model: Generator used for generating the images
@@ -74,7 +75,9 @@ def generate_images(
             plt.axis("off")
             plt.imshow(img)
             idx += 1
-            plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1)
+            plt.subplots_adjust(
+                left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1
+            )
     plt.savefig(output_dir, dpi=1)
     plt.close()
 
@@ -98,7 +101,11 @@ class AnimatedGif(object):
     def add(self, image, label="", label_position: tuple = (1, 1)):
         plt_im = plt.imshow(image, vmin=0, vmax=1, animated=True)
         plt_txt = plt.text(
-            label_position[0], label_position[1], label, color="black",fontsize=20,
+            label_position[0],
+            label_position[1],
+            label,
+            color="black",
+            fontsize=20,
         )
         self.images.append([plt_im, plt_txt])
 
@@ -194,30 +201,8 @@ def plot_metric(path, steps, metric, **kwargs):
     x_axis = np.linspace(0, steps, len(metric))
     sns.lineplot(x_axis, metric)
     plt.ylabel(kwargs.get("y_label", ""))
-    plt.xlabel(kwargs.get("x_label", "steps"))
+    plt.xlabel(kwargs.get("x_label", "Images shown"))
     plt.savefig(
         os.path.join(path, kwargs.get("file_name", hash(datetime.now())))
     )
     plt.close()
-
-
-import logging
-import boto3
-from botocore.exceptions import ClientError
-
-
-def upload_file(file_name, bucket, object_name=None):
-    """
-    Upload a file to an S3 bucket.
-    """
-
-    # If S3 object_name was not specified, use file_name
-    if object_name is None:
-        object_name = file_name
-
-    # Upload the file
-    s3_client = boto3.client("s3")
-    try:
-        s3_client.upload_file(file_name, bucket, object_name)
-    except ClientError as e:
-        logging.error(e)

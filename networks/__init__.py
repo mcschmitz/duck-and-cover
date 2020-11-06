@@ -1,3 +1,3 @@
-from .base import WGAN, GAN
-from .cover_gan import CoverGAN
-from .progan import ProGAN
+from networks.dcgan import DCGAN
+from networks.progan import ProGAN
+from networks.wgan import WGAN

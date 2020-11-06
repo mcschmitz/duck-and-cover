@@ -1,23 +1,14 @@
-import numpy as np
-from tensorflow.python.keras import Input, Model
-from tensorflow.python.keras.layers import (
-    Dense,
-    BatchNormalization,
-    LeakyReLU,
-    Reshape,
-    Conv2D,
-    UpSampling2D,
-    Activation,
-    Dropout,
-    Flatten,
-)
-from tensorflow.python.keras.losses import binary_crossentropy
-from utils import generate_images, plot_metric
-import os
-from networks import GAN
-from networks.utils.layers import MinibatchSd
-from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
 import logging
+import os
+
+import numpy as np
+from tensorflow.python.keras import Input, Model, layers
+from tensorflow.python.keras.losses import binary_crossentropy
+
+from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+from networks.base import GAN
+from networks.utils.layers import MinibatchSd
+from utils import generate_images, plot_metric
 
 logging.basicConfig(
     format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
@@ -25,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 
-class CoverGAN(GAN):
+class DCGAN(GAN):
     def __init__(
         self,
         batch_size: int,
@@ -37,16 +28,19 @@ class CoverGAN(GAN):
         """
         Simple Deep Convolutional GAN.
 
-        Simple DCGAN that builds a discriminator a generator and the adversarial model to train the GAN based on the
-        binary crossentropy loss for the generator and the discriminator
+        Simple DCGAN that builds a discriminator a generator and the adversarial
+        model to train the GAN based on the binary crossentropy loss for the
+        generator and the discriminator.
 
         Args:
+            batch_size: size of the training batches
             img_height: height of the image. Should be a power of 2
             img_width: width of the image. Should be a power of 2
             channels: Number of image channels. Normally either 1 or 3.
-            latent_size: Size of the latent vector that is used to generate the image
+            latent_size: Size of the latent vector that is used to generate the
+                image
         """
-        super(CoverGAN, self).__init__()
+        super(DCGAN, self).__init__()
         self.batch_size = batch_size
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
@@ -60,12 +54,14 @@ class CoverGAN(GAN):
         """
         Builds the desired GAN that allows to generate covers.
 
-        Creates every model needed for GAN. Creates a discriminator, a generator and the combined model. The
-        discriminator as well as the generator are trained using the provided optimizer.
+        Creates every model needed for GAN. Creates a discriminator, a generator
+        and the combined model. The discriminator as well as the generator are
+        trained using the provided optimizer.
 
         Args:
             combined_optimizer: Which optimizer to use for the combined model
-            discriminator_optimizer: Which optimizer to use for the discriminator model
+            discriminator_optimizer: Which optimizer to use for the
+                discriminator model
         """
         discriminator_optimizer = (
             combined_optimizer
@@ -80,20 +76,14 @@ class CoverGAN(GAN):
         self._build_discriminator_model(discriminator_optimizer)
         self.history["D_accuracy"] = []
 
-        for layer in self.discriminator.layers:
-            layer.trainable = False
-        self.discriminator.trainable = False
-        for layer in self.generator.layers:
-            layer.trainable = True
-        self.generator.trainable = True
-        self._build_combined_model(combined_optimizer)
-        self.history["G_loss"] = []
+        self.fuse_disc_and_gen(combined_optimizer)
 
     def _build_discriminator_model(self, optimizer):
         """
         Build the discriminator model.
 
-        The discriminator model is only compiled in this step since the model is rather simple in a plain GAN
+        The discriminator model is only compiled in this step since the model is
+        rather simple in a plain GAN
 
         Args:
             optimizer: Which optimizer to use
@@ -108,8 +98,9 @@ class CoverGAN(GAN):
         """
         Build the combined GAN consisting of generator and discriminator.
 
-        Takes the latent input and generates an images out of it by applying the generator. Classifies the image via the
-        discriminator. The model is compiled using the given optimizer
+        Takes the latent input and generates an images out of it by applying the
+        generator. Classifies the image via the discriminator. The model is
+        compiled using the given optimizer
 
         Args:
             optimizer: which optimizer to use
@@ -124,20 +115,21 @@ class CoverGAN(GAN):
         """
         Builds the DCGAN generator.
 
-        Builds the very simple generator that takes a latent input vector and applies the following block until the
-        desired image size is reached: 3x3 convolutional layer with ReLu activation -> Batch Normalization ->
-        Upsamling layer. The last Convolutional layer wit tanH activation results in 3 RGB channels and serves as
-        final output
+        Builds the very simple generator that takes a latent input vector and
+        applies the following block until the desired image size is reached:
+        3x3 convolutional layer with ReLu activation -> Batch Normalization ->
+        Upsamling layer. The last Convolutional layer wit tanH activation
+        results in 3 RGB channels and serves as final output
 
         Returns:
             The DCGAN generator
         """
         noise_input = Input((self.latent_size,))
-        x = Dense(4 * 4 * 512, name="Generator_Dense")(noise_input)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-        x = Reshape((4, 4, 512))(x)
-        x = Conv2D(
+        x = layers.Dense(4 * 4 * 512, name="Generator_Dense")(noise_input)
+        x = layers.BatchNormalization()(x)
+        x = layers.LeakyReLU()(x)
+        x = layers.Reshape((4, 4, 512))(x)
+        x = layers.Conv2D(
             512,
             kernel_size=(1, 1),
             strides=(1, 1),
@@ -148,27 +140,27 @@ class CoverGAN(GAN):
         cur_img_size = 4
         n_channels = 256
         while cur_img_size < self.img_shape[0]:
-            x = UpSampling2D()(x)
-            x = Conv2D(
+            x = layers.UpSampling2D()(x)
+            x = layers.Conv2D(
                 n_channels,
                 kernel_size=(3, 3),
                 strides=(1, 1),
                 padding="same",
                 kernel_initializer="he_normal",
             )(x)
-            x = BatchNormalization()(x)
-            x = LeakyReLU()(x)
+            x = layers.BatchNormalization()(x)
+            x = layers.LeakyReLU()(x)
             cur_img_size *= 2
             n_channels //= 2
 
-        generator_output = Conv2D(
+        generator_output = layers.Conv2D(
             self.channels,
             kernel_size=(1, 1),
             strides=(1, 1),
             padding="same",
             kernel_initializer="he_normal",
         )(x)
-        generator_output = Activation("tanh")(generator_output)
+        generator_output = layers.Activation("tanh")(generator_output)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
@@ -176,42 +168,43 @@ class CoverGAN(GAN):
         """
         Builds the DCGAN discriminator.
 
-        Builds the very simple discriminator that takes an image input and applies a 3x3 convolutional layer with ReLu
-        activation and a 2x2 stride until the desired embedding  size is reached. The flattend embedding is ran
-        through a Dense layer with sigmoid output to label the image.
+        Builds the very simple discriminator that takes an image input and
+        applies a 3x3 convolutional layer with ReLu activation and a 2x2 stride
+        until the desired embedding  size is reached. The flattend embedding is
+        ran through a Dense layer with sigmoid output to label the image.
 
         Returns:
             The DCGAN discriminator
         """
         image_input = Input(self.img_shape)
-        x = Conv2D(
+        x = layers.Conv2D(
             32,
             kernel_size=(3, 3),
             strides=(2, 2),
             padding="same",
             kernel_initializer="he_normal",
         )(image_input)
-        x = LeakyReLU()(x)
-        x = Dropout(0.3)(x)
+        x = layers.LeakyReLU()(x)
+        x = layers.Dropout(0.3)(x)
 
         cur_img_size = self.img_shape[0] // 2
         n_channels = 64
         while cur_img_size > 4:
-            x = Conv2D(
+            x = layers.Conv2D(
                 64,
                 kernel_size=(3, 3),
                 strides=(2, 2),
                 padding="same",
                 kernel_initializer="he_normal",
             )(x)
-            x = LeakyReLU()(x)
-            x = Dropout(0.3)(x)
+            x = layers.LeakyReLU()(x)
+            x = layers.Dropout(0.3)(x)
             n_channels *= 2
             cur_img_size //= 2
 
         x = MinibatchSd()(x)
-        x = Flatten()(x)
-        discriminator_output = Dense(
+        x = layers.Flatten()(x)
+        discriminator_output = layers.Dense(
             1, kernel_initializer="he_normal", activation="sigmoid"
         )(x)
         discriminative_model = Model(image_input, discriminator_output)
@@ -274,7 +267,9 @@ class CoverGAN(GAN):
                 file_names = ["d_acc.png", "g_loss.png"]
                 labels = ["Discriminator Accuracy.png", "Generator Loss.png"]
 
-                for metric, file_name, label in zip(metric, file_names, labels):
+                for metric, file_name, label in zip(
+                    metric, file_names, labels
+                ):
                     plot_metric(
                         path,
                         steps=self.images_shown,
@@ -288,7 +283,9 @@ class CoverGAN(GAN):
         generate_images(self.generator, img_path, target_size=(64, 64))
 
         img_path = os.path.join(path, f"fixed_step{self.images_shown}.png")
-        generate_images(self.generator, img_path, target_size=(64, 64), seed=101)
+        generate_images(
+            self.generator, img_path, target_size=(64, 64), seed=101
+        )
 
         img_path = os.path.join(path, f"fixed_step_gif{self.images_shown}.png")
         generate_images(
@@ -296,12 +293,14 @@ class CoverGAN(GAN):
             img_path,
             target_size=(256, 256),
             seed=101,
-            n_imgs=1
+            n_imgs=1,
         )
 
     def _print_output(self):
         g_loss = np.round(np.mean(self.history["G_loss"]), decimals=3)
         d_acc = np.round(np.mean(self.history["D_accuracy"]), decimals=3)
         logger.info(
-            f"Images shown {self.images_shown}: Generator Loss: {g_loss} - Discriminator Acc.: {d_acc}"
+            f"Images shown {self.images_shown}:"
+            + f" Generator Loss: {g_loss} -"
+            + f" Discriminator Acc.: {d_acc}"
         )

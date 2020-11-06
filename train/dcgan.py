@@ -1,15 +1,21 @@
+import logging
 import os
+import re
+
 import imageio
 import numpy as np
-from tf_init import init_tf
-import re
 from tensorflow.keras.optimizers import Adam
-from constants import BASE_DATA_PATH
+
+from constants import (
+    BASE_DATA_PATH,
+    LOG_DATETIME_FORMAT,
+    LOG_FORMAT,
+    LOG_LEVEL,
+)
 from loader import DataLoader
-from networks import CoverGAN
+from networks import DCGAN
+from tf_init import init_tf
 from utils import AnimatedGif, create_dir
-from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
-import logging
 
 logging.basicConfig(
     format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
@@ -29,15 +35,18 @@ init_tf()
 
 lp_path = create_dir(f"learning_progress/{PATH}")
 
-data_loader = DataLoader(image_path=COVERS_PATH, image_size=IMAGE_SIZE,)
+data_loader = DataLoader(
+    image_path=COVERS_PATH,
+    image_size=IMAGE_SIZE,
+)
 
 image_width = IMAGE_SIZE * image_ratio[0]
 image_height = IMAGE_SIZE * image_ratio[1]
 
-gan = CoverGAN(
+gan = DCGAN(
     img_width=image_width,
     img_height=image_height,
-    latent_size=128,
+    latent_size=1042,
     batch_size=BATCH_SIZE,
 )
 gan.build_models(

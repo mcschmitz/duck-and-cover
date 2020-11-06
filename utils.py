@@ -59,26 +59,23 @@ def generate_images(
     else:
         np.random.seed()
 
-    image_size = (target_size[0] // n_imgs, target_size[1] // n_imgs)
     idx = 1
-    plt.figure(
-        figsize=((target_size[0] * 2) // 100, (target_size[0] * 2) // 100),
-        dpi=100,
-    )
+    figsize = (np.array(target_size) * [10, n_imgs]).astype(int)
+    plt.figure(figsize=figsize, dpi=1)
     for i in range(n_imgs):
         x0 = np.random.normal(size=generator_model.input_shape[1])
         x1 = np.random.normal(size=generator_model.input_shape[1])
-        x = np.linspace(x0, x1, n_imgs)
+        x = np.linspace(x0, x1, 10)
         generated_images = generator_model.predict(x)
         for img in generated_images:
             img = array_to_img(img, scale=True)
-            img = img.resize(size=image_size)
-            plt.subplot(n_imgs, n_imgs, idx)
+            img = img.resize(size=target_size)
+            plt.subplot(n_imgs, 10, idx)
             plt.axis("off")
             plt.imshow(img)
             idx += 1
-
-    plt.savefig(output_dir, dpi=100)
+            plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1)
+    plt.savefig(output_dir, dpi=1)
     plt.close()
 
 
@@ -101,7 +98,7 @@ class AnimatedGif(object):
     def add(self, image, label="", label_position: tuple = (1, 1)):
         plt_im = plt.imshow(image, vmin=0, vmax=1, animated=True)
         plt_txt = plt.text(
-            label_position[0], label_position[1], label, color="black"
+            label_position[0], label_position[1], label, color="black",fontsize=20,
         )
         self.images.append([plt_im, plt_txt])
 

@@ -16,6 +16,7 @@ from utils import generate_images, plot_metric
 import os
 from networks import GAN
 from networks.utils.layers import MinibatchSd
+from networks.utils import save_gan
 from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
 import logging
 
@@ -260,7 +261,6 @@ class CoverGAN(GAN):
 
     def train(self, data_loader, global_steps, batch_size, **kwargs):
         path = kwargs.get("path", ".")
-
         steps = global_steps // batch_size
         for step in range(self.images_shown // batch_size, steps):
             batch = data_loader.get_next_batch(batch_size)
@@ -269,40 +269,13 @@ class CoverGAN(GAN):
 
             if step % 250 == 0:
                 self._print_output()
+                self._generate_images(path)
 
-                img_path = os.path.join(
-                    path, "step{}.png".format(self.images_shown)
-                )
-                generate_images(
-                    self.generator, img_path, target_size=(64 * 10, 64),
-                )
+                metric = [self.history["D_accuracy"], self.history["G_loss"]]
+                file_names = ["d_acc.png", "g_loss.png"]
+                labels = ["Discriminator Accuracy.png", "Generator Loss.png"]
 
-                img_path = os.path.join(
-                    path, "fixed_step{}.png".format(self.images_shown)
-                )
-                generate_images(
-                    self.generator,
-                    img_path,
-                    target_size=(64 * 10, 64),
-                    seed=101,
-                )
-
-                metric = [
-                    self.history["D_accuracy"],
-                    self.history["G_loss"],
-                ]
-                file_names = [
-                    "d_acc.png",
-                    "g_loss.png",
-                ]
-                labels = [
-                    "Discriminator Accuracy.png",
-                    "Generator Loss.png",
-                ]
-
-                for metric, file_name, label in zip(
-                    metric, file_names, labels
-                ):
+                for metric, file_name, label in zip(metric, file_names, labels):
                     plot_metric(
                         path,
                         steps=self.images_shown,
@@ -310,6 +283,22 @@ class CoverGAN(GAN):
                         y_label=label,
                         file_name=file_name,
                     )
+
+    def _generate_images(self, path):
+        img_path = os.path.join(path, f"step{self.images_shown}.png")
+        generate_images(self.generator, img_path, target_size=(64, 64))
+
+        img_path = os.path.join(path, f"fixed_step{self.images_shown}.png")
+        generate_images(self.generator, img_path, target_size=(64, 64), seed=101)
+
+        img_path = os.path.join(path, f"fixed_step_gif{self.images_shown}.png")
+        generate_images(
+            self.generator,
+            img_path,
+            target_size=(256, 256),
+            seed=101,
+            n_imgs=1
+        )
 
     def _print_output(self):
         g_loss = np.round(np.mean(self.history["G_loss"]), decimals=3)

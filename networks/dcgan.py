@@ -19,7 +19,6 @@ logger = logging.getLogger(__file__)
 class DCGAN(GAN):
     def __init__(
         self,
-        batch_size: int,
         img_height: int,
         img_width: int,
         channels: int = 3,
@@ -33,7 +32,6 @@ class DCGAN(GAN):
         generator and the discriminator.
 
         Args:
-            batch_size: size of the training batches
             img_height: height of the image. Should be a power of 2
             img_width: width of the image. Should be a power of 2
             channels: Number of image channels. Normally either 1 or 3.
@@ -41,7 +39,6 @@ class DCGAN(GAN):
                 image
         """
         super(DCGAN, self).__init__()
-        self.batch_size = batch_size
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
         self.channels = channels
@@ -252,6 +249,15 @@ class DCGAN(GAN):
         self.discriminator.train_on_batch(real_images, real)
 
     def train(self, data_loader, global_steps, batch_size, **kwargs):
+        """
+        Trains the network.
+
+        Args:
+            data_loader: Data Loader to stream training batches to the network
+            global_steps: Absolute numbers of steps to train
+            batch_size: Size of the trainin batches
+            **kwargs: Keyword arguments. Add `path` to change the output path
+        """
         path = kwargs.get("path", ".")
         steps = global_steps // batch_size
         for step in range(self.images_shown // batch_size, steps):
@@ -263,12 +269,12 @@ class DCGAN(GAN):
                 self._print_output()
                 self._generate_images(path)
 
-                metric = [self.history["D_accuracy"], self.history["G_loss"]]
+                metrics = [self.history["D_accuracy"], self.history["G_loss"]]
                 file_names = ["d_acc.png", "g_loss.png"]
                 labels = ["Discriminator Accuracy.png", "Generator Loss.png"]
 
                 for metric, file_name, label in zip(
-                    metric, file_names, labels
+                    metrics, file_names, labels
                 ):
                     plot_metric(
                         path,

@@ -1,19 +1,36 @@
-import functools
+import logging
 
 import numpy as np
 from tensorflow.python.keras import Input, Model
-from tensorflow.python.keras.layers import Conv2D, LeakyReLU, Flatten, Dense, \
-    BatchNormalization, Reshape, UpSampling2D, Activation
+from tensorflow.python.keras.layers import (
+    Activation,
+    BatchNormalization,
+    Conv2D,
+    Dense,
+    Flatten,
+    LeakyReLU,
+    Reshape,
+    UpSampling2D,
+)
 
-from networks import DCGAN
-from networks.utils import gradient_penalty_loss, wasserstein_loss
-from networks.utils.layers import MinibatchSd, RandomWeightedAverage
+from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+from networks.dcgan import DCGAN
+from networks.utils import wasserstein_loss
+from networks.utils.layers import (
+    GradientPenalty,
+    MinibatchSd,
+    RandomWeightedAverage,
+)
+
+logging.basicConfig(
+    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
+)
+logger = logging.getLogger(__file__)
 
 
 class WGAN(DCGAN):
     def __init__(
         self,
-        batch_size,
         gradient_penalty_weight,
         img_height: int,
         img_width: int,
@@ -23,33 +40,33 @@ class WGAN(DCGAN):
         """
         Wasserstein GAN.
 
-        Wasserstein GAN with gradient penalty, that builds a discriminator a generator and the adversarial model to
-        train the GAN based on the wasserstein loss for negative, positive and interpolated examples
+        Wasserstein GAN with gradient penalty, that builds a discriminator a
+        generator and the adversarial model to train the GAN based on the
+        wasserstein loss for negative, positive and interpolated examples
 
         Args:
-            batch_size: size of each training batch
             gradient_penalty_weight: weight for the gradient penalty
             img_height: height of the image. Should be a power of 2
             img_width: width of the image. Should be a power of 2
             channels: Number of image channels. Normally either 1 or 3.
-            latent_size: Size of the latent vector that is used to generate the image
+            latent_size: Size of the latent vector that is used to generate the
+                image
         """
-        super(WGAN, self).__init__()
-        self.img_height = np.int(img_height)
-        self.img_width = np.int(img_width)
-        self.channels = channels
-        self.img_shape = (self.img_height, self.img_width, self.channels)
-        self.latent_size = latent_size
+        super(WGAN, self).__init__(
+            img_height=img_height,
+            img_width=img_width,
+            channels=channels,
+            latent_size=latent_size,
+        )
         self.discriminator_loss = []
-        self.batch_size = batch_size
         self._gradient_penalty_weight = gradient_penalty_weight
 
     def build_models(self, optimizer):
         """
         Builds the desired GAN that allows to generate covers.
 
-        Builds the generator, the discriminator and the combined model for a WGAN using Wasserstein loss with gradient
-        penalty to improve learning.
+        Builds the generator, the discriminator and the combined model for a
+        WGAN using Wasserstein loss with gradient penalty to improve learning.
 
         Args:
             optimizer: Which optimizer to use
@@ -70,9 +87,10 @@ class WGAN(DCGAN):
         """
         Defines the architecture for the the WGAN discriminator.
 
-        The discriminator takes an image input and applies a 3x3 convolutional layer with LeakyReLu activation and a
-        2x2 stride until the desired embedding  size is reached. The flattend embedding is ran through a 1024 Dense
-        layer followed by a output layer with one linear output node.
+        The discriminator takes an image input and applies a 3x3 convolutional
+        layer with LeakyReLu activation and a 2x2 stride until the desired
+        embedding  size is reached. The flattend embedding is ran through a
+        1024 Dense layer followed by a output layer with one linear output node.
 
         Returns:
             The WGAN discriminator
@@ -114,6 +132,9 @@ class WGAN(DCGAN):
         average of both and optimizes the wasserstein loss for the real
         and the fake images as well as the gradient penalty for the
         averaged samples
+
+        Args:
+            optimizer: Tensorflow optimizer used for training
         """
         disc_input_image = Input(self.img_shape, name="Img_Input")
         disc_input_noise = Input(
@@ -122,22 +143,18 @@ class WGAN(DCGAN):
         gen_image_disc = self.generator(disc_input_noise)
         disc_image_gen = self.discriminator(gen_image_disc)
         disc_image_image = self.discriminator(disc_input_image)
-        avg_samples = RandomWeightedAverage(self.batch_size)(
+        avg_samples = RandomWeightedAverage()(
             [disc_input_image, gen_image_disc]
         )
         disc_avg_disc = self.discriminator(avg_samples)
+        gp_layer = GradientPenalty(weight=self._gradient_penalty_weight)
+        gp = gp_layer([disc_avg_disc, avg_samples])
         self.discriminator_model = Model(
             inputs=[disc_input_image, disc_input_noise],
-            outputs=[disc_image_image, disc_image_gen, disc_avg_disc],
+            outputs=[disc_image_image, disc_image_gen, gp],
         )
-        partial_gp_loss = functools.partial(
-            gradient_penalty_loss,
-            averaged_samples=avg_samples,
-            gradient_penalty_weight=self._gradient_penalty_weight,
-        )
-        partial_gp_loss.__name__ = "gradient_penalty"
         self.discriminator_model.compile(
-            loss=[wasserstein_loss, wasserstein_loss, partial_gp_loss],
+            loss=[wasserstein_loss, wasserstein_loss, "mse"],
             optimizer=optimizer,
         )
 
@@ -145,8 +162,9 @@ class WGAN(DCGAN):
         """
         Build the combined GAN consisting of generator and discriminator.
 
-        Takes the latent input and generates an images out of it by applying the generator. Classifies the image via the
-        discriminator. The model is compiled using the given optimizer
+        Takes the latent input and generates an images out of it by applying the
+        generator. Classifies the image via the discriminator. The model is
+        compiled using the given optimizer
 
         Args:
             optimizer: which optimizer to use
@@ -161,10 +179,11 @@ class WGAN(DCGAN):
         """
         Defines the architecture for the WGAN.
 
-        The generator takes a latent input vector and applies the following block until the desired image size is
-        reached: 3x3 convolutional layer -> Upsamling layer -> with ReLu activation -> Batch Normalization. The last
-        Convolutional layer wit tanH activation results in 3 RGB channels and serves as
-        final output
+        The generator takes a latent input vector and applies the following
+        block until the desired image size is reached: 3x3 convolutional layer
+        -> Upsamling layer -> with ReLu activation -> Batch Normalization. The
+        last Convolutional layer wit tanH activation results in 3 RGB channels
+        and serves as final output
 
         Returns:
             The DCGAN generator
@@ -259,3 +278,22 @@ class WGAN(DCGAN):
             [real_images, noise], [real_y, fake_y, dummy_y]
         )
         return losses
+
+    def _print_output(self):
+        g_loss = np.round(np.mean(self.history["G_loss"]), decimals=3)
+        d_loss_p = np.round(
+            np.mean(self.history["D_loss_positives"]), decimals=3
+        )
+        d_loss_n = np.round(
+            np.mean(self.history["D_loss_negatives"]), decimals=3
+        )
+        d_loss_d = np.round(
+            np.mean(self.history["D_loss_dummies"]), decimals=3
+        )
+        logger.info(
+            f"Images shown {self.images_shown}:"
+            + f" Generator Loss: {g_loss}"
+            + f" - Discriminator Loss + : {d_loss_p}"
+            + f" - Discriminator Loss - : {d_loss_n}"
+            + f" - Discriminator Loss Dummies : {d_loss_d}"
+        )

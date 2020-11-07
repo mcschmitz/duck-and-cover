@@ -1,14 +1,13 @@
-"""
-Utility functions to train the GAN.
-"""
 import os
+import re
 from datetime import datetime
 
-import matplotlib.animation as anim
-import matplotlib.pyplot as plt
+import imageio
 import numpy as np
 import psutil
 import seaborn as sns
+from matplotlib import pyplot as plt
+from matplotlib.animation import ArtistAnimation
 from skimage.io import imread
 from skimage.transform import resize
 from tensorflow.keras import backend as K
@@ -63,7 +62,7 @@ def generate_images(
     idx = 1
     figsize = (np.array(target_size) * [10, n_imgs]).astype(int)
     plt.figure(figsize=figsize, dpi=1)
-    for i in range(n_imgs):
+    for _ in range(n_imgs):
         x0 = np.random.normal(size=generator_model.input_shape[1])
         x1 = np.random.normal(size=generator_model.input_shape[1])
         x = np.linspace(x0, x1, 10)
@@ -85,10 +84,12 @@ def generate_images(
 class AnimatedGif(object):
     def __init__(self, size: tuple = (640, 480)):
         """
-        @TODO + Refs https://tomroelandts.com/articles/how-to-create-animated-gifs-with-python
+        Allows the addition and generation of gifs by adding multiple images.
 
         Args:
-            size:
+            size: Final size of the gif
+
+        Refs https://tomroelandts.com/articles/how-to-create-animated-gifs-with-python
         """
         self.size = size
         self.fig = plt.figure()
@@ -99,6 +100,14 @@ class AnimatedGif(object):
         self.images = []
 
     def add(self, image, label="", label_position: tuple = (1, 1)):
+        """
+        Add an image to thhe gif.
+
+        Args:
+            image: Imported image
+            label: Label of the image. Will be added to the given position
+            label_position: Label position
+        """
         plt_im = plt.imshow(image, vmin=0, vmax=1, animated=True)
         plt_txt = plt.text(
             label_position[0],
@@ -110,7 +119,7 @@ class AnimatedGif(object):
         self.images.append([plt_im, plt_txt])
 
     def save(self, filename, fps: float = 10):
-        animation = anim.ArtistAnimation(self.fig, self.images)
+        animation = ArtistAnimation(self.fig, self.images)
         animation.save(filename, writer="imagemagick", fps=fps)
 
 
@@ -206,3 +215,25 @@ def plot_metric(path, steps, metric, **kwargs):
         os.path.join(path, kwargs.get("file_name", hash(datetime.now())))
     )
     plt.close()
+
+
+def plot_final_gif(path: str):
+    gif_size = (256 * 10, 256)
+    images = []
+    labels = []
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if "fixed_step_gif" in file:
+                images.append(imageio.imread(os.path.join(root, file)))
+                labels.append(int(re.findall("\d+", file)[0]))
+    order = np.argsort(labels)
+    images = [images[i] for i in order]
+    labels = [labels[i] for i in order]
+    animated_gif = AnimatedGif(size=gif_size)
+    for img, lab in zip(images, labels):
+        animated_gif.add(
+            img,
+            label="{} Images shown".format(lab),
+            label_position=(10, gif_size[1] * 0.95),
+        )
+    animated_gif.save(os.path.join(path, "fixed.gif"), fps=len(images) / 30)

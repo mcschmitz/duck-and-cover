@@ -44,8 +44,16 @@ class DCGAN(GAN):
         self.channels = channels
         self.img_shape = (self.img_height, self.img_width, self.channels)
         self.latent_size = latent_size
-        self.discriminator_accuracy = []
-        self.critic_below50 = 0
+        self.metrics["D_accuracy"] = {
+            "file_name": "d_acc.png",
+            "label": "Discriminator Accuracy",
+            "values": [],
+        }
+        self.metrics["G_loss"] = {
+            "file_name": "g_loss.png",
+            "label": "Generator Loss",
+            "values": [],
+        }
 
     def build_models(self, combined_optimizer, discriminator_optimizer=None):
         """
@@ -71,7 +79,6 @@ class DCGAN(GAN):
             layer.trainable = False
         self.generator.trainable = False
         self._build_discriminator_model(discriminator_optimizer)
-        self.history["D_accuracy"] = []
 
         self.fuse_disc_and_gen(combined_optimizer)
 
@@ -227,9 +234,9 @@ class DCGAN(GAN):
         discriminator_batch_acc = self.discriminator.evaluate(
             discriminator_x, discriminator_y, verbose=0
         )[1]
-        self.history["D_accuracy"].append(discriminator_batch_acc)
+        self.metrics["D_accuracy"]["values"].append(discriminator_batch_acc)
 
-        self.history["G_loss"].append(
+        self.metrics["G_loss"]["values"].append(
             self.combined_model.train_on_batch(noise, real)
         )
 
@@ -269,19 +276,13 @@ class DCGAN(GAN):
                 self._print_output()
                 self._generate_images(path)
 
-                metrics = [self.history["D_accuracy"], self.history["G_loss"]]
-                file_names = ["d_acc.png", "g_loss.png"]
-                labels = ["Discriminator Accuracy.png", "Generator Loss.png"]
-
-                for metric, file_name, label in zip(
-                    metrics, file_names, labels
-                ):
+                for _k, v in self.metrics.items():
                     plot_metric(
                         path,
                         steps=self.images_shown,
-                        metric=metric,
-                        y_label=label,
-                        file_name=file_name,
+                        metric=v.get("values"),
+                        y_label=v.get("label"),
+                        file_name=v.get("file_name"),
                     )
 
     def _generate_images(self, path):
@@ -303,8 +304,12 @@ class DCGAN(GAN):
         )
 
     def _print_output(self):
-        g_loss = np.round(np.mean(self.history["G_loss"]), decimals=3)
-        d_acc = np.round(np.mean(self.history["D_accuracy"]), decimals=3)
+        g_loss = np.round(
+            np.mean(self.metrics["G_loss"]["values"]), decimals=3
+        )
+        d_acc = np.round(
+            np.mean(self.metrics["D_accuracy"]["values"]), decimals=3
+        )
         logger.info(
             f"Images shown {self.images_shown}:"
             + f" Generator Loss: {g_loss} -"

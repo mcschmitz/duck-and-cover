@@ -184,7 +184,7 @@ class GradientPenalty(Layer):
         Args:
             weight: Allows weighting of the Gradient Penalty
         """
-        super(GradientPenalty).__init__()
+        super(GradientPenalty, self).__init__()
         self.weight = weight
 
     def call(self, inputs):

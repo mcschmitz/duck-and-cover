@@ -2,6 +2,7 @@
 Abstract Base class for generating Cover GANS.
 """
 from abc import ABC, abstractmethod
+from collections import defaultdict
 
 
 class GAN(ABC):
@@ -15,7 +16,7 @@ class GAN(ABC):
         self.combined_model = None
         self.images_shown = 0
         self.generator_loss = []
-        self.history = {}
+        self.metrics = defaultdict(dict)
 
     @abstractmethod
     def build_models(self, *args):
@@ -67,4 +68,3 @@ class GAN(ABC):
             generator_layer.trainable = True
         self.generator.trainable = True
         self._build_combined_model(optimizer)
-        self.history["G_loss"] = []

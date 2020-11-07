@@ -17,16 +17,17 @@ def save_gan(obj, path: str):
         path: The directory to which the weights should be written
     """
     gan = copy.copy(obj)
+    s = {0, 1}
     for block, _ in enumerate(gan.combined_model):
-        for i in [0, 1]:
+        for i in s:
             gan.combined_model[block][i].save_weights(
-                os.path.join(path, "C_{0}_{1}.h5".format(block, i))
+                os.path.join(path, f"C_{block}_{i}.h5")
             )
             gan.discriminator[block][i].save_weights(
-                os.path.join(path, "D_{0}_{1}.h5".format(block, i))
+                os.path.join(path, f"D_{block}_{i}.h5")
             )
             gan.generator[block][i].save_weights(
-                os.path.join(path, "G_{0}_{1}.h5".format(block, i))
+                os.path.join(path, f"G_{block}_{i}.h5")
             )
 
     gan.discriminator = None
@@ -47,6 +48,7 @@ def load_progan(obj, path: str, weights_only: bool = False):
     Args:
         obj: CoverGAN instance for which the weights are loaded
         path: Directory to the weights folder
+        weights_only: Whether to save only the weights of the model
 
     Returns:
         The CoverGAN instance with loaded weights
@@ -65,7 +67,7 @@ def load_progan(obj, path: str, weights_only: bool = False):
     if not weights_only:
         gan = joblib.load(os.path.join(path, "GAN.pkl"))
         obj.images_shown = gan.images_shown
-        obj.history = gan.history
+        obj.metrics = gan.metrics
 
     return obj
 

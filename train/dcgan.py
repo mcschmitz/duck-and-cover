@@ -1,9 +1,6 @@
 import logging
 import os
-import re
 
-import imageio
-import numpy as np
 from tensorflow.keras.optimizers import Adam
 
 from constants import (
@@ -15,7 +12,7 @@ from constants import (
 from loader import DataLoader
 from networks import DCGAN
 from tf_init import init_tf
-from utils import AnimatedGif, create_dir
+from utils import create_dir, plot_final_gif
 
 logging.basicConfig(
     format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
@@ -31,7 +28,6 @@ TRAIN_STEPS = int(2 * 10e5)
 image_ratio = (1, 1)
 images = None
 
-init_tf()
 
 lp_path = create_dir(f"learning_progress/{PATH}")
 
@@ -43,11 +39,11 @@ data_loader = DataLoader(
 image_width = IMAGE_SIZE * image_ratio[0]
 image_height = IMAGE_SIZE * image_ratio[1]
 
+init_tf()
 gan = DCGAN(
     img_width=image_width,
     img_height=image_height,
     latent_size=1042,
-    batch_size=BATCH_SIZE,
 )
 gan.build_models(
     combined_optimizer=Adam(0.0001, beta_1=0.5),
@@ -61,23 +57,4 @@ gan.train(
     path=lp_path,
 )
 
-gif_size = (256 * 10, 256)
-images = []
-labels = []
-for root, dirs, files in os.walk(lp_path):
-    for file in files:
-        if "fixed_step_gif" in file:
-            images.append(imageio.imread(os.path.join(root, file)))
-            labels.append(int(re.findall("\d+", file)[0]))
-
-order = np.argsort(labels)
-images = [images[i] for i in order]
-labels = [labels[i] for i in order]
-animated_gif = AnimatedGif(size=gif_size)
-for img, lab in zip(images, labels):
-    animated_gif.add(
-        img,
-        label="{} Images shown".format(lab),
-        label_position=(10, gif_size[1] * 0.95),
-    )
-animated_gif.save(os.path.join(lp_path, "fixed.gif"), fps=len(images) / 30)
+plot_final_gif(path=lp_path)

@@ -1,20 +1,18 @@
 import numpy as np
-from tensorflow.keras import backend as K
 import tensorflow as tf
+from tensorflow.keras import backend as K
+from tensorflow.keras.layers import Add, Conv2D, Dense, Layer
 from tensorflow.python.ops.init_ops_v2 import _compute_fans
-from tensorflow.keras.layers import Add, Dense, Conv2D, Layer
 
 
 class MinibatchSd(Layer):
-    def __init__(self, **kwargs):
-        """
-        Calculates the minibatch standard deviation and adds it to the output.
+    """
+    Calculates the minibatch standard deviation and adds it to the output.
 
-        Calculates the average standard deviation of each value in the
-        input map across the channels and concatenates a blown up
-        version of it (same size as the input map) to the input
-        """
-        super(MinibatchSd, self).__init__(**kwargs)
+    Calculates the average standard deviation of each value in the input
+    map across the channels and concatenates a blown up version of it
+    (same size as the input map) to the input
+    """
 
     def call(self, inputs):
         mean = K.mean(inputs, axis=0, keepdims=True)
@@ -39,21 +37,19 @@ class RandomWeightedAverage(Add):
     Takes a randomly-weighted average of two tensors. In geometric terms, this
     outputs a random point on the line between each pair of input points.
 
-    Inheriting from _Merge is a little messy but it was the quickest solution I could
-    think of. Improvements appreciated
+    Inheriting from _Merge is a little messy but it was the quickest
+    solution I could think of. Improvements appreciated
 
     References:
        See https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py for original source code
     """
 
-    def __init__(self, batch_size, **kwargs):
-        super(RandomWeightedAverage, self).__init__(**kwargs)
-        self.batch_size = batch_size
-
     def _merge_function(self, inputs):
-        assert len(inputs) == 2
-        weights = K.random_uniform((self.batch_size, 1, 1, 1))
-        return (weights * inputs[0]) + ((1 - weights) * inputs[1])
+        if len(inputs) != 2:
+            raise ValueError("inputs has to be of length 2.")
+        batch_size = tf.shape(inputs[0])[0]
+        weights = tf.random.uniform([batch_size, 1, 1, 1], 0.0, 1.0)
+        return weights * inputs[0] + (1 - weights) * inputs[1]
 
 
 class WeightedSum(Add):
@@ -61,7 +57,8 @@ class WeightedSum(Add):
         """
         Weighted sum layer that outputs the weighted sum of two input tensors.
 
-        Calculates the weighted sum a * (1 - alpha) + b * (alpha) for the input tensors a and b and weight alpha
+        Calculates the weighted sum a * (1 - alpha) + b * (alpha) for the input
+        tensors a and b and weight alpha
 
         Args:
             alpha: alpha weight
@@ -79,24 +76,21 @@ class WeightedSum(Add):
 class ScaledDense(Dense):
     def __init__(
         self,
-        gain: float = np.sqrt(2),
+        gain: float = None,
         use_dynamic_wscale: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """
         Dense layer with weight scaling.
 
-        Ordinary Dense layer, that scales the weights by He's scaling factor at each forward pass. He's scaling
-        factor is defined as sqrt(2/fan_in) where fan_in is the number of input units of the layer
-
-        Args:
-            maps:
-            use_dynamic_wscale:
-            **kwargs:
+        Ordinary Dense layer, that scales the weights by He's scaling
+        factor at each forward pass. He's scaling factor is defined as
+        sqrt(2/fan_in) where fan_in is the number of input units of the
+        layer
         """
         super(ScaledDense, self).__init__(**kwargs)
         self.use_dynamic_wscale = use_dynamic_wscale
-        self.gain = gain
+        self.gain = gain if gain else np.sqrt(2)
 
     def call(self, inputs):
         fan_in = float(_compute_fans(self.weights[0].shape)[0])
@@ -114,18 +108,19 @@ class ScaledConv2D(Conv2D):
         self,
         gain: float = np.sqrt(2),
         use_dynamic_wscale: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """
         Scaled Convolutional Layer.
 
-        Scales the weights on each forward pass down to by He's initialization factor. For Progressive Growing GANS
-        this results in an equalized learning rate for all layers, where bigger layers are scaled down.
+        Scales the weights on each forward pass down to by He's initialization
+        factor. For Progressive Growing GANS this results in an equalized
+        learning rate for all layers, where bigger layers are scaled down.
 
         Args:
             gain: Constant to upscale the weight sclaing
-            use_dynamic_wscale: Switch on or off dynamic weight scaling. Switching it off results in a ordinary 2D
-                convolutional layer.
+            use_dynamic_wscale: Switch on or off dynamic weight scaling.
+                Switching it off results in a ordinary 2D convolutional layer.
             **kwargs:
         """
         super(ScaledConv2D, self).__init__(**kwargs)
@@ -161,7 +156,8 @@ class PixelNorm(Layer):
         channel axis by scaling its features along this axis to unit length.
 
         Args:
-            channel_axis: channel axis. tensor value will be normalized along this axis
+            channel_axis: channel axis. tensor value will be normalized along
+                this axis
             kwargs: Keyword arguments for keras layer
         """
         super(PixelNorm, self).__init__(**kwargs)
@@ -176,3 +172,31 @@ class PixelNorm(Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
+
+
+class GradientPenalty(Layer):
+    def __init__(self, weight: int = 1):
+        """
+        Gradient Penalty Layer.
+
+        Computes the gradient penalty for a given set of targets and gradients.
+
+        Args:
+            weight: Allows weighting of the Gradient Penalty
+        """
+        super(GradientPenalty).__init__()
+        self.weight = weight
+
+    def call(self, inputs):
+        (target, wrt) = inputs
+        gradients = K.gradients(target, wrt)[0]
+        gradients_sqr = K.square(gradients)
+        gradients_sqr_sum = K.sum(
+            gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape))
+        )
+        gradient_l2_norm = K.sqrt(gradients_sqr_sum)
+        gradient_penalty = self.weight * K.square(1 - gradient_l2_norm)
+        return K.mean(gradient_penalty)
+
+    def compute_output_shape(self, input_shapes):
+        return (input_shapes[1][0], 1)

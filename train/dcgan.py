@@ -43,7 +43,7 @@ init_tf()
 gan = DCGAN(
     img_width=image_width,
     img_height=image_height,
-    latent_size=1042,
+    latent_size=64,
 )
 gan.build_models(
     combined_optimizer=Adam(0.0001, beta_1=0.5),

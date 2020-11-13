@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from datetime import datetime
@@ -14,10 +15,17 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.preprocessing.image import array_to_img
 from tqdm import tqdm
 
+from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+
+logging.basicConfig(
+    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
+)
+logger = logging.getLogger(__file__)
+
 plt.ioff()
 
 
-def create_dir(directory_path):
+def create_dir(directory_path: str) -> str:
     """
     Creates a directory to the given path if it does not exist and returns the
     path.
@@ -35,7 +43,7 @@ def create_dir(directory_path):
 
 def generate_images(
     generator_model,
-    output_dir,
+    output_dir: str,
     n_imgs: int = 10,
     seed: int = None,
     target_size: tuple = (64, 64),
@@ -62,7 +70,7 @@ def generate_images(
     idx = 1
     figsize = (np.array(target_size) * [10, n_imgs]).astype(int)
     plt.figure(figsize=figsize, dpi=1)
-    for _ in range(n_imgs):
+    for _i in range(n_imgs):
         x0 = np.random.normal(size=generator_model.input_shape[1])
         x1 = np.random.normal(size=generator_model.input_shape[1])
         x = np.linspace(x0, x1, 10)
@@ -119,6 +127,13 @@ class AnimatedGif(object):
         self.images.append([plt_im, plt_txt])
 
     def save(self, filename, fps: float = 10):
+        """
+        Save Gif.
+
+        Args:
+            filename: Filename of the Gif
+            fps: Frames per second
+        """
         animation = ArtistAnimation(self.fig, self.images)
         animation.save(filename, writer="imagemagick", fps=fps)
 
@@ -135,20 +150,20 @@ def load_data(path: str, size: int = 4):
         list of image tensor and image index
     """
     np_path = os.path.join(path, "all{0}.npy".format(size))
-    if os.path.exists(np_path) and os.stat(np_path).st_size < (
-        psutil.virtual_memory().total * 0.8
-    ):
+    np_path_exists = os.path.exists(np_path)
+    sys_memory80 = psutil.virtual_memory().total * 0.8
+    if np_path_exists and os.stat(np_path).st_size < sys_memory80:
         images = np.load(np_path)
         img_idx = np.arange(0, images.shape[0])
         return images, img_idx
-    elif os.path.exists(np_path):
-        print(
-            "Data does not fit inside Memory. Preallocation is not possible, use iterator instead"
+    elif np_path_exists:
+        logger.info(
+            "Data does not fit inside memory. Won't preallocate but iterate"
         )
     else:
         try:
             files = []
-            for dirpath, dirnames, filenames in os.walk(path):
+            for dirpath, _dirnames, filenames in os.walk(path):
                 for filename in [f for f in filenames if f.endswith(".jpg")]:
                     files.append(os.path.join(dirpath, filename))
             images = np.zeros((len(files), size, size, 3), dtype=K.floatx())
@@ -162,9 +177,7 @@ def load_data(path: str, size: int = 4):
             img_idx = np.arange(0, images.shape[0])
             return images, img_idx
         except MemoryError:
-            print(
-                "Data does not fit inside Memory. Preallocation is not possible."
-            )
+            logger.error("Data does not fit inside Memory. Can't preallocate.")
 
 
 def scale_images(images: np.array):

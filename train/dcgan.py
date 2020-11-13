@@ -26,8 +26,6 @@ PATH = "0_dcgan"
 TRAIN_STEPS = int(2 * 10e5)
 
 image_ratio = (1, 1)
-images = None
-
 
 lp_path = create_dir(f"learning_progress/{PATH}")
 

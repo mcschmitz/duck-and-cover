@@ -219,21 +219,24 @@ def plot_metric(path, steps, metric, **kwargs):
 
 def plot_final_gif(path: str):
     gif_size = (256 * 10, 256)
-    images = []
-    labels = []
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            if "fixed_step_gif" in file:
-                images.append(imageio.imread(os.path.join(root, file)))
-                labels.append(int(re.findall("\d+", file)[0]))
-    order = np.argsort(labels)
-    images = [images[i] for i in order]
-    labels = [labels[i] for i in order]
-    animated_gif = AnimatedGif(size=gif_size)
-    for img, lab in zip(images, labels):
-        animated_gif.add(
-            img,
-            label="{} Images shown".format(lab),
-            label_position=(10, gif_size[1] * 0.95),
+    for s in range(25):
+        images = []
+        labels = []
+        for root, dirs, files in os.walk(path):
+            for file in files:
+                if file.startswith(f"{s}_fixed_step_gif"):
+                    images.append(imageio.imread(os.path.join(root, file)))
+                    labels.append(int(re.findall("\d+", file)[1]))
+        order = np.argsort(labels)
+        images = [images[i] for i in order]
+        labels = [labels[i] for i in order]
+        animated_gif = AnimatedGif(size=gif_size)
+        for img, lab in zip(images, labels):
+            animated_gif.add(
+                img,
+                label="{} Images shown".format(lab),
+                label_position=(10, gif_size[1] * 0.95),
+            )
+        animated_gif.save(
+            os.path.join(path, f"{s}_fixed.gif"), fps=len(images) / 30
         )
-    animated_gif.save(os.path.join(path, "fixed.gif"), fps=len(images) / 30)

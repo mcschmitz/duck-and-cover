@@ -286,22 +286,17 @@ class DCGAN(GAN):
                     )
 
     def _generate_images(self, path):
-        img_path = os.path.join(path, f"step{self.images_shown}.png")
-        generate_images(self.generator, img_path, target_size=(64, 64))
-
-        img_path = os.path.join(path, f"fixed_step{self.images_shown}.png")
-        generate_images(
-            self.generator, img_path, target_size=(64, 64), seed=101
-        )
-
-        img_path = os.path.join(path, f"fixed_step_gif{self.images_shown}.png")
-        generate_images(
-            self.generator,
-            img_path,
-            target_size=(256, 256),
-            seed=101,
-            n_imgs=1,
-        )
+        for s in range(25):
+            img_path = os.path.join(
+                path, f"{s}_fixed_step_gif{self.images_shown}.png"
+            )
+            generate_images(
+                self.generator,
+                img_path,
+                target_size=(256, 256),
+                seed=s,
+                n_imgs=1,
+            )
 
     def _print_output(self):
         g_loss = np.round(

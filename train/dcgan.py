@@ -1,23 +1,12 @@
-import logging
 import os
 
 from tensorflow.keras.optimizers import Adam
 
-from constants import (
-    BASE_DATA_PATH,
-    LOG_DATETIME_FORMAT,
-    LOG_FORMAT,
-    LOG_LEVEL,
-)
+from constants import BASE_DATA_PATH
 from loader import DataLoader
 from networks import DCGAN
 from tf_init import init_tf
 from utils import create_dir, plot_final_gif
-
-logging.basicConfig(
-    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
-)
-logger = logging.getLogger(__file__)
 
 IMAGE_SIZE = 64
 COVERS_PATH = os.path.join(BASE_DATA_PATH, f"covers{IMAGE_SIZE}")

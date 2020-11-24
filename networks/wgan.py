@@ -31,7 +31,7 @@ logger = logging.getLogger(__file__)
 class WGAN(DCGAN):
     def __init__(
         self,
-        gradient_penalty_weight,
+        gradient_penalty_weight: float,
         img_height: int,
         img_width: int,
         channels: int = 3,
@@ -58,8 +58,22 @@ class WGAN(DCGAN):
             channels=channels,
             latent_size=latent_size,
         )
-        self.discriminator_loss = []
         self._gradient_penalty_weight = gradient_penalty_weight
+        self.metrics["D_loss_positives"] = {
+            "file_name": "d_loss+.png",
+            "label": "Discriminator Loss +",
+            "values": [],
+        }
+        self.metrics["D_loss_negatives"] = {
+            "file_name": "d_loss-.png",
+            "label": "Discriminator Loss -",
+            "values": [],
+        }
+        self.metrics["D_loss_dummies"] = {
+            "file_name": "d_loss0.png",
+            "label": "Discriminator Loss Dummies",
+            "values": [],
+        }
 
     def build_models(self, optimizer):
         """
@@ -71,16 +85,12 @@ class WGAN(DCGAN):
         Args:
             optimizer: Which optimizer to use
         """
-        self.discriminator = self._build_discriminator()
         self.generator = self._build_generator()
         for layer in self.generator.layers:
             layer.trainable = False
         self.generator.trainable = False
+        self.discriminator = self._build_discriminator()
         self._build_discriminator_model(optimizer)
-        self.history["D_loss_positives"] = []
-        self.history["D_loss_negatives"] = []
-        self.history["D_loss_dummies"] = []
-
         self.fuse_disc_and_gen(optimizer)
 
     def _build_discriminator(self):
@@ -140,18 +150,18 @@ class WGAN(DCGAN):
         disc_input_noise = Input(
             (self.latent_size,), name="Noise_Input_for_Discriminator"
         )
-        gen_image_disc = self.generator(disc_input_noise)
-        disc_image_gen = self.discriminator(gen_image_disc)
-        disc_image_image = self.discriminator(disc_input_image)
+        gen_image_noise = self.generator(disc_input_noise)
+        disc_image_noise = self.discriminator(gen_image_noise)
+        disc_image_real = self.discriminator(disc_input_image)
         avg_samples = RandomWeightedAverage()(
-            [disc_input_image, gen_image_disc]
+            [disc_input_image, gen_image_noise]
         )
-        disc_avg_disc = self.discriminator(avg_samples)
+        disc_avg = self.discriminator(avg_samples)
         gp_layer = GradientPenalty(weight=self._gradient_penalty_weight)
-        gp = gp_layer([disc_avg_disc, avg_samples])
+        gp = gp_layer([disc_avg, avg_samples])
         self.discriminator_model = Model(
             inputs=[disc_input_image, disc_input_noise],
-            outputs=[disc_image_image, disc_image_gen, gp],
+            outputs=[disc_image_real, disc_image_noise, gp],
         )
         self.discriminator_model.compile(
             loss=[wasserstein_loss, wasserstein_loss, "mse"],
@@ -233,7 +243,9 @@ class WGAN(DCGAN):
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
-    def train_on_batch(self, real_images, n_critic: int = 5):
+    def train_on_batch(
+        self, gan, discriminator, real_images, n_critic: int = 5
+    ):
         """
         Runs a single gradient update on a batch of data.
 
@@ -241,6 +253,11 @@ class WGAN(DCGAN):
             real_images: numpy array of real input images used for training
             n_critic: number of discriminator updates for each iteration
         """
+        gan = gan if gan else self.combined_model
+        discriminator = (
+            discriminator if discriminator else self.discriminator_model
+        )
+
         batch_size = real_images.shape[0] // n_critic
         real_y = np.ones((batch_size, 1)) * -1
 
@@ -248,18 +265,20 @@ class WGAN(DCGAN):
             discriminator_minibatch = real_images[
                 i * batch_size : (i + 1) * batch_size
             ]
-            losses = self.train_discriminator(discriminator_minibatch)
+            losses = self.train_discriminator(
+                discriminator_minibatch, discriminator
+            )
 
-        self.history["D_loss_positives"].append(losses[0])
-        self.history["D_loss_negatives"].append(losses[1])
-        self.history["D_loss_dummies"].append(losses[2])
+        self.metrics["D_loss_positives"]["values"].append(losses[0])
+        self.metrics["D_loss_negatives"]["values"].append(losses[1])
+        self.metrics["D_loss_dummies"]["values"].append(losses[2])
 
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        self.history["G_loss"].append(
-            self.combined_model.train_on_batch(noise, real_y)
+        self.metrics["G_loss"]["values"].append(
+            gan.train_on_batch(noise, real_y)
         )
 
-    def train_discriminator(self, real_images):
+    def train_discriminator(self, real_images, discriminator):
         """
         Runs a single gradient update on a batch of data.
 
@@ -269,26 +288,31 @@ class WGAN(DCGAN):
         Returns:
             the losses for this training iteration
         """
+        discriminator = (
+            discriminator if discriminator else self.discriminator_model
+        )
         batch_size = len(real_images)
         fake_y = np.ones((batch_size, 1))
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        losses = self.discriminator_model.train_on_batch(
+        losses = discriminator.train_on_batch(
             [real_images, noise], [real_y, fake_y, dummy_y]
         )
         return losses
 
     def _print_output(self):
-        g_loss = np.round(np.mean(self.history["G_loss"]), decimals=3)
+        g_loss = np.round(
+            np.mean(self.metrics["G_loss"]["values"]), decimals=3
+        )
         d_loss_p = np.round(
-            np.mean(self.history["D_loss_positives"]), decimals=3
+            np.mean(self.metrics["D_loss_positives"]["values"]), decimals=3
         )
         d_loss_n = np.round(
-            np.mean(self.history["D_loss_negatives"]), decimals=3
+            np.mean(self.metrics["D_loss_negatives"]["values"]), decimals=3
         )
         d_loss_d = np.round(
-            np.mean(self.history["D_loss_dummies"]), decimals=3
+            np.mean(self.metrics["D_loss_dummies"]["values"]), decimals=3
         )
         logger.info(
             f"Images shown {self.images_shown}:"

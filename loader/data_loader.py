@@ -1,14 +1,16 @@
+import logging
 import os
+from typing import List
 
-import tensorflow.keras.backend as K  # noqa: WPS301
 import numpy as np
 import psutil
+import tensorflow.keras.backend as K  # noqa: WPS301
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
+
 from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
-import logging
 
 logging.basicConfig(
     format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
@@ -37,9 +39,10 @@ class DataLoader(object):
         self.image_size = image_size
 
         np_path = os.path.join(image_path, f"all{image_size}.npy")
-        if os.path.exists(np_path) and os.stat(np_path).st_size < (
+        data_loadable = os.stat(np_path).st_size < (
             psutil.virtual_memory().total * 0.8
-        ):
+        )
+        if os.path.exists(np_path) and data_loadable:
             self._images = np.load(np_path)
             self._iterator = np.arange(0, self._images.shape[0])
         elif os.path.exists(np_path):
@@ -89,7 +92,10 @@ class DataLoader(object):
         else:
             for i, b_idx in enumerate(batch_idx):
                 file_path = self._images[b_idx]
-                img = imread(file_path)
+                try:
+                    img = imread(file_path)
+                except ValueError as err:
+                    logger.error(f"Unable to load {file_path}. Error: {err}")
                 img = resize(img, (self.image_size, self.image_size, 3))
                 batch_x[i] = img
         if 0 in batch_idx:
@@ -125,9 +131,16 @@ class DataLoader(object):
         return return_values
 
 
-def get_image_paths(image_path):
+def get_image_paths(directory: str) -> List[str]:
+    """
+    Crawls a directory for images.
+
+    Args:
+        directory: Directory to crawl
+    """
     paths = []
-    for dirpath, dirnames, filenames in os.walk(image_path):
-        for filename in [f for f in filenames if f.endswith(".jpg")]:
+    for dirpath, _dirnames, filenames in os.walk(directory):
+        jpgs = [f for f in filenames if f.endswith(".jpg")]
+        for filename in jpgs:
             paths.append(os.path.join(dirpath, filename))
     return paths

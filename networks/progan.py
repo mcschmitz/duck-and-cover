@@ -1,8 +1,16 @@
 import copy
 import itertools
+import logging
 import os
 
+#  TODO Add release year information
+#  TODO Add genre information
+#  TODO Add artist name
+#  TODO add album name
+from functools import partial
+
 import numpy as np
+from defaultlist import defaultlist
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras import backend as K
 from tensorflow.keras.initializers import RandomNormal
@@ -14,10 +22,12 @@ from tensorflow.keras.layers import (
     Reshape,
     UpSampling2D,
 )
+from tensorflow.keras.losses import mse
 
+from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
 from networks.utils import save_gan, wasserstein_loss
 from networks.utils.layers import (
-    GradientPenalty,
+    GetGradients,
     MinibatchSd,
     PixelNorm,
     RandomWeightedAverage,
@@ -25,13 +35,14 @@ from networks.utils.layers import (
     ScaledDense,
     WeightedSum,
 )
+from networks.utils.wgan_utils import gradient_penalty
 from networks.wgan import WGAN
 from utils import generate_images, plot_metric
 
-#  TODO Add release year information
-#  TODO Add genre information
-#  TODO Add artist
-#  TODO add album name
+logging.basicConfig(
+    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
+)
+logger = logging.getLogger(__file__)
 
 
 class ProGAN(WGAN):
@@ -73,8 +84,15 @@ class ProGAN(WGAN):
             latent_size=latent_size,
             gradient_penalty_weight=gradient_penalty_weight,
         )
+        self._gradient_penalty = partial(
+            gradient_penalty, weight=self._gradient_penalty_weight
+        )
         self.img_shape = ()
         self.discriminator_model = []
+        self.block_images_shown = {
+            "burn_in": defaultlist(int),
+            "fade_in": defaultlist(int),
+        }
 
     def build_models(
         self,
@@ -97,12 +115,12 @@ class ProGAN(WGAN):
                 an image of size 8*8.
         """
         self.generator = self._build_generator(n_blocks)
-        fade = {0, 1}
-        for block, f in itertools.product(range(n_blocks), fade):
-            self.generator[block][f].trainable = False
         self.discriminator = self._build_discriminator(
             n_blocks, optimizer=optimizer
         )
+        fade = {0, 1}
+        for block, f in itertools.product(range(n_blocks), fade):
+            self.generator[block][f].trainable = False
         self._build_discriminator_model(optimizer, n_blocks)
         self.combined_model = self._build_combined_model(optimizer)
 
@@ -124,19 +142,15 @@ class ProGAN(WGAN):
                 avg_samples = RandomWeightedAverage()(
                     [disc_input_image, gen_image_noise]
                 )
-                disc_avg = discriminator(avg_samples)
-                gp_layer = GradientPenalty(
-                    weight=self._gradient_penalty_weight
-                )
-                gp = gp_layer([disc_avg, avg_samples])
-
+                gradients = GetGradients(model=discriminator)(avg_samples)
+                gp = self._gradient_penalty(gradients)
                 discriminator_model = Model(
                     inputs=[disc_input_image, disc_input_noise],
                     outputs=[disc_image_real, disc_image_noise, gp],
                 )
                 optimizer = copy.copy(optimizer)
                 discriminator_model.compile(
-                    loss=[wasserstein_loss, wasserstein_loss, "mse"],
+                    loss=[wasserstein_loss, wasserstein_loss, mse],
                     optimizer=optimizer,
                 )
                 discriminator_models.append(discriminator_model)
@@ -166,9 +180,9 @@ class ProGAN(WGAN):
             model_list.append([model1, model2])
         return model_list
 
-    def _build_generator(self, n_blocks):
+    def _build_generator(self, n_blocks) -> list:
         init = RandomNormal(0, 1)
-        model_list = list()
+        model_list = []
         n_filters = self.latent_size
 
         latent_input = Input(shape=(self.latent_size,))
@@ -179,7 +193,7 @@ class ProGAN(WGAN):
         )(latent_input)
         x = Reshape((4, 4, self.latent_size))(x)
 
-        for _ in range(2):
+        for _ in range(2):  # noqa: WPS122
             x = ScaledConv2D(
                 filters=n_filters,
                 kernel_size=(3, 3),
@@ -208,9 +222,9 @@ class ProGAN(WGAN):
 
     def _build_discriminator(
         self, n_blocks, optimizer, input_shape: tuple = (4, 4, 3)
-    ):
+    ) -> list:
         init = RandomNormal(0, 1)
-        model_list = list()
+        model_list = []
         n_filters = self._calc_filters(4)
         image_input = Input(input_shape)
 
@@ -257,46 +271,71 @@ class ProGAN(WGAN):
         return model_list
 
     def train(
-        self, data_loader, block, global_steps, batch_size, fade, **kwargs
+        self,
+        data_loader,
+        block: int,
+        global_steps: int,
+        batch_size: int,
+        **kwargs,
     ):
         """
-        @TODO
+        Trains the Progressive growing GAN.
+
         Args:
-            data_loader:
-            block:
-            steps:
-            batch_size:
-            fade:
-            **kwargs:
+            data_loader: Data Loader used for training
+            block: Block to train
+            global_steps: Absolute number of training steps
+            batch_size: Batch size for training
 
-        Returns:
-
+        Keyword Args:
+            path: Path to which model training graphs will be written
+            verbose: Boolean switch for verbosity
+            write_model_to: Path that can be passed to write the model to during
+                training
+            grad_acc_steps: Gradient accumulation steps. Ideally a factor of the
+                batch size. Otherwise not the entire batch will be used for
+                training
         """
         path = kwargs.get("path", ".")
         steps = global_steps // batch_size
         verbose = kwargs.get("verbose", True)
         model_dump_path = kwargs.get("write_model_to", None)
-        minibatch_reps = kwargs.get("minibatch_reps", 1)
         n_critic = kwargs.get("n_critic", 1)
+        grad_acc_steps = kwargs.get("grad_acc_steps", 1)
+
+        fade_images_shown = self.block_images_shown.get("fade_in")[block]
+        if block == 0 or (fade_images_shown // batch_size) == steps:
+            phase = "burn_in"
+            logger.info(f"Starting burn in for resolution {2 ** (block + 2)}")
+            phase_images_shown = self.block_images_shown.get("burn_in")[block]
+        else:
+            phase = "fade_in"
+            logger.info(f"Starting fade in for resolution {2 ** (block + 2)}")
+            phase_images_shown = self.block_images_shown.get("fade_in")[block]
 
         alphas = np.linspace(0, 1, steps).tolist()
-        f_idx = 1 if fade else 0
+        f_idx = 1 if phase == "fade_in" else 0
         gan = self.combined_model[block][f_idx]
         discriminator = self.discriminator_model[block][f_idx]
-
-        for step in range(self.images_shown // batch_size, steps):
+        for step in range(phase_images_shown // batch_size, steps):
             batch = data_loader.get_next_batch(batch_size)
-            if fade:
+            if phase == "fade_in":
                 alpha = alphas.pop(0)
                 self._update_alpha(alpha, block)
 
-            for _ in range(minibatch_reps):
-                self.train_on_batch(
-                    gan, discriminator, batch, n_critic=n_critic
-                )
+            self.train_on_batch(
+                gan,
+                discriminator,
+                batch,
+                n_critic=n_critic,
+                grad_acc_steps=grad_acc_steps,
+            )
             self.images_shown += batch_size
-
-            if step % 250 == 0 and verbose:
+            if f_idx:
+                self.block_images_shown["fade_in"][block] += batch_size
+            else:
+                self.block_images_shown["burn_in"][block] += batch_size
+            if step % (steps // 32) == 0 and verbose:
                 self._print_output()
                 self._generate_images(path, block, f_idx)
 
@@ -310,6 +349,19 @@ class ProGAN(WGAN):
                     )
                 if model_dump_path:
                     save_gan(self, model_dump_path)
+        if phase == "fade_in":
+            self.train(
+                data_loader=data_loader,
+                block=block,
+                global_steps=global_steps,
+                batch_size=batch_size,
+                verbose=True,
+                minibatch_reps=1,
+                n_critic=n_critic,
+                path=path,
+                write_model_to=model_dump_path,
+                **kwargs,
+            )
 
     def _update_alpha(self, alpha, block):
         models = [

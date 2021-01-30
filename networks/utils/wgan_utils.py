@@ -1,3 +1,4 @@
+import numpy as np
 from tensorflow.keras import backend as K
 
 
@@ -24,3 +25,12 @@ def wasserstein_loss(y_true, y_pred):
         See https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py for original source code
     """
     return K.mean(y_true * y_pred)
+
+
+def gradient_penalty(gradients, weight):
+    gradients_sqr = K.square(gradients)
+    gradients_sqr_sum = K.sum(
+        gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape))
+    )
+    gradient_l2_norm = K.sqrt(gradients_sqr_sum)
+    return K.mean(weight * K.square(1 - gradient_l2_norm))

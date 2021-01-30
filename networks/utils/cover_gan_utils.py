@@ -68,19 +68,13 @@ def load_progan(obj, path: str, weights_only: bool = False):
         gan = joblib.load(os.path.join(path, "GAN.pkl"))
         obj.images_shown = gan.images_shown
         obj.metrics = gan.metrics
-
+        obj.block_images_shown = gan.block_images_shown
     return obj
 
 
 def plot_progan(model, block: int, path: str, suffix: str = None):
     for i in [0, 1]:
         suffix += "_fade_in" if i == 1 else ""
-        # plot_model(
-        #     model.discriminator_model[block][i],
-        #     to_file=os.path.join(path, "disc_m{}.png".format(suffix)),
-        #     show_shapes=True,
-        #     expand_nested=True,
-        # )
         plot_model(
             model.generator[block][i],
             to_file=os.path.join(path, "gen{}.png".format(suffix)),

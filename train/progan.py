@@ -25,20 +25,21 @@ N_BLOCKS = 7
 IMAGE_SIZES = 2 ** np.arange(2, N_BLOCKS + 2)
 BATCH_SIZE = [16, 16, 16, 16, 16, 16, 14]
 GRADIENT_ACC_STEPS = {
-    64: [1, 1, 1, 1, 1, 1, 1],
-    256: [1, 1, 1, 1, 1, 4, 7],
-    1024: [1, 1, 1, 1, 1, 4, 7],
+    64: [1, 1, 1, 1, 1, 1, 14],
+    256: [1, 1, 1, 1, 1, 2, 14],
+    1024: [1, 1, 1, 1, 1, 1, 7],
 }
-LATENT_SIZE = 256
+LATENT_SIZE = 1024
 PATH = f"{LATENT_SIZE}_progan"
-TRAIN_STEPS = int(10e5)
+TRAIN_STEPS = int(1e6)
 img_height = img_width = 2 ** (N_BLOCKS + 1)
 
 gradient_penalty_weight = 10.0
 n_critic = 1
 train_steps = TRAIN_STEPS * n_critic
 warm_start = True
-starting_from_block = 5
+
+starting_from_block = 6
 
 lp_path = os.path.join("learning_progress", PATH)
 
@@ -52,7 +53,11 @@ gan = ProGAN(
 )
 
 optimizer = Adam(learning_rate=0.001, beta_1=0.0, beta_2=0.99)
-gan.build_models(optimizer=optimizer, n_blocks=N_BLOCKS)
+gan.build_models(
+    optimizer=optimizer,
+    n_blocks=N_BLOCKS,
+    gradient_accumulation_steps=GRADIENT_ACC_STEPS[LATENT_SIZE],
+)
 
 for block in range(starting_from_block, N_BLOCKS):
     image_size = IMAGE_SIZES[block]

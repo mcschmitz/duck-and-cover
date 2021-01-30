@@ -174,8 +174,8 @@ class PixelNorm(Layer):
         return input_shape
 
 
-class GradientPenalty(Layer):
-    def __init__(self, weight: int = 1):
+class GetGradients(Layer):
+    def __init__(self, model, weight: int = 1):
         """
         Gradient Penalty Layer.
 
@@ -184,19 +184,16 @@ class GradientPenalty(Layer):
         Args:
             weight: Allows weighting of the Gradient Penalty
         """
-        super(GradientPenalty, self).__init__()
+        super(GetGradients, self).__init__()
         self.weight = weight
+        self.model = model
 
-    def call(self, inputs):
-        (target, wrt) = inputs
-        gradients = K.gradients(target, wrt)[0]
-        gradients_sqr = K.square(gradients)
-        gradients_sqr_sum = K.sum(
-            gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape))
-        )
-        gradient_l2_norm = K.sqrt(gradients_sqr_sum)
-        gradient_penalty = self.weight * K.square(1 - gradient_l2_norm)
-        return K.mean(gradient_penalty)
+    def call(self, input):
+        with tf.GradientTape() as tape:
+            tape.watch(input)
+            pred = self.model(input)
+        gradients = tape.gradient(pred, input)
+        return gradients
 
     def compute_output_shape(self, input_shapes):
-        return (input_shapes[1][0], 1)
+        return input_shapes

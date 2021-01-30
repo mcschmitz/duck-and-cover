@@ -39,10 +39,9 @@ class DataLoader(object):
         self.image_size = image_size
 
         np_path = os.path.join(image_path, f"all{image_size}.npy")
-        data_loadable = os.stat(np_path).st_size < (
+        if os.path.exists(np_path) and os.stat(np_path).st_size < (
             psutil.virtual_memory().total * 0.8
-        )
-        if os.path.exists(np_path) and data_loadable:
+        ):
             self._images = np.load(np_path)
             self._iterator = np.arange(0, self._images.shape[0])
         elif os.path.exists(np_path):

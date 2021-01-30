@@ -8,10 +8,11 @@ import os
 #  TODO Add artist name
 #  TODO add album name
 from functools import partial
+from typing import List
 
 import numpy as np
 from defaultlist import defaultlist
-from tensorflow.keras import Model, Sequential
+from tensorflow.keras import Model
 from tensorflow.keras import backend as K
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.layers import (
@@ -25,6 +26,10 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.losses import mse
 
 from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+from networks.gradient_accumulator_model import (
+    GradientAccumulatorModel,
+    GradientAccumulatorSequential,
+)
 from networks.utils import save_gan, wasserstein_loss
 from networks.utils.layers import (
     GetGradients,
@@ -93,11 +98,13 @@ class ProGAN(WGAN):
             "burn_in": defaultlist(int),
             "fade_in": defaultlist(int),
         }
+        self.gradient_accumulation_steps = None
 
     def build_models(
         self,
         optimizer,
         n_blocks: int = 1,
+        gradient_accumulation_steps: List[int] = None,
     ):
         """
         Builds the desired GAN that allows to generate covers.
@@ -114,6 +121,9 @@ class ProGAN(WGAN):
                 the output image starting by 4*4. So n_blocks=1 will result in
                 an image of size 8*8.
         """
+        if gradient_accumulation_steps is None:
+            gradient_accumulation_steps = np.repeat(1, n_blocks)
+        self.gradient_accumulation_steps = gradient_accumulation_steps
         self.generator = self._build_generator(n_blocks)
         self.discriminator = self._build_discriminator(
             n_blocks, optimizer=optimizer
@@ -144,9 +154,12 @@ class ProGAN(WGAN):
                 )
                 gradients = GetGradients(model=discriminator)(avg_samples)
                 gp = self._gradient_penalty(gradients)
-                discriminator_model = Model(
+                discriminator_model = GradientAccumulatorModel(
                     inputs=[disc_input_image, disc_input_noise],
                     outputs=[disc_image_real, disc_image_noise, gp],
+                    gradient_accumulation_steps=self.gradient_accumulation_steps[
+                        block
+                    ],
                 )
                 optimizer = copy.copy(optimizer)
                 discriminator_model.compile(
@@ -163,7 +176,11 @@ class ProGAN(WGAN):
             g_models, d_models = self.generator[idx], self.discriminator[idx]
             d_models[0].trainable = False
             g_models[0].trainable = True
-            model1 = Sequential()
+            model1 = GradientAccumulatorSequential(
+                gradient_accumulation_steps=self.gradient_accumulation_steps[
+                    idx
+                ]
+            )
             model1.add(g_models[0])
             model1.add(d_models[0])
             optimizer = copy.copy(optimizer)
@@ -171,7 +188,11 @@ class ProGAN(WGAN):
 
             d_models[1].trainable = False
             g_models[1].trainable = True
-            model2 = Sequential()
+            model2 = GradientAccumulatorSequential(
+                gradient_accumulation_steps=self.gradient_accumulation_steps[
+                    idx
+                ]
+            )
             model2.add(g_models[1])
             model2.add(d_models[1])
             optimizer = copy.copy(optimizer)
@@ -183,7 +204,7 @@ class ProGAN(WGAN):
     def _build_generator(self, n_blocks) -> list:
         init = RandomNormal(0, 1)
         model_list = []
-        n_filters = self.latent_size
+        n_filters = self.img_width // 2
 
         latent_input = Input(shape=(self.latent_size,))
         x = ScaledDense(
@@ -349,6 +370,7 @@ class ProGAN(WGAN):
                     )
                 if model_dump_path:
                     save_gan(self, model_dump_path)
+        save_gan(self, model_dump_path)
         if phase == "fade_in":
             self.train(
                 data_loader=data_loader,
@@ -360,7 +382,6 @@ class ProGAN(WGAN):
                 n_critic=n_critic,
                 path=path,
                 write_model_to=model_dump_path,
-                **kwargs,
             )
 
     def _update_alpha(self, alpha, block):
@@ -375,12 +396,17 @@ class ProGAN(WGAN):
                     K.set_value(layer.alpha, alpha)
 
     def _calc_filters(self, x: int):
-        return int(min((4 * 4 * self.latent_size / x) * 2, self.latent_size))
+        return int(
+            min((4 * 4 * self.latent_size / x) * 2, self.img_width // 2)
+        )
 
     def _add_discriminator_block(
-        self, old_model: Model, optimizer, n_input_layers: int = 3
+        self,
+        old_model: GradientAccumulatorModel,
+        optimizer,
+        n_input_layers: int = 3,
     ) -> list:
-        n_filters = self.latent_size
+        n_filters = self.img_width // 2
 
         init = RandomNormal(0, 1)
         in_shape = list(old_model.input.shape)
@@ -433,7 +459,9 @@ class ProGAN(WGAN):
         model2.compile(loss=wasserstein_loss, optimizer=optimizer)
         return [model1, model2]
 
-    def _add_generator_block(self, old_model: Model, block: int) -> list:
+    def _add_generator_block(
+        self, old_model: GradientAccumulatorModel, block: int
+    ) -> list:
         cur_resolution = 2 ** (2 + block)
         n_filters = self._calc_filters(cur_resolution)
 

@@ -11,7 +11,8 @@ from utils import create_dir, plot_final_gif
 IMAGE_SIZE = 64
 COVERS_PATH = os.path.join(BASE_DATA_PATH, f"covers{IMAGE_SIZE}")
 BATCH_SIZE = 64
-PATH = "0_dcgan"
+LATENT_SIZE = 1024
+PATH = f"{LATENT_SIZE}_dcgan"
 TRAIN_STEPS = int(2 * 10e5)
 
 image_ratio = (1, 1)

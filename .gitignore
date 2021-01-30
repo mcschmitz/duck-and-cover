@@ -127,3 +127,4 @@ credentials.py
 
 # Benchmark
 CelebA/*
+/learning_progress

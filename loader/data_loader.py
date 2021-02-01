@@ -1,29 +1,23 @@
-import logging
 import os
 from typing import List
 
 import numpy as np
-import psutil
-import tensorflow.keras.backend as K  # noqa: WPS301
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import MultiLabelBinarizer
+from tensorflow.keras.utils import Sequence
 from tqdm import tqdm
 
-from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
-
-logging.basicConfig(
-    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
-)
-logger = logging.getLogger(__file__)
+from utils import logger
 
 
-class DataLoader(object):
+class DataLoader(Sequence):
     def __init__(
         self,
         image_path: str,
         image_size: int = 256,
         binarizer: MultiLabelBinarizer = None,
+        batch_size: int = 32,
     ):
         """
         Image loader that takes a path and crawls the directory and
@@ -33,25 +27,28 @@ class DataLoader(object):
             image_path: Path to the dictionary that should be crawled for image data
             image_size: output size of the images
             binarizer: Binarizer used to create dummy features out of additional meta information
+            batch_size: Size of one Batch
         """
         self.binarizer = binarizer
         self._iterator_i = 0
         self.image_size = image_size
+        self.batch_size = batch_size
 
         np_path = os.path.join(image_path, f"all{image_size}.npy")
-        if os.path.exists(np_path) and os.stat(np_path).st_size < (
-            psutil.virtual_memory().total * 0.8
-        ):
-            self._images = np.load(np_path)
-            self._iterator = np.arange(0, self._images.shape[0])
-        elif os.path.exists(np_path):
-            logger.info(f"Load data from {np_path}")
-            self._images = get_image_paths(image_path)
+        if os.path.exists(np_path):
+            try:
+                self._images = np.load(np_path)
+            except MemoryError:
+                logger.warning(
+                    "Data does not fit into memory. Will be streamed from disk"
+                )
+                self._images = get_image_paths(image_path)
+                self._iterator = np.arange(0, self._images.shape[0])
         else:
             try:
                 files = get_image_paths(image_path)
                 self._images = np.zeros(
-                    (len(files), image_size, image_size, 3), dtype=K.floatx()
+                    (len(files), 3, image_size, image_size)
                 )
 
                 for i, file_path in enumerate(tqdm(files)):
@@ -62,30 +59,20 @@ class DataLoader(object):
                 self._iterator = np.arange(0, self._images.shape[0])
             except MemoryError:
                 logger.warning(
-                    "Data does not fit into memory. Data will be streamed from disk"
+                    "Data does not fit into memory. Will be streamed from disk"
                 )
                 self._images = get_image_paths(image_path)
 
         self.n_images = len(self._images)
 
-    def get_next_batch(self, batch_size: int = 32):
-        """
-        Loads the next batch of images.
+    def __len__(self):
+        return self.n_images // self.batch_size
 
-        Args:
-            batch_size: size of the drawn batch
-
-        Returns:
-            List of return values. Contains numpy array of images and release year information as well as genre
-                information if requested
-        """
+    def __getitem__(self, item):
         batch_x = np.zeros(
-            (batch_size, self.image_size, self.image_size, 3), dtype=K.floatx()
+            (self.batch_size, 3, self.image_size, self.image_size)
         )
-        batch_idx = [
-            i if i < self.n_images else i - self.n_images
-            for i in np.arange(self._iterator_i, self._iterator_i + batch_size)
-        ]
+        batch_idx = self._get_batch_idx()
         if isinstance(self._images, np.ndarray):
             batch_x = self._images[batch_idx]
         else:
@@ -93,14 +80,25 @@ class DataLoader(object):
                 file_path = self._images[b_idx]
                 try:
                     img = imread(file_path)
+                    img = np.moveaxis(img, -1, 0)
                 except ValueError as err:
                     logger.error(f"Unable to load {file_path}. Error: {err}")
-                img = resize(img, (self.image_size, self.image_size, 3))
+                img = resize(img, (3, self.image_size, self.image_size))
                 batch_x[i] = img
-        if 0 in batch_idx:
-            np.random.shuffle(self._images)
         self._iterator_i = batch_idx[-1]
         return DataLoader._wrap_output(batch_x)
+
+    def _get_batch_idx(self):
+        positions = np.arange(
+            self._iterator_i, self._iterator_i + self.batch_size
+        )
+        batch_idx = [
+            i if i < self.n_images else i - self.n_images for i in positions
+        ]
+        if 0 in batch_idx:
+            logger.info("Data Generator exceeded. Will shuffle input data.")
+            np.random.shuffle(self._images)
+        return batch_idx
 
     @classmethod
     def _wrap_output(
@@ -139,7 +137,7 @@ def get_image_paths(directory: str) -> List[str]:
     """
     paths = []
     for dirpath, _dirnames, filenames in os.walk(directory):
-        jpgs = [f for f in filenames if f.endswith(".jpg")]
+        jpgs = {f for f in filenames if f.endswith(".jpg")}
         for filename in jpgs:
             paths.append(os.path.join(dirpath, filename))
     return paths

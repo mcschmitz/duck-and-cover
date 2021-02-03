@@ -13,7 +13,7 @@ def plot_final_gif(path: str):
     for s in range(25):
         images = []
         labels = []
-        for root, dirs, files in os.walk(path):
+        for root, _dirs, files in os.walk(path):
             for file in files:
                 if file.startswith(f"{s}_fixed_step_gif"):
                     images.append(imageio.imread(os.path.join(root, file)))
@@ -25,7 +25,7 @@ def plot_final_gif(path: str):
         for img, lab in zip(images, labels):
             animated_gif.add(
                 img,
-                label="{} Images shown".format(lab),
+                label=f"{lab} Images shown",
                 label_position=(10, gif_size[1] * 0.95),
             )
         animated_gif.save(
@@ -62,11 +62,12 @@ def generate_images(
     idx = 1
     figsize = (np.array(target_size) * [10, n_imgs]).astype(int)
     plt.figure(figsize=figsize, dpi=1)
-    for _i in range(n_imgs):
+    for _ in range(n_imgs):
         x0 = np.random.normal(size=generator_model.input_shape[1])
         x1 = np.random.normal(size=generator_model.input_shape[1])
         x = np.linspace(x0, x1, 10)
         generated_images = generator_model.predict(x)
+        generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:
             img = array_to_img(img, scale=True)
             img = img.resize(size=target_size)

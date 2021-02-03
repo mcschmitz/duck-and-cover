@@ -1,0 +1,5 @@
+image_size: 256
+data_format: channels_first
+
+# Paths
+learning_progress_path: learning_progress

@@ -1,19 +1,17 @@
-import logging
 import os
 
 import numpy as np
 from tensorflow.python.keras import Input, Model, layers
 from tensorflow.python.keras.losses import binary_crossentropy
 
-from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+from config import config
 from networks.base import GAN
+from networks.utils import plot_metric
 from networks.utils.layers import MinibatchSd
-from utils import generate_images, plot_metric
+from utils import logger
+from utils.image_operations import generate_images
 
-logging.basicConfig(
-    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
-)
-logger = logging.getLogger(__file__)
+DATA_FORMAT = config["data_format"]
 
 
 class DCGAN(GAN):
@@ -42,7 +40,11 @@ class DCGAN(GAN):
         self.img_height = np.int(img_height)
         self.img_width = np.int(img_width)
         self.channels = channels
-        self.img_shape = (self.img_height, self.img_width, self.channels)
+        self.img_shape = (
+            (self.img_height, self.img_width, self.channels)
+            if DATA_FORMAT == "channels_last"
+            else (self.channels, self.img_height, self.img_width)
+        )
         self.latent_size = latent_size
         self.metrics["D_accuracy"] = {
             "file_name": "d_acc.png",
@@ -128,34 +130,40 @@ class DCGAN(GAN):
         Returns:
             The DCGAN generator
         """
+        n_filters = self.img_width // 2
         noise_input = Input((self.latent_size,))
-        x = layers.Dense(4 * 4 * 512, name="Generator_Dense")(noise_input)
+
+        x = layers.Dense(
+            (self.img_width // 2) * 4 * 4, name="Generator_Dense"
+        )(noise_input)
         x = layers.BatchNormalization()(x)
         x = layers.LeakyReLU()(x)
-        x = layers.Reshape((4, 4, 512))(x)
+        x = layers.Reshape(((self.img_width // 2), 4, 4))(x)
         x = layers.Conv2D(
-            512,
+            n_filters,
             kernel_size=(1, 1),
             strides=(1, 1),
             padding="same",
             kernel_initializer="he_normal",
+            data_format=DATA_FORMAT,
         )(x)
 
         cur_img_size = 4
-        n_channels = 256
-        while cur_img_size < self.img_shape[0]:
-            x = layers.UpSampling2D()(x)
+        n_filters = self.img_width // 2
+        while cur_img_size < self.img_shape[2]:
+            x = layers.UpSampling2D(data_format=DATA_FORMAT)(x)
             x = layers.Conv2D(
-                n_channels,
+                n_filters,
                 kernel_size=(3, 3),
                 strides=(1, 1),
                 padding="same",
                 kernel_initializer="he_normal",
+                data_format=DATA_FORMAT,
             )(x)
             x = layers.BatchNormalization()(x)
             x = layers.LeakyReLU()(x)
             cur_img_size *= 2
-            n_channels //= 2
+            n_filters //= 2
 
         generator_output = layers.Conv2D(
             self.channels,
@@ -163,6 +171,7 @@ class DCGAN(GAN):
             strides=(1, 1),
             padding="same",
             kernel_initializer="he_normal",
+            data_format=DATA_FORMAT,
         )(x)
         generator_output = layers.Activation("tanh")(generator_output)
         generator_model = Model(noise_input, generator_output)
@@ -187,11 +196,12 @@ class DCGAN(GAN):
             strides=(2, 2),
             padding="same",
             kernel_initializer="he_normal",
+            data_format=DATA_FORMAT,
         )(image_input)
         x = layers.LeakyReLU()(x)
         x = layers.Dropout(0.3)(x)
 
-        cur_img_size = self.img_shape[0] // 2
+        cur_img_size = self.img_shape[2] // 2
         n_channels = 64
         while cur_img_size > 4:
             x = layers.Conv2D(
@@ -200,6 +210,7 @@ class DCGAN(GAN):
                 strides=(2, 2),
                 padding="same",
                 kernel_initializer="he_normal",
+                data_format=DATA_FORMAT,
             )(x)
             x = layers.LeakyReLU()(x)
             x = layers.Dropout(0.3)(x)
@@ -214,7 +225,7 @@ class DCGAN(GAN):
         discriminative_model = Model(image_input, discriminator_output)
         return discriminative_model
 
-    def train_on_batch(self, real_images: np.array):
+    def train_on_batch(self, real_images: np.ndarray):
         """
         Runs a single gradient update on a batch of data.
 
@@ -268,11 +279,11 @@ class DCGAN(GAN):
         path = kwargs.get("path", ".")
         steps = global_steps // batch_size
         for step in range(self.images_shown // batch_size, steps):
-            batch = data_loader.get_next_batch(batch_size)
+            batch = data_loader.__getitem__(step)
             self.train_on_batch(batch)
             self.images_shown += batch_size
 
-            if step % 250 == 0:
+            if step % (steps // 10) == 0:
                 self._print_output()
                 self._generate_images(path)
 

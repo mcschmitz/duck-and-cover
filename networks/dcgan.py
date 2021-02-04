@@ -277,6 +277,7 @@ class DCGAN(GAN):
             **kwargs: Keyword arguments. Add `path` to change the output path
         """
         path = kwargs.get("path", ".")
+        model_dump_path = kwargs.get("write_model_to", None)
         steps = global_steps // batch_size
         for step in range(self.images_shown // batch_size, steps):
             batch = data_loader.__getitem__(step)
@@ -295,6 +296,10 @@ class DCGAN(GAN):
                         y_label=v.get("label"),
                         file_name=v.get("file_name"),
                     )
+                if model_dump_path:
+                    self.save(model_dump_path)
+        if model_dump_path:
+            self.save(model_dump_path)
 
     def _generate_images(self, path):
         for s in range(25):

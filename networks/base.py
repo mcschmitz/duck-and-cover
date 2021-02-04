@@ -1,8 +1,9 @@
-"""
-Abstract Base class for generating Cover GANS.
-"""
+import copy
+import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
+
+import joblib
 
 
 class GAN(ABC):
@@ -68,3 +69,23 @@ class GAN(ABC):
             generator_layer.trainable = True
         self.generator.trainable = True
         self._build_combined_model(optimizer)
+
+    def save(self, path: str):
+        """
+        Saves the weights of the Cover GAN.
+
+        Writes the weights of the GAN object to the given path. The combined model weights, the discriminator weights and
+        the generator weights will be written separately to the given directory
+
+        Args:
+            path: The directory to which the weights should be written
+        """
+        gan = copy.copy(self)
+        gan.combined_model.save_weights(os.path.join(path, "C.h5"))
+        gan.discriminator.save_weights(os.path.join(path, "D.h5"))
+        gan.generator.save_weights(os.path.join(path, "G.h5"))
+        gan.discriminator = None
+        gan.generator = None
+        gan.discriminator_model = None
+        gan.combined_model = None
+        joblib.dump(gan, os.path.join(path, "GAN.pkl"))

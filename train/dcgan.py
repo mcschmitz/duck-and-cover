@@ -16,15 +16,17 @@ COVERS_PATH = os.path.join(
 )
 BATCH_SIZE = 64
 LATENT_SIZE = 512
-PATH = f"{LATENT_SIZE}_dcgan"
+PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
 init_tf()
 
 image_ratio = (1, 1)
 
-lp_path = os.path.join(config.get("learning_progress"), PATH)
+lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 Path(lp_path).mkdir(parents=True, exist_ok=True)
+model_dump_path = os.path.join(lp_path, "model")
+Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 
 data_loader = DataLoader(
     image_path=COVERS_PATH,
@@ -50,6 +52,7 @@ gan.train(
     global_steps=TRAIN_STEPS,
     batch_size=BATCH_SIZE,
     path=lp_path,
+    write_model_to=model_dump_path,
 )
 
 plot_final_gif(path=lp_path)

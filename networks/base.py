@@ -5,6 +5,8 @@ from collections import defaultdict
 
 import joblib
 
+from utils import logger
+
 
 class GAN(ABC):
     def __init__(self):
@@ -74,11 +76,12 @@ class GAN(ABC):
         """
         Saves the weights of the Cover GAN.
 
-        Writes the weights of the GAN object to the given path. The combined model weights, the discriminator weights and
-        the generator weights will be written separately to the given directory
+        Writes the weights of the GAN object to the given path. The combined
+        model weights, the discriminator weights and the generator weights
+        will be written separately to the given directory
 
         Args:
-            path: The directory to which the weights should be written
+            path: The directory to which the weights should be written.
         """
         gan = copy.copy(self)
         gan.combined_model.save_weights(os.path.join(path, "C.h5"))
@@ -89,3 +92,21 @@ class GAN(ABC):
         gan.discriminator_model = None
         gan.combined_model = None
         joblib.dump(gan, os.path.join(path, "GAN.pkl"))
+
+    def load_weights(self, path):
+        """
+        Load the weights and the attributes of the GAN.
+
+        Loads the weights and the pickle object written in the save method.
+
+        Args:
+            path: The directory from which the weights and the GAN should be
+                read.
+        """
+        logger.info(f"Loading weights from {path}")
+        self.combined_model.load_weights(os.path.join(path, "C.h5"))
+        self.discriminator.load_weights(os.path.join(path, "D.h5"))
+        self.generator.load_weights(os.path.join(path, "G.h5"))
+        gan = joblib.load(os.path.join(path, "GAN.pkl"))
+        self.images_shown = gan.images_shown
+        self.metrics = gan.metrics

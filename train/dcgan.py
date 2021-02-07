@@ -19,6 +19,8 @@ LATENT_SIZE = 512
 PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
+warm_start = True
+
 init_tf()
 
 image_ratio = (1, 1)
@@ -46,6 +48,9 @@ gan.build_models(
     combined_optimizer=Adam(0.0001, beta_1=0.5),
     discriminator_optimizer=Adam(0.000004),
 )
+
+if warm_start:
+    gan.load_weights(path=model_dump_path)
 
 gan.train(
     data_loader=data_loader,

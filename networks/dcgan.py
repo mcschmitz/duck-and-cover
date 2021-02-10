@@ -284,7 +284,7 @@ class DCGAN(GAN):
             self.train_on_batch(batch)
             self.images_shown += batch_size
 
-            if step % (steps // 10) == 0:
+            if step % (steps // 320) == 0:
                 self._print_output()
                 self._generate_images(path)
 

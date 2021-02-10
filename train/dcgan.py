@@ -19,7 +19,7 @@ LATENT_SIZE = 512
 PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
-warm_start = True
+warm_start = False
 
 init_tf()
 

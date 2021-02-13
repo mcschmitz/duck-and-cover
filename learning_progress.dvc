@@ -1,5 +1,5 @@
 outs:
-- md5: bb76f48573c0ae2ce3e3a9cd27686ad5.dir
-  size: 6753646449
-  nfiles: 1161
+- md5: 6954a4aaae6625d77c6e7bc63e1aa6f9.dir
+  size: 5481169193
+  nfiles: 35
   path: learning_progress

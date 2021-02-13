@@ -19,11 +19,11 @@ LATENT_SIZE = 512
 PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
-warm_start = False
+warm_start = True
 
 init_tf()
 
-image_ratio = (1, 1)
+image_ratio = config.get("image_ratio")
 
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 Path(lp_path).mkdir(parents=True, exist_ok=True)

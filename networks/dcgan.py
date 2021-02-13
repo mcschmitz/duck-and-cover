@@ -190,8 +190,9 @@ class DCGAN(GAN):
             The DCGAN discriminator
         """
         image_input = Input(self.img_shape)
+        n_filters = 16
         x = layers.Conv2D(
-            32,
+            n_filters,
             kernel_size=(3, 3),
             strides=(2, 2),
             padding="same",
@@ -202,10 +203,9 @@ class DCGAN(GAN):
         x = layers.Dropout(0.3)(x)
 
         cur_img_size = self.img_shape[2] // 2
-        n_channels = 64
         while cur_img_size > 4:
             x = layers.Conv2D(
-                64,
+                n_filters,
                 kernel_size=(3, 3),
                 strides=(2, 2),
                 padding="same",
@@ -214,7 +214,7 @@ class DCGAN(GAN):
             )(x)
             x = layers.LeakyReLU()(x)
             x = layers.Dropout(0.3)(x)
-            n_channels *= 2
+            n_filters *= 2
             cur_img_size //= 2
 
         x = MinibatchSd()(x)

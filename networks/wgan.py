@@ -1,7 +1,7 @@
 import logging
+from functools import partial
 
 import numpy as np
-import tensorflow as tf
 from tensorflow.python.keras import Input, Model
 from tensorflow.python.keras.layers import (
     Activation,
@@ -14,14 +14,17 @@ from tensorflow.python.keras.layers import (
     UpSampling2D,
 )
 
+from config import config
 from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
 from networks.dcgan import DCGAN
-from networks.utils import wasserstein_loss
+from networks.utils import gradient_penalty, plot_metric, wasserstein_loss
 from networks.utils.layers import (
     GetGradients,
     MinibatchSd,
     RandomWeightedAverage,
 )
+
+DATA_FORMAT = config["data_format"]
 
 logging.basicConfig(
     format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
@@ -60,6 +63,9 @@ class WGAN(DCGAN):
             latent_size=latent_size,
         )
         self._gradient_penalty_weight = gradient_penalty_weight
+        self._gradient_penalty = partial(
+            gradient_penalty, weight=self._gradient_penalty_weight
+        )
         self.metrics["D_loss_positives"] = {
             "file_name": "d_loss+.png",
             "label": "Discriminator Loss +",
@@ -107,26 +113,28 @@ class WGAN(DCGAN):
             The WGAN discriminator
         """
         image_input = Input(self.img_shape)
+        n_filters = 16
         x = Conv2D(
-            64,
+            n_filters,
             kernel_size=(3, 3),
             strides=(1, 1),
             kernel_initializer="he_normal",
             padding="same",
+            data_format=DATA_FORMAT,
         )(image_input)
 
-        cur_img_size = self.img_shape[0]
-        n_channels = 64
+        cur_img_size = self.img_shape[2]
         while cur_img_size > 4:
             x = Conv2D(
-                n_channels,
+                n_filters,
                 kernel_size=(3, 3),
                 strides=(2, 2),
                 kernel_initializer="he_normal",
                 padding="same",
+                data_format=DATA_FORMAT,
             )(x)
             x = LeakyReLU()(x)
-            n_channels *= 2
+            n_filters *= 2
             cur_img_size //= 2
 
         x = MinibatchSd()(x)
@@ -157,12 +165,8 @@ class WGAN(DCGAN):
         avg_samples = RandomWeightedAverage()(
             [disc_input_image, gen_image_noise]
         )
-        with tf.GradientTape() as tape:
-            tape.watch(avg_samples)
-            disc_avg = self.discriminator(avg_samples)
-            gradients = tape.gradient(disc_avg, avg_samples)
-        gp_layer = GetGradients(weight=self._gradient_penalty_weight)
-        gp = gp_layer(gradients)
+        gradients = GetGradients(model=self.discriminator)(avg_samples)
+        gp = self._gradient_penalty(gradients)
         self.discriminator_model = Model(
             inputs=[disc_input_image, disc_input_noise],
             outputs=[disc_image_real, disc_image_noise, gp],
@@ -202,16 +206,16 @@ class WGAN(DCGAN):
         Returns:
             The DCGAN generator
         """
+
         noise_input = Input((self.latent_size,))
-        x = Dense(1024)(noise_input)
-        x = LeakyReLU()(x)
-        x = Dense(4 * 4 * 512)(x)
+        n_channels = 256
+
+        x = Dense((self.img_width // 2) * 4 * 4, name="Generator_Dense")(
+            noise_input
+        )
         x = LeakyReLU(0.2)(x)
         x = BatchNormalization()(x)
-        x = Reshape((4, 4, 512))(x)
-
-        cur_img_size = 4
-        n_channels = 256
+        x = Reshape(((self.img_width // 2), 4, 4))(x)
         x = Conv2D(
             n_channels,
             kernel_size=(3, 3),
@@ -219,9 +223,15 @@ class WGAN(DCGAN):
             padding="same",
             kernel_initializer="he_normal",
             use_bias=False,
+            data_format=DATA_FORMAT,
         )(x)
-        while cur_img_size < self.img_shape[0]:
-            x = UpSampling2D()(x)
+
+        cur_img_size = 4
+        n_channels = self.img_width // 2
+        while cur_img_size < self.img_shape[2]:
+            x = UpSampling2D(
+                data_format=DATA_FORMAT,
+            )(x)
             x = Conv2D(
                 n_channels,
                 kernel_size=(3, 3),
@@ -229,6 +239,7 @@ class WGAN(DCGAN):
                 padding="same",
                 kernel_initializer="he_normal",
                 use_bias=False,
+                data_format=DATA_FORMAT,
             )(x)
             x = LeakyReLU()(x)
             x = BatchNormalization()(x)
@@ -242,18 +253,52 @@ class WGAN(DCGAN):
             padding="same",
             kernel_initializer="he_normal",
             use_bias=False,
+            data_format=DATA_FORMAT,
         )(x)
         generator_output = Activation("tanh")(generator_output)
         generator_model = Model(noise_input, generator_output)
         return generator_model
 
+    def train(self, data_loader, global_steps, batch_size, **kwargs):
+        """
+        Trains the network.
+
+        Args:
+            data_loader: Data Loader to stream training batches to the network
+            global_steps: Absolute numbers of steps to train
+            batch_size: Size of the trainin batches
+            **kwargs: Keyword arguments. Add `path` to change the output path
+        """
+        path = kwargs.get("path", ".")
+        n_critic = kwargs.get("n_critic", 5)
+        model_dump_path = kwargs.get("write_model_to", None)
+        steps = global_steps // batch_size
+        for step in range(self.images_shown // batch_size, steps):
+            batch = data_loader.__getitem__(step)
+            self.train_on_batch(batch, n_critic=n_critic)
+            self.images_shown += batch_size
+
+            if step % (steps // 320) == 0:
+                self._print_output()
+                self._generate_images(path)
+
+                for _k, v in self.metrics.items():
+                    plot_metric(
+                        path,
+                        steps=self.images_shown,
+                        metric=v.get("values"),
+                        y_label=v.get("label"),
+                        file_name=v.get("file_name"),
+                    )
+                if model_dump_path:
+                    self.save(model_dump_path)
+        if model_dump_path:
+            self.save(model_dump_path)
+
     def train_on_batch(
         self,
-        gan,
-        discriminator,
-        real_images,
+        real_images: np.ndarray,
         n_critic: int = 5,
-        grad_acc_steps: int = 1,
     ):
         """
         Runs a single gradient update on a batch of data.
@@ -262,10 +307,6 @@ class WGAN(DCGAN):
             real_images: numpy array of real input images used for training
             n_critic: number of discriminator updates for each iteration
         """
-        gan = gan if gan else self.combined_model
-        discriminator = (
-            discriminator if discriminator else self.discriminator_model
-        )
 
         batch_size = real_images.shape[0] // n_critic
 
@@ -273,23 +314,21 @@ class WGAN(DCGAN):
             discriminator_minibatch = real_images[
                 i * batch_size : (i + 1) * batch_size
             ]
-            losses = self.train_discriminator(
-                discriminator_minibatch, discriminator
-            )
+            losses = self.train_discriminator(discriminator_minibatch)
 
         self.metrics["D_loss_positives"]["values"].append(float(losses[0]))
         self.metrics["D_loss_negatives"]["values"].append(float(losses[1]))
         self.metrics["D_loss_dummies"]["values"].append(float(losses[2]))
 
-        total_loss = self.train_combined_model(batch_size, gan)
+        total_loss = self._train_combined_model(batch_size)
         self.metrics["G_loss"]["values"].append(float(total_loss))
 
-    def train_combined_model(self, batch_size, gan):
+    def _train_combined_model(self, batch_size):
         real_y = np.ones((batch_size, 1)) * -1
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        return gan.train_on_batch(noise, real_y)
+        return self.combined_model.train_on_batch(noise, real_y)
 
-    def train_discriminator(self, real_images, discriminator):
+    def train_discriminator(self, real_images):
         """
         Runs a single gradient update on a batch of data.
 
@@ -299,15 +338,12 @@ class WGAN(DCGAN):
         Returns:
             the losses for this training iteration
         """
-        discriminator = (
-            discriminator if discriminator else self.discriminator_model
-        )
         batch_size = len(real_images)
         fake_y = np.ones((batch_size, 1))
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        losses = discriminator.train_on_batch(
+        losses = self.discriminator_model.train_on_batch(
             [real_images, noise], [real_y, fake_y, dummy_y]
         )
         return losses[1:]

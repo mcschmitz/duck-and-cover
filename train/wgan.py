@@ -4,7 +4,6 @@ from pathlib import Path
 from tensorflow.keras.optimizers import Adam
 
 from config import config
-from constants import BASE_DATA_PATH
 from loader import DataLoader
 from networks import WGAN
 from utils import init_tf
@@ -12,7 +11,7 @@ from utils.image_operations import plot_final_gif
 
 IMAGE_SIZE = config.get("image_size")
 COVERS_PATH = os.path.join(
-    BASE_DATA_PATH, f"covers{300 if IMAGE_SIZE > 64 else 64}"
+    config.get("base_data_path"), f"covers{300 if IMAGE_SIZE > 64 else 64}"
 )
 BATCH_SIZE = 64
 LATENT_SIZE = 512
@@ -22,8 +21,6 @@ TRAIN_STEPS = int(2 * 10e5)
 warm_start = True
 
 init_tf()
-
-image_ratio = config.get("image_ratio")
 
 gradient_penalty_weight = 10.0
 n_critic = 5
@@ -40,7 +37,7 @@ data_loader = DataLoader(
     batch_size=batch_size,
     image_size=IMAGE_SIZE,
 )
-
+image_ratio = config.get("image_ratio")
 image_width = IMAGE_SIZE * image_ratio[0]
 image_height = IMAGE_SIZE * image_ratio[1]
 

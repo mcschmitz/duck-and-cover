@@ -6,35 +6,12 @@ from tensorflow.keras.utils import plot_model
 
 
 def save_gan(obj, path: str):
-    """
-    Saves the weights of the Cover GAN.
-
-    Writes the weights of the GAN object to the given path. The combined model weights, the discriminator weights and
-    the generator weights will be written separately to the given directory
-
-    Args:
-        obj: The Cover GAN object
-        path: The directory to which the weights should be written
-    """
     gan = copy.copy(obj)
-    s = {0, 1}
-    for block, _ in enumerate(gan.combined_model):
-        for i in s:
-            gan.combined_model[block][i].save_weights(
-                os.path.join(path, f"C_{block}_{i}.h5")
-            )
-            gan.discriminator[block][i].save_weights(
-                os.path.join(path, f"D_{block}_{i}.h5")
-            )
-            gan.generator[block][i].save_weights(
-                os.path.join(path, f"G_{block}_{i}.h5")
-            )
-
-    gan.discriminator = None
-    gan.generator = None
-    gan.discriminator_model = None
-    gan.combined_model = None
-    joblib.dump(gan, os.path.join(path, "GAN.pkl"))
+    f = {0, 1}
+    for i in f:
+        gan.combined_model[i].save_weights(os.path.join(path, f"C_{i}.h5"))
+        gan.discriminator[i].save_weights(os.path.join(path, f"D_{i}.h5"))
+        gan.generator[i].save_weights(os.path.join(path, f"G_{i}.h5"))
 
 
 def load_progan(obj, path: str, weights_only: bool = False):
@@ -76,13 +53,13 @@ def plot_progan(model, block: int, path: str, suffix: str = None):
     for i in [0, 1]:
         suffix += "_fade_in" if i == 1 else ""
         plot_model(
-            model.generator[block][i],
+            model.generator[i],
             to_file=os.path.join(path, "gen{}.png".format(suffix)),
             show_shapes=True,
             expand_nested=True,
         )
         plot_model(
-            model.combined_model[block][i],
+            model.combined_model[i],
             to_file=os.path.join(path, "comb{}.png".format(suffix)),
             show_shapes=True,
             expand_nested=True,

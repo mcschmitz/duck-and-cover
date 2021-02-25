@@ -54,6 +54,7 @@ class DataLoader(Sequence):
                 for i, file_path in enumerate(tqdm(files)):
                     img = imread(file_path)
                     img = resize(img, (image_size, image_size, 3))
+                    img = np.moveaxis(img, -1, 0)
                     self._images[i] = img
                 np.save(np_path, self._images)
                 self._iterator = np.arange(0, self._images.shape[0])

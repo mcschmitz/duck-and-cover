@@ -1,14 +1,5 @@
 import copy
-import itertools
-import logging
 import os
-
-#  TODO Add release year information
-#  TODO Add genre information
-#  TODO Add artist name
-#  TODO add album name
-from functools import partial
-from typing import List
 
 import numpy as np
 from defaultlist import defaultlist
@@ -25,12 +16,12 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.losses import mse
 
-from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
+from config import config
 from networks.gradient_accumulator_model import (
     GradientAccumulatorModel,
     GradientAccumulatorSequential,
 )
-from networks.utils import save_gan, wasserstein_loss
+from networks.utils import plot_metric, save_gan, wasserstein_loss
 from networks.utils.layers import (
     GetGradients,
     MinibatchSd,
@@ -40,14 +31,16 @@ from networks.utils.layers import (
     ScaledDense,
     WeightedSum,
 )
-from networks.utils.wgan_utils import gradient_penalty
 from networks.wgan import WGAN
-from utils import generate_images, plot_metric
+from utils import logger
+from utils.image_operations import generate_images
 
-logging.basicConfig(
-    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
-)
-logger = logging.getLogger(__file__)
+DATA_FORMAT = config["data_format"]
+
+#  TODO Add release year information
+#  TODO Add genre information
+#  TODO Add artist name
+#  TODO add album name
 
 
 class ProGAN(WGAN):
@@ -89,22 +82,17 @@ class ProGAN(WGAN):
             latent_size=latent_size,
             gradient_penalty_weight=gradient_penalty_weight,
         )
-        self._gradient_penalty = partial(
-            gradient_penalty, weight=self._gradient_penalty_weight
-        )
         self.img_shape = ()
-        self.discriminator_model = []
         self.block_images_shown = {
             "burn_in": defaultlist(int),
             "fade_in": defaultlist(int),
         }
-        self.gradient_accumulation_steps = None
 
     def build_models(
         self,
         optimizer,
         n_blocks: int = 1,
-        gradient_accumulation_steps: List[int] = None,
+        gradient_accumulation_steps: int = 1,
     ):
         """
         Builds the desired GAN that allows to generate covers.
@@ -120,99 +108,90 @@ class ProGAN(WGAN):
             n_blocks: Number of blocks to add. each block doubles the size of
                 the output image starting by 4*4. So n_blocks=1 will result in
                 an image of size 8*8.
+            gradient_accumulation_steps: gradient accumulation steps that
+                should be done when trainig.
         """
-        if gradient_accumulation_steps is None:
-            gradient_accumulation_steps = np.repeat(1, n_blocks)
-        self.gradient_accumulation_steps = gradient_accumulation_steps
         self.generator = self._build_generator(n_blocks)
         self.discriminator = self._build_discriminator(
             n_blocks, optimizer=optimizer
         )
+        for model in self.generator:
+            model.trainable = False
+        self.discriminator_model = self._build_discriminator_model(
+            optimizer, n_blocks
+        )
+        self.combined_model = self._build_combined_model(
+            optimizer,
+            grad_acc_steps=gradient_accumulation_steps,
+        )
+
+    def _build_discriminator_model(self, optimizer, n_blocks, grad_acc_steps):
         fade = {0, 1}
-        for block, f in itertools.product(range(n_blocks), fade):
-            self.generator[block][f].trainable = False
-        self._build_discriminator_model(optimizer, n_blocks)
-        self.combined_model = self._build_combined_model(optimizer)
-
-    def _build_discriminator_model(self, optimizer, n_blocks):
-        fade = {0, 1}
-        for block in range(n_blocks):
-            discriminator_models = []
-            for f in fade:
-                discriminator = self.discriminator[block][f]
-                generator = self.generator[block][f]
-                disc_input_shp = list(discriminator.input.shape[1:])
-                disc_input_image = Input(disc_input_shp, name="Img_Input")
-                disc_input_noise = Input(
-                    (self.latent_size,), name="Noise_Input_for_Discriminator"
-                )
-                gen_image_noise = generator(disc_input_noise)
-                disc_image_noise = discriminator(gen_image_noise)
-                disc_image_real = discriminator(disc_input_image)
-                avg_samples = RandomWeightedAverage()(
-                    [disc_input_image, gen_image_noise]
-                )
-                gradients = GetGradients(model=discriminator)(avg_samples)
-                gp = self._gradient_penalty(gradients)
-                discriminator_model = GradientAccumulatorModel(
-                    inputs=[disc_input_image, disc_input_noise],
-                    outputs=[disc_image_real, disc_image_noise, gp],
-                    gradient_accumulation_steps=self.gradient_accumulation_steps[
-                        block
-                    ],
-                )
-                optimizer = copy.copy(optimizer)
-                discriminator_model.compile(
-                    loss=[wasserstein_loss, wasserstein_loss, mse],
-                    optimizer=optimizer,
-                )
-                discriminator_models.append(discriminator_model)
-            self.discriminator_model.append(discriminator_models)
-
-    def _build_combined_model(self, optimizer):
-        model_list = []
-
-        for idx, _ in enumerate(self.discriminator):
-            g_models, d_models = self.generator[idx], self.discriminator[idx]
-            d_models[0].trainable = False
-            g_models[0].trainable = True
-            model1 = GradientAccumulatorSequential(
-                gradient_accumulation_steps=self.gradient_accumulation_steps[
-                    idx
-                ]
+        discriminator_models = []
+        for f in fade:
+            discriminator = self.discriminator[f]
+            generator = self.generator[f]
+            disc_input_shp = list(discriminator.input.shape[1:])
+            disc_input_image = Input(disc_input_shp, name="Img_Input")
+            disc_input_noise = Input(
+                (self.latent_size,), name="Noise_Input_for_Discriminator"
             )
-            model1.add(g_models[0])
-            model1.add(d_models[0])
-            optimizer = copy.copy(optimizer)
-            model1.compile(loss=wasserstein_loss, optimizer=optimizer)
-
-            d_models[1].trainable = False
-            g_models[1].trainable = True
-            model2 = GradientAccumulatorSequential(
-                gradient_accumulation_steps=self.gradient_accumulation_steps[
-                    idx
-                ]
+            gen_image_noise = generator(disc_input_noise)
+            disc_image_noise = discriminator(gen_image_noise)
+            disc_image_real = discriminator(disc_input_image)
+            avg_samples = RandomWeightedAverage()(
+                [disc_input_image, gen_image_noise]
             )
-            model2.add(g_models[1])
-            model2.add(d_models[1])
+            gradients = GetGradients(model=discriminator)(avg_samples)
+            gp = self._gradient_penalty(gradients)
+            discriminator_model = GradientAccumulatorModel(
+                inputs=[disc_input_image, disc_input_noise],
+                outputs=[disc_image_real, disc_image_noise, gp],
+                gradient_accumulation_steps=grad_acc_steps,
+            )
             optimizer = copy.copy(optimizer)
-            model2.compile(loss=wasserstein_loss, optimizer=optimizer)
+            discriminator_model.compile(
+                loss=[wasserstein_loss, wasserstein_loss, mse],
+                optimizer=optimizer,
+            )
+            discriminator_models.append(discriminator_model)
+        return discriminator_models
 
-            model_list.append([model1, model2])
-        return model_list
+    def _build_combined_model(self, optimizer, grad_acc_steps):
+        self.discriminator[0].trainable = False
+        self.generator[0].trainable = True
+        model1 = GradientAccumulatorSequential(
+            gradient_accumulation_steps=grad_acc_steps
+        )
+        model1.add(self.generator[0])
+        model1.add(self.discriminator[0])
+        optimizer = copy.copy(optimizer)
+        model1.compile(loss=wasserstein_loss, optimizer=optimizer)
+
+        self.discriminator[1].trainable = False
+        self.generator[1].trainable = True
+        model2 = GradientAccumulatorSequential(
+            gradient_accumulation_steps=grad_acc_steps
+        )
+        model2.add(self.generator[1])
+        model2.add(self.discriminator[1])
+        optimizer = copy.copy(optimizer)
+        model2.compile(loss=wasserstein_loss, optimizer=optimizer)
+
+        return [model1, model2]
 
     def _build_generator(self, n_blocks) -> list:
         init = RandomNormal(0, 1)
         model_list = []
         n_filters = self.img_width // 2
 
-        latent_input = Input(shape=(self.latent_size,))
+        latent_input = Input(shape=self.latent_size)
         x = ScaledDense(
-            units=4 * 4 * self.latent_size,
+            units=4 * 4 * (self.img_width // 2),
             kernel_initializer=init,
             gain=np.sqrt(2) / 4,
         )(latent_input)
-        x = Reshape((4, 4, self.latent_size))(x)
+        x = Reshape((self.img_width // 2, 4, 4))(x)
 
         for _ in range(2):  # noqa: WPS122
             x = ScaledConv2D(
@@ -220,6 +199,7 @@ class ProGAN(WGAN):
                 kernel_size=(3, 3),
                 padding="same",
                 kernel_initializer=init,
+                data_format=DATA_FORMAT,
             )(x)
             x = LeakyReLU(alpha=0.2)(x)
             x = PixelNorm()(x)
@@ -230,6 +210,7 @@ class ProGAN(WGAN):
             padding="same",
             kernel_initializer=init,
             gain=1,
+            data_format=DATA_FORMAT,
         )(x)
 
         model = Model(latent_input, out_image)
@@ -239,10 +220,10 @@ class ProGAN(WGAN):
             old_model = model_list[i - 1][0]
             models = self._add_generator_block(old_model, block=i)
             model_list.append(models)
-        return model_list
+        return model_list[-1]
 
     def _build_discriminator(
-        self, n_blocks, optimizer, input_shape: tuple = (4, 4, 3)
+        self, n_blocks, optimizer, input_shape: tuple = (3, 4, 4)
     ) -> list:
         init = RandomNormal(0, 1)
         model_list = []
@@ -254,6 +235,7 @@ class ProGAN(WGAN):
             kernel_size=(1, 1),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(image_input)
         x = LeakyReLU(0.2)(x)
 
@@ -263,6 +245,7 @@ class ProGAN(WGAN):
             kernel_size=(3, 3),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(x)
         x = LeakyReLU(0.2)(x)
 
@@ -271,6 +254,7 @@ class ProGAN(WGAN):
             kernel_size=(4, 4),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(x)
         x = LeakyReLU(0.2)(x)
 
@@ -289,7 +273,7 @@ class ProGAN(WGAN):
                 old_model, optimizer=optimizer
             )
             model_list.append(models)
-        return model_list
+        return model_list[-1]
 
     def train(
         self,
@@ -322,7 +306,6 @@ class ProGAN(WGAN):
         verbose = kwargs.get("verbose", True)
         model_dump_path = kwargs.get("write_model_to", None)
         n_critic = kwargs.get("n_critic", 1)
-        grad_acc_steps = kwargs.get("grad_acc_steps", 1)
 
         fade_images_shown = self.block_images_shown.get("fade_in")[block]
         if block == 0 or (fade_images_shown // batch_size) == steps:
@@ -336,21 +319,13 @@ class ProGAN(WGAN):
 
         alphas = np.linspace(0, 1, steps).tolist()
         f_idx = 1 if phase == "fade_in" else 0
-        gan = self.combined_model[block][f_idx]
-        discriminator = self.discriminator_model[block][f_idx]
         for step in range(phase_images_shown // batch_size, steps):
-            batch = data_loader.get_next_batch(batch_size)
+            batch = data_loader.__getitem__(step)
             if phase == "fade_in":
                 alpha = alphas.pop(0)
                 self._update_alpha(alpha, block)
 
-            self.train_on_batch(
-                gan,
-                discriminator,
-                batch,
-                n_critic=n_critic,
-                grad_acc_steps=grad_acc_steps,
-            )
+            self.train_on_batch(batch, n_critic=n_critic, fade_idx=f_idx)
             self.images_shown += batch_size
             if f_idx:
                 self.block_images_shown["fade_in"][block] += batch_size
@@ -358,7 +333,7 @@ class ProGAN(WGAN):
                 self.block_images_shown["burn_in"][block] += batch_size
             if step % (steps // 32) == 0 and verbose:
                 self._print_output()
-                self._generate_images(path, block, f_idx)
+                self._generate_images(path, f_idx)
 
                 for _k, v in self.metrics.items():
                     plot_metric(
@@ -397,7 +372,7 @@ class ProGAN(WGAN):
 
     def _calc_filters(self, x: int):
         return int(
-            min((4 * 4 * self.latent_size / x) * 2, self.img_width // 2)
+            min((4 * 4 * (self.img_width // 2) / x) * 2, self.img_width // 2)
         )
 
     def _add_discriminator_block(
@@ -422,6 +397,7 @@ class ProGAN(WGAN):
             kernel_size=(1, 1),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(in_image)
         d = LeakyReLU(alpha=0.2)(d)
 
@@ -430,6 +406,7 @@ class ProGAN(WGAN):
             kernel_size=(3, 3),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(d)
         d = LeakyReLU(alpha=0.2)(d)
         d = ScaledConv2D(
@@ -437,6 +414,7 @@ class ProGAN(WGAN):
             kernel_size=(3, 3),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(d)
         d = LeakyReLU(alpha=0.2)(d)
         d = AveragePooling2D(2, 2)(d)
@@ -474,6 +452,7 @@ class ProGAN(WGAN):
             kernel_size=(3, 3),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(upsampling)
         g = LeakyReLU(alpha=0.2)(g)
         g = PixelNorm()(g)
@@ -483,6 +462,7 @@ class ProGAN(WGAN):
             kernel_size=(3, 3),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(g)
         g = LeakyReLU(alpha=0.2)(g)
         g = PixelNorm()(g)
@@ -492,6 +472,7 @@ class ProGAN(WGAN):
             kernel_size=(1, 1),
             padding="same",
             kernel_initializer=init,
+            data_format=DATA_FORMAT,
         )(g)
         model1 = Model(old_model.input, out_image)
 
@@ -502,13 +483,13 @@ class ProGAN(WGAN):
         model2 = Model(old_model.input, merged)
         return [model1, model2]
 
-    def _generate_images(self, path, block, fade):
+    def _generate_images(self, path, fade):
         for s in range(25):
             img_path = os.path.join(
                 path, f"{s}_fixed_step_gif{self.images_shown}.png"
             )
             generate_images(
-                self.generator[block][fade],
+                self.generator[fade],
                 img_path,
                 target_size=(256, 256),
                 seed=s,
@@ -517,13 +498,13 @@ class ProGAN(WGAN):
 
         if fade:
             for a in [0, 1]:
-                self._update_alpha(a, block)
+                self._update_alpha(a)
                 img_path = os.path.join(
                     path,
                     "fixed_step{}_alpha{}.png".format(self.images_shown, a),
                 )
                 generate_images(
-                    self.generator[block][fade],
+                    self.generator[fade],
                     img_path,
                     target_size=(256, 256),
                     seed=101,

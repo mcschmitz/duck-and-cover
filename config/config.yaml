@@ -3,3 +3,4 @@ data_format: channels_first
 image_ratio: [1, 1]
 # Paths
 learning_progress_path: learning_progress
+base_data_path: data

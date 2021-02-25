@@ -1,4 +1,3 @@
-import logging
 from functools import partial
 
 import numpy as np
@@ -15,7 +14,6 @@ from tensorflow.python.keras.layers import (
 )
 
 from config import config
-from constants import LOG_DATETIME_FORMAT, LOG_FORMAT, LOG_LEVEL
 from networks.dcgan import DCGAN
 from networks.utils import gradient_penalty, plot_metric, wasserstein_loss
 from networks.utils.layers import (
@@ -23,13 +21,9 @@ from networks.utils.layers import (
     MinibatchSd,
     RandomWeightedAverage,
 )
+from utils import logger
 
 DATA_FORMAT = config["data_format"]
-
-logging.basicConfig(
-    format=LOG_FORMAT, datefmt=LOG_DATETIME_FORMAT, level=LOG_LEVEL
-)
-logger = logging.getLogger(__file__)
 
 
 class WGAN(DCGAN):
@@ -296,9 +290,7 @@ class WGAN(DCGAN):
             self.save(model_dump_path)
 
     def train_on_batch(
-        self,
-        real_images: np.ndarray,
-        n_critic: int = 5,
+        self, real_images: np.ndarray, n_critic: int = 5, **kwargs
     ):
         """
         Runs a single gradient update on a batch of data.
@@ -314,21 +306,28 @@ class WGAN(DCGAN):
             discriminator_minibatch = real_images[
                 i * batch_size : (i + 1) * batch_size
             ]
-            losses = self.train_discriminator(discriminator_minibatch)
+            losses = self.train_discriminator(
+                discriminator_minibatch, **kwargs
+            )
 
         self.metrics["D_loss_positives"]["values"].append(float(losses[0]))
         self.metrics["D_loss_negatives"]["values"].append(float(losses[1]))
         self.metrics["D_loss_dummies"]["values"].append(float(losses[2]))
 
-        total_loss = self._train_combined_model(batch_size)
+        total_loss = self._train_combined_model(batch_size, **kwargs)
         self.metrics["G_loss"]["values"].append(float(total_loss))
 
-    def _train_combined_model(self, batch_size):
+    def _train_combined_model(self, batch_size, **kwargs):
         real_y = np.ones((batch_size, 1)) * -1
         noise = np.random.normal(size=(batch_size, self.latent_size))
+        fade_idx = kwargs.get("fade_idx")
+        if isinstance(self.discriminator_model, list) and isinstance(
+            fade_idx, int
+        ):
+            return self.combined_model[fade_idx].train_on_batch(noise, real_y)
         return self.combined_model.train_on_batch(noise, real_y)
 
-    def train_discriminator(self, real_images):
+    def train_discriminator(self, real_images, **kwargs):
         """
         Runs a single gradient update on a batch of data.
 
@@ -343,9 +342,17 @@ class WGAN(DCGAN):
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        losses = self.discriminator_model.train_on_batch(
-            [real_images, noise], [real_y, fake_y, dummy_y]
-        )
+        fade_idx = kwargs.get("fade_idx")
+        if isinstance(self.discriminator_model, list) and isinstance(
+            fade_idx, int
+        ):
+            losses = self.discriminator_model[fade_idx].train_on_batch(
+                [real_images, noise], [real_y, fake_y, dummy_y]
+            )
+        else:
+            losses = self.discriminator_model.train_on_batch(
+                [real_images, noise], [real_y, fake_y, dummy_y]
+            )
         return losses[1:]
 
     def _print_output(self):

@@ -94,7 +94,7 @@ class GAN(ABC):
         gan.discriminator_optimizer = None
         joblib.dump(gan, os.path.join(path, "GAN.pkl"))
 
-    def load_weights(self, path):
+    def load(self, path):
         """
         Load the weights and the attributes of the GAN.
 
@@ -104,10 +104,21 @@ class GAN(ABC):
             path: The directory from which the weights and the GAN should be
                 read.
         """
-        logger.info(f"Loading weights from {path}")
-        self.combined_model.load_weights(os.path.join(path, "C.h5"))
-        self.discriminator.load_weights(os.path.join(path, "D.h5"))
-        self.generator.load_weights(os.path.join(path, "G.h5"))
+        logger.info(f"Loading weights & optimizer from {path}")
+        generator_cktp = torch.load(os.path.join(path, "generator.pkl"))
+        discriminator_cktp = torch.load(
+            os.path.join(path, "discriminator.pkl")
+        )
         gan = joblib.load(os.path.join(path, "GAN.pkl"))
         self.images_shown = gan.images_shown
         self.metrics = gan.metrics
+        self.generator.load_state_dict(generator_cktp["generator_state_dict"])
+        self.generator_optimizer.load_state_dict(
+            generator_cktp["generator_optimizer"]
+        )
+        self.discriminator.load_state_dict(
+            discriminator_cktp["discriminator_state_dict"]
+        )
+        self.discriminator_optimizer.load_state_dict(
+            discriminator_cktp["discriminator_optimizer"]
+        )

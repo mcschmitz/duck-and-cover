@@ -13,17 +13,18 @@ from utils.image_operations import generate_images
 
 
 class Discrimininator(nn.Module):
-    def __init__(self, img_shape, use_gpu: bool = False):
+    def __init__(self, img_shape: Tuple[int, int, int], use_gpu: bool = False):
         """
         Builds the DCGAN discriminator.
 
         Builds the very simple discriminator that takes an image input and
         applies a 3x3 convolutional layer with ReLu activation and a 2x2 stride
-        until the desired embedding  size is reached. The flattend embedding is
+        until the desired embedding  size is reached. The flattened embedding is
         ran through a Dense layer with sigmoid output to label the image.
 
-        Returns:
-            The DCGAN discriminator
+        Args:
+            img_shape: Shape of the input image
+            use_gpu: Flag to train on GPU
         """
         super(Discrimininator, self).__init__()
         self.use_gpu = use_gpu
@@ -55,7 +56,13 @@ class Discrimininator(nn.Module):
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.xavier_uniform_(self.final_linear.weight)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward method of the discriminator.
+
+        Args:
+            x: Tensor to pass through the model
+        """
         if self.use_gpu:
             x = x.cuda()
         x = self.init_conv2d(x)
@@ -82,12 +89,16 @@ class Generator(nn.Module):
         """
         Builds the DCGAN generator.
 
-        Builds the very simple generator that takes a latent input
-        vector and applies the following block until the desired image
-        size is reached: 3x3 convolutional layer with ReLu activation ->
-        Batch Normalization -> Upsamling layer. The last Convolutional
-        layer wit tanH activation results in 3 RGB channels and serves
-        as final output
+        Builds the very simple generator that takes a latent input vector and
+        applies the following block until the desired image size is reached:
+        3x3 convolutional layer with ReLu activation -> Batch Normalization
+        -> Upsamling layer. The last Convolutional layer wit tanH activation
+        results in 3 RGB channels and serves as final output
+
+        Args:
+            latent_size: Dimensions of the latent vector
+            img_shape: Shape of the input image
+            use_gpu: Flag to train on GPU
         """
         super(Generator, self).__init__()
         self.use_gpu = use_gpu

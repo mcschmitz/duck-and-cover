@@ -15,7 +15,7 @@ LATENT_SIZE = 512
 PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
-warm_start = False
+warm_start = True
 
 image_ratio = config.get("image_ratio")
 
@@ -40,13 +40,13 @@ gan = DCGAN(
     use_gpu=True,
 )
 
+
+gan.set_optimizers(
+    generator_optimizer={"lr": 0.0001, "betas": (0.5, 0.999)},
+    discriminator_optimizer={"lr": 0.000004},
+)
 if warm_start:
-    gan.load_weights(path=model_dump_path)
-else:
-    gan.set_optimizers(
-        generator_optimizer={"lr": 0.0001, "betas": (0.5, 0.999)},
-        discriminator_optimizer={"lr": 0.000004},
-    )
+    gan.load(path=model_dump_path)
 
 gan.train(
     data_loader=data_loader,

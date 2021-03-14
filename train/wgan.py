@@ -50,7 +50,7 @@ gan = WGAN(
 gan.build_models(optimizer=Adam(0.0001, beta_1=0.5))
 
 if warm_start:
-    gan.load_weights(path=model_dump_path)
+    gan.load(path=model_dump_path)
 
 gan.train(
     data_loader=data_loader,

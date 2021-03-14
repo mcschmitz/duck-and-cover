@@ -570,16 +570,14 @@ class ProGAN(WGAN):
         for fade_in in models:
             weights_to_load = os.path.join(path, f"G{fade_in}.h5")
             if os.path.isfile(weights_to_load):
-                getattr(self, f"generator{fade_in}").load_weights(
-                    weights_to_load
-                )
-                getattr(self, f"discriminator{fade_in}").load_weights(
+                getattr(self, f"generator{fade_in}").load(weights_to_load)
+                getattr(self, f"discriminator{fade_in}").load(
                     os.path.join(path, f"D{fade_in}.h5")
                 )
-                getattr(self, f"discriminator_model{fade_in}").load_weights(
+                getattr(self, f"discriminator_model{fade_in}").load(
                     os.path.join(path, f"DM{fade_in}.h5")
                 )
-                getattr(self, f"combined_model{fade_in}").load_weights(
+                getattr(self, f"combined_model{fade_in}").load(
                     os.path.join(path, f"C{fade_in}.h5")
                 )
 

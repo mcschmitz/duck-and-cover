@@ -60,6 +60,11 @@ class WGAN(DCGAN):
         self._gradient_penalty = partial(
             gradient_penalty, weight=self._gradient_penalty_weight
         )
+        self.metrics["loss"] = {
+            "file_name": "loss.png",
+            "label": "Global Loss",
+            "values": [],
+        }
         self.metrics["D_loss_positives"] = {
             "file_name": "d_loss+.png",
             "label": "Discriminator Loss +",
@@ -309,10 +314,10 @@ class WGAN(DCGAN):
             losses = self.train_discriminator(
                 discriminator_minibatch, **kwargs
             )
-
-        self.metrics["D_loss_positives"]["values"].append(float(losses[0]))
-        self.metrics["D_loss_negatives"]["values"].append(float(losses[1]))
-        self.metrics["D_loss_dummies"]["values"].append(float(losses[2]))
+        self.metrics["loss"]["values"].append(float(losses[0]))
+        self.metrics["D_loss_positives"]["values"].append(float(losses[1]))
+        self.metrics["D_loss_negatives"]["values"].append(float(losses[2]))
+        self.metrics["D_loss_dummies"]["values"].append(float(losses[3]))
 
         total_loss = self._train_combined_model(batch_size, **kwargs)
         self.metrics["G_loss"]["values"].append(float(total_loss))
@@ -320,11 +325,9 @@ class WGAN(DCGAN):
     def _train_combined_model(self, batch_size, **kwargs):
         real_y = np.ones((batch_size, 1)) * -1
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        fade_idx = kwargs.get("fade_idx")
-        if isinstance(self.discriminator_model, list) and isinstance(
-            fade_idx, int
-        ):
-            return self.combined_model[fade_idx].train_on_batch(noise, real_y)
+        phase = kwargs.get("phase", "burn_in")
+        if phase == "fade_in":
+            return self.combined_model_fade_in.train_on_batch(noise, real_y)
         return self.combined_model.train_on_batch(noise, real_y)
 
     def train_discriminator(self, real_images, **kwargs):
@@ -342,20 +345,23 @@ class WGAN(DCGAN):
         real_y = np.ones((batch_size, 1)) * -1
         dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
         noise = np.random.normal(size=(batch_size, self.latent_size))
-        fade_idx = kwargs.get("fade_idx")
-        if isinstance(self.discriminator_model, list) and isinstance(
-            fade_idx, int
-        ):
-            losses = self.discriminator_model[fade_idx].train_on_batch(
-                [real_images, noise], [real_y, fake_y, dummy_y]
+        phase = kwargs.get("phase", "burn_in")
+        if phase == "fade_in":
+            losses = self.discriminator_model_fade_in.train_on_batch(
+                [real_images, noise], [real_y, fake_y, dummy_y, dummy_y]
+            )
+        elif hasattr(self, "block_images_shown"):
+            losses = self.discriminator_model.train_on_batch(
+                [real_images, noise], [real_y, fake_y, dummy_y, dummy_y]
             )
         else:
             losses = self.discriminator_model.train_on_batch(
                 [real_images, noise], [real_y, fake_y, dummy_y]
             )
-        return losses[1:]
+        return losses
 
     def _print_output(self):
+        loss = np.round(np.mean(self.metrics["loss"]["values"]), decimals=3)
         g_loss = np.round(
             np.mean(self.metrics["G_loss"]["values"]), decimals=3
         )
@@ -370,8 +376,9 @@ class WGAN(DCGAN):
         )
         logger.info(
             f"Images shown {self.images_shown}:"
-            + f" Generator Loss: {g_loss}"
-            + f" - Discriminator Loss + : {d_loss_p}"
-            + f" - Discriminator Loss - : {d_loss_n}"
-            + f" - Discriminator Loss Dummies : {d_loss_d}"
+            + f" - Global Loss: {loss}"
+            + f" - Gen Loss: {g_loss}"
+            + f" - Disc Loss + : {d_loss_p}"
+            + f" - Disc Loss - : {d_loss_n}"
+            + f" - Disc Loss Dummies : {d_loss_d}"
         )

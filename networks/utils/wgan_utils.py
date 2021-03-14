@@ -34,3 +34,7 @@ def gradient_penalty(gradients, weight):
     )
     gradient_l2_norm = K.sqrt(gradients_sqr_sum)
     return K.mean(weight * K.square(1 - gradient_l2_norm))
+
+
+def drift_loss(y_true, y_pred):
+    return K.mean(y_pred ** 2)

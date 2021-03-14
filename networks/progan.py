@@ -1,6 +1,7 @@
 import copy
 import os
 
+import joblib
 import numpy as np
 from defaultlist import defaultlist
 from tensorflow.keras import Model
@@ -21,7 +22,7 @@ from networks.gradient_accumulator_model import (
     GradientAccumulatorModel,
     GradientAccumulatorSequential,
 )
-from networks.utils import plot_metric, save_gan, wasserstein_loss
+from networks.utils import drift_loss, plot_metric, wasserstein_loss
 from networks.utils.layers import (
     GetGradients,
     MinibatchSd,
@@ -87,11 +88,14 @@ class ProGAN(WGAN):
             "burn_in": defaultlist(int),
             "fade_in": defaultlist(int),
         }
+        self.generator_fade_in = None
+        self.discriminator_fade_in = None
+        self.discriminator_model_fade_in = None
+        self.combined_model_fade_in = None
 
     def build_models(
         self,
         optimizer,
-        n_blocks: int = 1,
         gradient_accumulation_steps: int = 1,
     ):
         """
@@ -105,84 +109,111 @@ class ProGAN(WGAN):
 
         Args:
             optimizer: Which optimizer to use for the combined model
-            n_blocks: Number of blocks to add. each block doubles the size of
-                the output image starting by 4*4. So n_blocks=1 will result in
-                an image of size 8*8.
             gradient_accumulation_steps: gradient accumulation steps that
-                should be done when trainig.
+                should be done when training.
         """
-        self.generator = self._build_generator(n_blocks)
-        self.discriminator = self._build_discriminator(
-            n_blocks, optimizer=optimizer
-        )
-        for model in self.generator:
-            model.trainable = False
+        self.generator = self._build_generator()
+        self.discriminator = self._build_discriminator(optimizer=optimizer)
+        self.generator.trainable = False
         self.discriminator_model = self._build_discriminator_model(
-            optimizer, n_blocks
+            optimizer,
+            grad_acc_steps=gradient_accumulation_steps,
+            discriminator=self.discriminator,
+            generator=self.generator,
         )
         self.combined_model = self._build_combined_model(
             optimizer,
             grad_acc_steps=gradient_accumulation_steps,
+            discriminator=self.discriminator,
+            generator=self.generator,
         )
 
-    def _build_discriminator_model(self, optimizer, n_blocks, grad_acc_steps):
-        fade = {0, 1}
-        discriminator_models = []
-        for f in fade:
-            discriminator = self.discriminator[f]
-            generator = self.generator[f]
-            disc_input_shp = list(discriminator.input.shape[1:])
-            disc_input_image = Input(disc_input_shp, name="Img_Input")
-            disc_input_noise = Input(
-                (self.latent_size,), name="Noise_Input_for_Discriminator"
-            )
-            gen_image_noise = generator(disc_input_noise)
-            disc_image_noise = discriminator(gen_image_noise)
-            disc_image_real = discriminator(disc_input_image)
-            avg_samples = RandomWeightedAverage()(
-                [disc_input_image, gen_image_noise]
-            )
-            gradients = GetGradients(model=discriminator)(avg_samples)
-            gp = self._gradient_penalty(gradients)
-            discriminator_model = GradientAccumulatorModel(
-                inputs=[disc_input_image, disc_input_noise],
-                outputs=[disc_image_real, disc_image_noise, gp],
-                gradient_accumulation_steps=grad_acc_steps,
-            )
-            optimizer = copy.copy(optimizer)
-            discriminator_model.compile(
-                loss=[wasserstein_loss, wasserstein_loss, mse],
-                optimizer=optimizer,
-            )
-            discriminator_models.append(discriminator_model)
-        return discriminator_models
+    def add_block(self, optimizer, gradient_accumulation_steps: int = 1):
+        # Add generator block
+        self.generator, self.generator_fade_in = self._add_generator_block(
+            self.generator
+        )
 
-    def _build_combined_model(self, optimizer, grad_acc_steps):
-        self.discriminator[0].trainable = False
-        self.generator[0].trainable = True
-        model1 = GradientAccumulatorSequential(
+        # Add discriminator block
+        optimizer = copy.copy(optimizer)
+        (
+            self.discriminator,
+            self.discriminator_fade_in,
+        ) = self._add_discriminator_block(
+            self.discriminator, optimizer=optimizer
+        )
+        self.generator.trainable = False
+        self.generator_fade_in.trainable = False
+        self.discriminator_model = self._build_discriminator_model(
+            optimizer,
+            grad_acc_steps=gradient_accumulation_steps,
+            discriminator=self.discriminator,
+            generator=self.generator,
+        )
+        self.discriminator_model_fade_in = self._build_discriminator_model(
+            optimizer,
+            grad_acc_steps=gradient_accumulation_steps,
+            discriminator=self.discriminator_fade_in,
+            generator=self.generator_fade_in,
+        )
+        self.combined_model = self._build_combined_model(
+            optimizer,
+            grad_acc_steps=gradient_accumulation_steps,
+            discriminator=self.discriminator,
+            generator=self.generator,
+        )
+        self.combined_model_fade_in = self._build_combined_model(
+            optimizer,
+            grad_acc_steps=gradient_accumulation_steps,
+            discriminator=self.discriminator_fade_in,
+            generator=self.generator_fade_in,
+        )
+
+    def _build_discriminator_model(
+        self, optimizer, grad_acc_steps, discriminator, generator
+    ) -> Model:
+        disc_input_shp = list(discriminator.input.shape[1:])
+        disc_input_image = Input(disc_input_shp, name="Img_Input")
+        disc_input_noise = Input(
+            (self.latent_size,), name="Noise_Input_for_Discriminator"
+        )
+        gen_image_noise = generator(disc_input_noise)
+        disc_image_noise = discriminator(gen_image_noise)
+        disc_image_real = discriminator(disc_input_image)
+        avg_samples = RandomWeightedAverage()(
+            [disc_input_image, gen_image_noise]
+        )
+        gradients = GetGradients(model=discriminator)(avg_samples)
+        gp = self._gradient_penalty(gradients)
+        discriminator_model = GradientAccumulatorModel(
+            inputs=[disc_input_image, disc_input_noise],
+            outputs=[disc_image_real, disc_image_noise, gp, disc_image_real],
+            gradient_accumulation_steps=grad_acc_steps,
+        )
+        optimizer = copy.copy(optimizer)
+        discriminator_model.compile(
+            loss=[wasserstein_loss, wasserstein_loss, mse, drift_loss],
+            optimizer=optimizer,
+            loss_weights=[1, 1, 1, 0.001],
+        )
+        return discriminator_model
+
+    def _build_combined_model(
+        self, optimizer, grad_acc_steps, discriminator, generator
+    ):
+        discriminator.trainable = False
+        generator.trainable = True
+        model = GradientAccumulatorSequential(
             gradient_accumulation_steps=grad_acc_steps
         )
-        model1.add(self.generator[0])
-        model1.add(self.discriminator[0])
+        model.add(generator)
+        model.add(discriminator)
         optimizer = copy.copy(optimizer)
-        model1.compile(loss=wasserstein_loss, optimizer=optimizer)
+        model.compile(loss=wasserstein_loss, optimizer=optimizer)
+        return model
 
-        self.discriminator[1].trainable = False
-        self.generator[1].trainable = True
-        model2 = GradientAccumulatorSequential(
-            gradient_accumulation_steps=grad_acc_steps
-        )
-        model2.add(self.generator[1])
-        model2.add(self.discriminator[1])
-        optimizer = copy.copy(optimizer)
-        model2.compile(loss=wasserstein_loss, optimizer=optimizer)
-
-        return [model1, model2]
-
-    def _build_generator(self, n_blocks) -> list:
+    def _build_generator(self) -> Model:
         init = RandomNormal(0, 1)
-        model_list = []
         n_filters = self.img_width // 2
 
         latent_input = Input(shape=self.latent_size)
@@ -213,20 +244,12 @@ class ProGAN(WGAN):
             data_format=DATA_FORMAT,
         )(x)
 
-        model = Model(latent_input, out_image)
-        model_list.append([model, model])
-
-        for i in range(1, n_blocks):
-            old_model = model_list[i - 1][0]
-            models = self._add_generator_block(old_model, block=i)
-            model_list.append(models)
-        return model_list[-1]
+        return Model(latent_input, out_image)
 
     def _build_discriminator(
-        self, n_blocks, optimizer, input_shape: tuple = (3, 4, 4)
-    ) -> list:
+        self, optimizer, input_shape: tuple = (3, 4, 4)
+    ) -> Model:
         init = RandomNormal(0, 1)
-        model_list = []
         n_filters = self._calc_filters(4)
         image_input = Input(input_shape)
 
@@ -264,16 +287,7 @@ class ProGAN(WGAN):
         model = Model(image_input, x)
         optimizer = copy.copy(optimizer)
         model.compile(loss=wasserstein_loss, optimizer=optimizer)
-        model_list.append([model, model])
-
-        for i in range(1, n_blocks):
-            old_model = model_list[i - 1][0]
-            optimizer = copy.copy(optimizer)
-            models = self._add_discriminator_block(
-                old_model, optimizer=optimizer
-            )
-            model_list.append(models)
-        return model_list[-1]
+        return model
 
     def train(
         self,
@@ -318,22 +332,20 @@ class ProGAN(WGAN):
             phase_images_shown = self.block_images_shown.get("fade_in")[block]
 
         alphas = np.linspace(0, 1, steps).tolist()
-        f_idx = 1 if phase == "fade_in" else 0
         for step in range(phase_images_shown // batch_size, steps):
             batch = data_loader.__getitem__(step)
             if phase == "fade_in":
-                alpha = alphas.pop(0)
-                self._update_alpha(alpha, block)
+                self._update_alpha(alphas.pop(0))
 
-            self.train_on_batch(batch, n_critic=n_critic, fade_idx=f_idx)
+            self.train_on_batch(batch, n_critic=n_critic, phase=phase)
             self.images_shown += batch_size
-            if f_idx:
+            if phase == "fade_in":
                 self.block_images_shown["fade_in"][block] += batch_size
             else:
                 self.block_images_shown["burn_in"][block] += batch_size
             if step % (steps // 32) == 0 and verbose:
                 self._print_output()
-                self._generate_images(path, f_idx)
+                self._generate_images(path, phase)
 
                 for _k, v in self.metrics.items():
                     plot_metric(
@@ -344,8 +356,8 @@ class ProGAN(WGAN):
                         file_name=v.get("file_name"),
                     )
                 if model_dump_path:
-                    save_gan(self, model_dump_path)
-        save_gan(self, model_dump_path)
+                    self.save(model_dump_path)
+        self.save(model_dump_path)
         if phase == "fade_in":
             self.train(
                 data_loader=data_loader,
@@ -359,11 +371,11 @@ class ProGAN(WGAN):
                 write_model_to=model_dump_path,
             )
 
-    def _update_alpha(self, alpha, block):
+    def _update_alpha(self, alpha):
         models = [
-            self.generator[block][1],
-            self.discriminator_model[block][1],
-            self.combined_model[block][1],
+            self.generator_fade_in,
+            self.discriminator_model_fade_in,
+            self.combined_model_fade_in,
         ]
         for model in models:
             for layer in model.layers:
@@ -386,9 +398,9 @@ class ProGAN(WGAN):
         init = RandomNormal(0, 1)
         in_shape = list(old_model.input.shape)
         input_shape = (
-            in_shape[-2] * 2,
-            in_shape[-2] * 2,
-            in_shape[-1],
+            in_shape[1],
+            in_shape[-1] * 2,
+            in_shape[-1] * 2,
         )
         in_image = Input(shape=input_shape)
 
@@ -417,7 +429,7 @@ class ProGAN(WGAN):
             data_format=DATA_FORMAT,
         )(d)
         d = LeakyReLU(alpha=0.2)(d)
-        d = AveragePooling2D(2, 2)(d)
+        d = AveragePooling2D(2, 2, data_format=DATA_FORMAT)(d)
         block_new = d
 
         for i in range(n_input_layers, len(old_model.layers)):
@@ -426,27 +438,27 @@ class ProGAN(WGAN):
         model1 = Model(in_image, d)
         model1.compile(loss=wasserstein_loss, optimizer=optimizer)
 
-        downsample = AveragePooling2D(2, 2)(in_image)
+        downsample = AveragePooling2D(2, 2, data_format=DATA_FORMAT)(in_image)
         block_old = old_model.layers[1](downsample)
         block_old = old_model.layers[2](block_old)
         d = WeightedSum()([block_old, block_new])
 
-        for i in range(n_input_layers, len(old_model.layers)):
-            d = old_model.layers[i](d)
+        for j in range(n_input_layers, len(old_model.layers)):
+            d = old_model.layers[j](d)
         model2 = Model(in_image, d)
         model2.compile(loss=wasserstein_loss, optimizer=optimizer)
         return [model1, model2]
 
     def _add_generator_block(
-        self, old_model: GradientAccumulatorModel, block: int
+        self, old_model: GradientAccumulatorModel
     ) -> list:
-        cur_resolution = 2 ** (2 + block)
+        cur_resolution = old_model.output_shape[-1]
         n_filters = self._calc_filters(cur_resolution)
 
         init = RandomNormal(0, 1)
 
         block_end = old_model.layers[-2].output
-        upsampling = UpSampling2D()(block_end)
+        upsampling = UpSampling2D(data_format=DATA_FORMAT)(block_end)
         g = ScaledConv2D(
             filters=n_filters,
             kernel_size=(3, 3),
@@ -483,29 +495,97 @@ class ProGAN(WGAN):
         model2 = Model(old_model.input, merged)
         return [model1, model2]
 
-    def _generate_images(self, path, fade):
+    def _generate_images(self, path, phase):
+        suffix = "_fade_in" if phase == "fade_in" else ""
         for s in range(25):
             img_path = os.path.join(
                 path, f"{s}_fixed_step_gif{self.images_shown}.png"
             )
             generate_images(
-                self.generator[fade],
+                getattr(self, f"generator{suffix}"),
                 img_path,
                 target_size=(256, 256),
                 seed=s,
                 n_imgs=1,
             )
 
-        if fade:
-            for a in [0, 1]:
+        if phase == "fade_in":
+            min_max_alpha = (0, 1)
+            for a in min_max_alpha:
                 self._update_alpha(a)
                 img_path = os.path.join(
                     path,
-                    "fixed_step{}_alpha{}.png".format(self.images_shown, a),
+                    f"fixed_step{self.images_shown}_alpha{a}.png",
                 )
                 generate_images(
-                    self.generator[fade],
+                    getattr(self, f"generator{suffix}"),
                     img_path,
                     target_size=(256, 256),
                     seed=101,
                 )
+
+    def save(self, path):
+        gan = copy.copy(self)
+        fade_in_img_shown = self.block_images_shown["fade_in"]
+        burn_in_img_shown = self.block_images_shown["burn_in"]
+        if fade_in_img_shown[-1] < burn_in_img_shown[-1] and len(
+            burn_in_img_shown
+        ) < len(fade_in_img_shown):
+            model_to_save = getattr(gan, "generator_fade_in")
+            if model_to_save:
+                model_to_save.save_weights(os.path.join(path, "G_fade_in.h5"))
+                getattr(gan, f"discriminator_fade_in").save_weights(
+                    os.path.join(path, f"D_fade_in.h5")
+                )
+                getattr(gan, f"discriminator_model_fade_in").save_weights(
+                    os.path.join(path, f"DM_fade_in.h5")
+                )
+                getattr(gan, f"combined_model_fade_in").save_weights(
+                    os.path.join(path, f"C_fade_in.h5")
+                )
+        else:
+            model_to_save = getattr(gan, "generator")
+            if model_to_save:
+                model_to_save.save_weights(os.path.join(path, "G.h5"))
+                getattr(gan, f"discriminator").save_weights(
+                    os.path.join(path, f"D.h5")
+                )
+                getattr(gan, f"discriminator_model").save_weights(
+                    os.path.join(path, f"DM.h5")
+                )
+                getattr(gan, f"combined_model").save_weights(
+                    os.path.join(path, f"C.h5")
+                )
+        for k, v in gan.__dict__.items():
+            if isinstance(v, Model):
+                setattr(gan, k, None)
+        joblib.dump(gan, os.path.join(path, "GAN.pkl"))
+
+    def load(self, path):
+        models = ["_fade_in"]
+        gan = joblib.load(os.path.join(path, "GAN.pkl"))
+        fade_in_img_shown = gan.block_images_shown["fade_in"]
+        burn_in_img_shown = gan.block_images_shown["burn_in"]
+        if fade_in_img_shown[-1] < burn_in_img_shown[-1] and len(
+            burn_in_img_shown
+        ) == len(fade_in_img_shown):
+            models.append("")
+        for fade_in in models:
+            weights_to_load = os.path.join(path, f"G{fade_in}.h5")
+            if os.path.isfile(weights_to_load):
+                getattr(self, f"generator{fade_in}").load_weights(
+                    weights_to_load
+                )
+                getattr(self, f"discriminator{fade_in}").load_weights(
+                    os.path.join(path, f"D{fade_in}.h5")
+                )
+                getattr(self, f"discriminator_model{fade_in}").load_weights(
+                    os.path.join(path, f"DM{fade_in}.h5")
+                )
+                getattr(self, f"combined_model{fade_in}").load_weights(
+                    os.path.join(path, f"C{fade_in}.h5")
+                )
+
+        self.images_shown = gan.images_shown
+        self.metrics = gan.metrics
+        self.block_images_shown = gan.block_images_shown

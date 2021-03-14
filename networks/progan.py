@@ -17,7 +17,6 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.losses import mse
 
-from config import config
 from networks.gradient_accumulator_model import (
     GradientAccumulatorModel,
     GradientAccumulatorSequential,
@@ -35,8 +34,6 @@ from networks.utils.layers import (
 from networks.wgan import WGAN
 from utils import logger
 from utils.image_operations import generate_images
-
-DATA_FORMAT = config["data_format"]
 
 #  TODO Add release year information
 #  TODO Add genre information

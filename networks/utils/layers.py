@@ -1,11 +1,13 @@
 import numpy as np
 import tensorflow as tf
+import torch
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Add, Conv2D, Dense, Layer
 from tensorflow.python.ops.init_ops_v2 import _compute_fans
+from torch.nn import Module
 
 
-class MinibatchSd(Layer):
+class MinibatchSd(Module):
     """
     Calculates the minibatch standard deviation and adds it to the output.
 
@@ -14,22 +16,21 @@ class MinibatchSd(Layer):
     (same size as the input map) to the input
     """
 
-    def call(self, inputs):
-        mean = K.mean(inputs, axis=0, keepdims=True)
-        squared_diff = K.square(inputs - mean)
-        avg_squared_diff = K.mean(squared_diff, axis=0, keepdims=True)
-        avg_squared_diff += 1e-8
-        sd = K.sqrt(avg_squared_diff)
-        avg_sd = K.mean(sd, keepdims=True)
-        shape = K.shape(inputs)
-        output = K.tile(avg_sd, (shape[0], shape[1], shape[2], 1))
-        combined = K.concatenate([inputs, output], axis=-1)
-        return combined
+    def __init__(self):
+        super(MinibatchSd, self).__init__()
 
-    def compute_output_shape(self, input_shape):
-        input_shape = list(input_shape)
-        input_shape[-1] += 1
-        return tuple(input_shape)
+    def forward(self, x):
+        mean = torch.mean(x, dim=0, keepdim=True)
+        squared_diff = torch.square(x - mean)
+        avg_squared_diff = torch.mean(squared_diff, dim=0, keepdim=True)
+        avg_squared_diff += 1e-8
+        sd = torch.sqrt(avg_squared_diff)
+        avg_sd = torch.mean(sd)
+        shape = x.shape
+        ones = torch.ones((shape[0], shape[1], shape[2], 1)).to(avg_sd.device)
+        output = ones * avg_sd
+        combined = torch.cat([x, output], dim=-1)
+        return combined
 
 
 class RandomWeightedAverage(Add):

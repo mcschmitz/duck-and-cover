@@ -2,6 +2,7 @@ import os
 from typing import List
 
 import numpy as np
+import torch
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import MultiLabelBinarizer
@@ -125,7 +126,7 @@ class DataLoader(Sequence):
         if genres is not None:
             return_values.append([genres])
         if len(return_values) == 1:
-            return return_values[0]
+            return torch.Tensor(return_values[0])
         return return_values
 
 

@@ -13,7 +13,6 @@ from tensorflow.python.keras.layers import (
     UpSampling2D,
 )
 
-from config import config
 from networks.dcgan import DCGAN
 from networks.utils import gradient_penalty, plot_metric, wasserstein_loss
 from networks.utils.layers import (
@@ -22,8 +21,6 @@ from networks.utils.layers import (
     RandomWeightedAverage,
 )
 from utils import logger
-
-DATA_FORMAT = config["data_format"]
 
 
 class WGAN(DCGAN):

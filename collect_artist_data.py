@@ -2,16 +2,16 @@ import json
 import os
 import shutil
 import urllib.request
+from pathlib import Path
 from urllib.error import ContentTooShortError, HTTPError
 
 import numpy as np
 import pandas as pd
 import spotipy
-import spotipy.util as util
+from spotipy import util as util
 from tqdm import tqdm
 
 from credentials import get_client_id, get_client_secret
-from utils import create_dir
 
 
 class SpotifyInfoCollector:
@@ -24,7 +24,8 @@ class SpotifyInfoCollector:
         artist_genres_map: dict = None,
     ):
         """
-        Collector that gathers information about artists via the spotify API
+        Collector that gathers information about artists via the spotify API.
+
         Args:
             spotify_token: Spotify API Token. Automatically generated if not provided
             spotify_id: Spotify API client ID
@@ -171,19 +172,19 @@ class SpotifyInfoCollector:
                     else [fallback_genre]
                 }
                 try:
-                    related_artists = self.spotify_session.artist_related_artists(
-                        artist_id
-                    )[
-                        "artists"
-                    ]
+                    related_artists = (
+                        self.spotify_session.artist_related_artists(artist_id)[
+                            "artists"
+                        ]
+                    )
                 except spotipy.client.SpotifyException:
                     self.token = self.create_new_token()
                     self.spotify_session = self.create_spotify_session()
-                    related_artists = self.spotify_session.artist_related_artists(
-                        artist_id
-                    )[
-                        "artists"
-                    ]
+                    related_artists = (
+                        self.spotify_session.artist_related_artists(artist_id)[
+                            "artists"
+                        ]
+                    )
 
                 for related_artist in related_artists:
                     related_id = related_artist["id"]
@@ -331,7 +332,7 @@ class SpotifyInfoCollector:
             artist_id = album["artist_id"]
             album_id = album["album_id"]
             path = os.path.join(target_dir, artist_id)
-            create_dir(path)
+            Path(path).mkdir(parents=True, exist_ok=True)
 
             file_path = os.path.join(path, album_id + ".jpg")
             if not os.path.isfile(file_path):
@@ -449,8 +450,10 @@ if __name__ == "__main__":
         cover_frame=album_data,
     )
     for size in [64, 300]:
-        artist_info_collector.cover_frame = artist_info_collector.add_file_path_to_frame(
-            target_dir="data/all_covers{}".format(size), size=size
+        artist_info_collector.cover_frame = (
+            artist_info_collector.add_file_path_to_frame(
+                target_dir="data/all_covers{}".format(size), size=size
+            )
         )
     artist_info_collector.cover_frame.to_json(
         ALBUM_DATA_PATH, lines=True, orient="records"

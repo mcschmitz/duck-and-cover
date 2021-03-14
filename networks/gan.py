@@ -4,46 +4,35 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 
 import joblib
+import torch
+from torch.optim import Adam
 
 from utils import logger
 
 
 class GAN(ABC):
-    def __init__(self):
+    def __init__(self, use_gpu: bool = False):
         """
         Abstract GAN Class.
         """
         self.discriminator = None
         self.generator = None
-        self.discriminator_model = None
-        self.combined_model = None
+        self.discriminator_optimizer = None
+        self.generator_optimizer = None
         self.images_shown = 0
         self.generator_loss = []
         self.metrics = defaultdict(dict)
+        self.use_gpu = self.train_on_gpu = (
+            torch.cuda.is_available() and use_gpu
+        )
 
-    @abstractmethod
-    def build_models(self, *args):
-        """
-        Abstract method to build the models for the GAN.
-        """
-
-    @abstractmethod
-    def _build_discriminator(self):
-        """
-        Abstract method to define the discriminator architecture.
-        """
-
-    @abstractmethod
-    def _build_combined_model(self, *args):
-        """
-        Abstract method to build the combined model.
-        """
-
-    @abstractmethod
-    def _build_generator(self):
-        """
-        Abstract method to define the generator architecture.
-        """
+    def set_optimizers(self, discriminator_optimizer, generator_optimizer):
+        self.discriminator_optimizer = Adam(
+            params=self.discriminator.parameters(), **discriminator_optimizer
+        )
+        self.generator_optimizer = Adam(
+            self.generator.parameters(), **generator_optimizer
+        )
 
     @abstractmethod
     def train_on_batch(self, *args):
@@ -83,14 +72,26 @@ class GAN(ABC):
         Args:
             path: The directory to which the weights should be written.
         """
+        torch.save(
+            {
+                "generator_state_dict": self.generator.state_dict(),
+                "generator_optimizer": self.generator_optimizer.state_dict(),
+            },
+            os.path.join(path, "generator.pkl"),
+        )
+        torch.save(
+            {
+                "discriminator_state_dict": self.discriminator.state_dict(),
+                "discriminator_optimizer": self.discriminator_optimizer.state_dict(),
+            },
+            os.path.join(path, "discriminator.pkl"),
+        )
+
         gan = copy.copy(self)
-        gan.combined_model.save_weights(os.path.join(path, "C.h5"))
-        gan.discriminator.save_weights(os.path.join(path, "D.h5"))
-        gan.generator.save_weights(os.path.join(path, "G.h5"))
         gan.discriminator = None
         gan.generator = None
-        gan.discriminator_model = None
-        gan.combined_model = None
+        gan.generator_optimizer = None
+        gan.discriminator_optimizer = None
         joblib.dump(gan, os.path.join(path, "GAN.pkl"))
 
     def load_weights(self, path):

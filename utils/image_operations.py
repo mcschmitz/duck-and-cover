@@ -3,6 +3,7 @@ import re
 
 import imageio
 import numpy as np
+import torch
 from matplotlib import pyplot as plt
 from matplotlib.animation import ArtistAnimation
 from tensorflow.python.keras.preprocessing.image import array_to_img
@@ -58,15 +59,17 @@ def generate_images(
         np.random.seed(seed)
     else:
         np.random.seed()
-
+    generator_model.eval()
     idx = 1
     figsize = (np.array(target_size) * [10, n_imgs]).astype(int)
     plt.figure(figsize=figsize, dpi=1)
     for _ in range(n_imgs):
-        x0 = np.random.normal(size=generator_model.input_shape[1])
-        x1 = np.random.normal(size=generator_model.input_shape[1])
+        x0 = np.random.normal(size=generator_model.latent_size)
+        x1 = np.random.normal(size=generator_model.latent_size)
         x = np.linspace(x0, x1, 10)
-        generated_images = generator_model.predict(x)
+        generated_images = (
+            generator_model(torch.Tensor(x)).detach().cpu().numpy()
+        )
         generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:
             img = array_to_img(img, scale=True)

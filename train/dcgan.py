@@ -1,12 +1,9 @@
 import os
 from pathlib import Path
 
-from tensorflow.keras.optimizers import Adam
-
 from config import config
 from loader import DataLoader
 from networks import DCGAN
-from utils import init_tf
 from utils.image_operations import plot_final_gif
 
 IMAGE_SIZE = config.get("image_size")
@@ -18,9 +15,7 @@ LATENT_SIZE = 512
 PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
-warm_start = True
-
-init_tf()
+warm_start = False
 
 image_ratio = config.get("image_ratio")
 
@@ -42,14 +37,16 @@ gan = DCGAN(
     img_width=image_width,
     img_height=image_height,
     latent_size=LATENT_SIZE,
-)
-gan.build_models(
-    combined_optimizer=Adam(0.0001, beta_1=0.5),
-    discriminator_optimizer=Adam(0.000004),
+    use_gpu=True,
 )
 
 if warm_start:
     gan.load_weights(path=model_dump_path)
+else:
+    gan.set_optimizers(
+        generator_optimizer={"lr": 0.0001, "betas": (0.5, 0.999)},
+        discriminator_optimizer={"lr": 0.000004},
+    )
 
 gan.train(
     data_loader=data_loader,

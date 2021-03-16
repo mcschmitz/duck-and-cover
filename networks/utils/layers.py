@@ -7,7 +7,7 @@ from tensorflow.python.ops.init_ops_v2 import _compute_fans
 from torch.nn import Module
 
 
-class MinibatchSd(Module):
+class MinibatchStdDev(Module):
     """
     Calculates the minibatch standard deviation and adds it to the output.
 
@@ -17,7 +17,7 @@ class MinibatchSd(Module):
     """
 
     def __init__(self):
-        super(MinibatchSd, self).__init__()
+        super(MinibatchStdDev, self).__init__()
 
     def forward(self, x):
         mean = torch.mean(x, dim=0, keepdim=True)

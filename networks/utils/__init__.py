@@ -6,7 +6,7 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from networks.utils.cover_gan_utils import plot_progan
+from networks.utils.cover_gan_utils import calc_n_filters, plot_progan
 from networks.utils.wgan_utils import (
     drift_loss,
     gradient_penalty,

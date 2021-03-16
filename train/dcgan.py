@@ -10,14 +10,13 @@ IMAGE_SIZE = config.get("image_size")
 COVERS_PATH = os.path.join(
     config.get("base_data_path"), f"covers{300 if IMAGE_SIZE > 64 else 64}"
 )
+image_ratio = config.get("image_ratio")
 BATCH_SIZE = 64
 LATENT_SIZE = 512
 PATH = f"dcgan-{LATENT_SIZE}-{IMAGE_SIZE}x{IMAGE_SIZE}"
 TRAIN_STEPS = int(2 * 10e5)
 
 warm_start = True
-
-image_ratio = config.get("image_ratio")
 
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 Path(lp_path).mkdir(parents=True, exist_ok=True)

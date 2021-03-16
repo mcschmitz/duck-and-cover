@@ -24,7 +24,7 @@ from networks.gradient_accumulator_model import (
 from networks.utils import drift_loss, plot_metric, wasserstein_loss
 from networks.utils.layers import (
     GetGradients,
-    MinibatchSd,
+    MinibatchStdDev,
     PixelNorm,
     RandomWeightedAverage,
     ScaledConv2D,
@@ -259,7 +259,7 @@ class ProGAN(WGAN):
         )(image_input)
         x = LeakyReLU(0.2)(x)
 
-        x = MinibatchSd()(x)
+        x = MinibatchStdDev()(x)
         x = ScaledConv2D(
             filters=n_filters,
             kernel_size=(3, 3),
@@ -378,11 +378,6 @@ class ProGAN(WGAN):
             for layer in model.layers:
                 if isinstance(layer, WeightedSum):
                     K.set_value(layer.alpha, alpha)
-
-    def _calc_filters(self, x: int):
-        return int(
-            min((4 * 4 * (self.img_width // 2) / x) * 2, self.img_width // 2)
-        )
 
     def _add_discriminator_block(
         self,

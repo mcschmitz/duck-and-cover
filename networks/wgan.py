@@ -1,26 +1,158 @@
-from functools import partial
+from typing import Tuple
 
 import numpy as np
-from tensorflow.python.keras import Input, Model
-from tensorflow.python.keras.layers import (
-    Activation,
-    BatchNormalization,
-    Conv2D,
-    Dense,
-    Flatten,
-    LeakyReLU,
-    Reshape,
-    UpSampling2D,
-)
+import torch
+from torch import nn
 
-from networks.dcgan import DCGAN
-from networks.utils import gradient_penalty, plot_metric, wasserstein_loss
-from networks.utils.layers import (
-    GetGradients,
-    MinibatchSd,
-    RandomWeightedAverage,
-)
+from networks.dcgan import DCGAN, DCDiscrimininator, DCGenerator
+from networks.utils import calc_n_filters
+from networks.utils.layers import MinibatchStdDev
 from utils import logger
+
+
+class WGANDiscriminator(DCDiscrimininator):
+    def __init__(self, img_shape: Tuple[int, int, int], use_gpu: bool = False):
+        """
+        Builds the DCGAN discriminator.
+
+        Builds the very simple discriminator that takes an image input and
+        applies a 3x3 convolutional layer with ReLu activation and a 2x2 stride
+        until the desired embedding  size is reached. The flattened embedding is
+        ran through a Dense layer with sigmoid output to label the image.
+
+        Args:
+            img_shape: Shape of the input image
+            use_gpu: Flag to train on GPU
+        """
+        super().__init__(img_shape=img_shape, use_gpu=use_gpu)
+        n_filters = calc_n_filters(16)
+        self.init_conv2d = nn.Conv2d(
+            img_shape[0],
+            n_filters,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+        )
+        nn.init.kaiming_normal_(self.init_conv2d.weight)
+        cur_img_size = self.img_shape[2]
+        self.conv2d_layers = nn.ModuleList()
+        while cur_img_size > 4:
+            conv2d_layer = nn.Conv2d(
+                calc_n_filters(n_filters),
+                calc_n_filters(n_filters * 2),
+                kernel_size=3,
+                stride=2,
+                padding=1,
+            )
+            nn.init.kaiming_normal_(conv2d_layer.weight)
+            self.conv2d_layers.append(conv2d_layer)
+            n_filters *= 2
+            cur_img_size /= 2
+
+        final_linear_input_dim = int(
+            self.conv2d_layers[-1].out_channels
+            * cur_img_size
+            * (cur_img_size + 1)
+        )
+        self.final_linear = nn.Linear(final_linear_input_dim, 1)
+        nn.init.kaiming_normal_(self.final_linear.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward method of the discriminator.
+
+        Args:
+            x: Tensor to pass through the model
+        """
+        if self.use_gpu:
+            x = x.cuda()
+        x = self.init_conv2d(x)
+        for conv2d_layer in self.conv2d_layers:
+            x = conv2d_layer(x)
+            x = nn.LeakyReLU(negative_slope=0.3)(x)
+
+        x = MinibatchStdDev()(x)
+        x = nn.Flatten()(x)
+        return self.final_linear(x)
+
+
+class WGANGenerator(DCGenerator):
+    def __init__(
+        self,
+        latent_size: int,
+        img_shape: Tuple[int, int, int],
+        use_gpu: bool = False,
+    ):
+        """
+        Builds the DCGAN generator.
+
+        Builds the very simple generator that takes a latent input vector and
+        applies the following block until the desired image size is reached:
+        3x3 convolutional layer with ReLu activation -> Batch Normalization
+        -> Upsamling layer. The last Convolutional layer wit tanH activation
+        results in 3 RGB channels and serves as final output
+
+        Args:
+            latent_size: Dimensions of the latent vector
+            img_shape: Shape of the input image
+            use_gpu: Flag to train on GPU
+        """
+        super().__init__(
+            latent_size=latent_size, use_gpu=use_gpu, img_shape=img_shape
+        )
+        n_filters = calc_n_filters(self.latent_size)
+        self.initial_linear = nn.Linear(self.latent_size, n_filters * 4 * 4)
+        nn.init.xavier_uniform_(self.initial_linear.weight)
+        self.init_batch_norm = nn.BatchNorm1d(self.initial_linear.out_features)
+        self.init_conv2d = nn.Conv2d(
+            n_filters,
+            n_filters,
+            kernel_size=1,
+            stride=1,
+            bias=False,
+        )
+        nn.init.kaiming_normal_(self.init_conv2d.weight)
+        cur_img_size = 4
+        self.conv2d_layers = nn.ModuleList()
+        self.batch_norm_layers = nn.ModuleList()
+        while cur_img_size < self.img_shape[2]:
+            conv2d_layer = nn.Conv2d(
+                calc_n_filters(n_filters),
+                calc_n_filters(n_filters // 2),
+                kernel_size=3,
+                stride=1,
+                padding=1,
+            )
+            nn.init.kaiming_normal_(conv2d_layer.weight)
+            cur_img_size *= 2
+            n_filters = calc_n_filters(n_filters // 2)
+            self.conv2d_layers.append(conv2d_layer)
+            self.batch_norm_layers.append(nn.BatchNorm2d(n_filters))
+
+        self.final_conv2d = nn.Conv2d(
+            n_filters, self.img_shape[0], kernel_size=1, stride=1
+        )
+        nn.init.xavier_uniform_(self.final_conv2d.weight)
+
+    def forward(self, x):
+        if self.use_gpu:
+            x = x.cuda()
+        x = self.initial_linear(x)
+        x = nn.LeakyReLU(negative_slope=0.2)(x)
+        x = self.init_batch_norm(x)
+        x = torch.reshape(x, (-1, self.latent_size, 4, 4))
+        x = self.init_conv2d(x)
+
+        for conv2d_layer, batch_norm_layer in zip(
+            self.conv2d_layers, self.batch_norm_layers
+        ):
+            x = nn.UpsamplingNearest2d(scale_factor=2)(x)
+            x = conv2d_layer(x)
+            x = nn.LeakyReLU(negative_slope=0.2)(x)
+            x = batch_norm_layer(x)
+
+        x = self.final_conv2d(x)
+        return nn.Tanh()(x)
 
 
 class WGAN(DCGAN):
@@ -31,6 +163,7 @@ class WGAN(DCGAN):
         img_width: int,
         channels: int = 3,
         latent_size: int = 128,
+        use_gpu: bool = False,
     ):
         """
         Wasserstein GAN.
@@ -52,282 +185,56 @@ class WGAN(DCGAN):
             img_width=img_width,
             channels=channels,
             latent_size=latent_size,
+            use_gpu=use_gpu,
         )
         self._gradient_penalty_weight = gradient_penalty_weight
-        self._gradient_penalty = partial(
-            gradient_penalty, weight=self._gradient_penalty_weight
-        )
-        self.metrics["loss"] = {
-            "file_name": "loss.png",
-            "label": "Global Loss",
-            "values": [],
-        }
-        self.metrics["D_loss_positives"] = {
-            "file_name": "d_loss+.png",
-            "label": "Discriminator Loss +",
-            "values": [],
-        }
-        self.metrics["D_loss_negatives"] = {
-            "file_name": "d_loss-.png",
-            "label": "Discriminator Loss -",
-            "values": [],
-        }
-        self.metrics["D_loss_dummies"] = {
-            "file_name": "d_loss0.png",
-            "label": "Discriminator Loss Dummies",
+        self.metrics["D_loss"] = {
+            "file_name": "d_loss.png",
+            "label": "Discriminator Loss",
             "values": [],
         }
 
-    def build_models(self, optimizer):
-        """
-        Builds the desired GAN that allows to generate covers.
+    def build_generator(self):
+        return WGANGenerator(self.latent_size, self.img_shape, self.use_gpu)
 
-        Builds the generator, the discriminator and the combined model for a
-        WGAN using Wasserstein loss with gradient penalty to improve learning.
+    def build_discriminator(self):
+        return WGANDiscriminator(self.img_shape, self.use_gpu)
 
-        Args:
-            optimizer: Which optimizer to use
-        """
-        self.generator = self._build_generator()
-        for layer in self.generator.layers:
-            layer.trainable = False
-        self.generator.trainable = False
-        self.discriminator = self._build_discriminator()
-        self._build_discriminator_model(optimizer)
-        self.fuse_disc_and_gen(optimizer)
-
-    def _build_discriminator(self):
-        """
-        Defines the architecture for the the WGAN discriminator.
-
-        The discriminator takes an image input and applies a 3x3 convolutional
-        layer with LeakyReLu activation and a 2x2 stride until the desired
-        embedding  size is reached. The flattend embedding is ran through a
-        1024 Dense layer followed by a output layer with one linear output node.
-
-        Returns:
-            The WGAN discriminator
-        """
-        image_input = Input(self.img_shape)
-        n_filters = 16
-        x = Conv2D(
-            n_filters,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            kernel_initializer="he_normal",
-            padding="same",
-            data_format=DATA_FORMAT,
-        )(image_input)
-
-        cur_img_size = self.img_shape[2]
-        while cur_img_size > 4:
-            x = Conv2D(
-                n_filters,
-                kernel_size=(3, 3),
-                strides=(2, 2),
-                kernel_initializer="he_normal",
-                padding="same",
-                data_format=DATA_FORMAT,
-            )(x)
-            x = LeakyReLU()(x)
-            n_filters *= 2
-            cur_img_size //= 2
-
-        x = MinibatchSd()(x)
-        x = Flatten()(x)
-        discriminator_output = Dense(1, kernel_initializer="he_normal")(x)
-        discriminative_model = Model(image_input, discriminator_output)
-        return discriminative_model
-
-    def _build_discriminator_model(self, optimizer):
-        """
-        Builds the discriminator for the WGAN with gradient penalty.
-
-        The discriminator takes real images, generated ones and an
-        average of both and optimizes the wasserstein loss for the real
-        and the fake images as well as the gradient penalty for the
-        averaged samples
-
-        Args:
-            optimizer: Tensorflow optimizer used for training
-        """
-        disc_input_image = Input(self.img_shape, name="Img_Input")
-        disc_input_noise = Input(
-            (self.latent_size,), name="Noise_Input_for_Discriminator"
-        )
-        gen_image_noise = self.generator(disc_input_noise)
-        disc_image_noise = self.discriminator(gen_image_noise)
-        disc_image_real = self.discriminator(disc_input_image)
-        avg_samples = RandomWeightedAverage()(
-            [disc_input_image, gen_image_noise]
-        )
-        gradients = GetGradients(model=self.discriminator)(avg_samples)
-        gp = self._gradient_penalty(gradients)
-        self.discriminator_model = Model(
-            inputs=[disc_input_image, disc_input_noise],
-            outputs=[disc_image_real, disc_image_noise, gp],
-        )
-        self.discriminator_model.compile(
-            loss=[wasserstein_loss, wasserstein_loss, "mse"],
-            optimizer=optimizer,
-        )
-
-    def _build_combined_model(self, optimizer):
-        """
-        Build the combined GAN consisting of generator and discriminator.
-
-        Takes the latent input and generates an images out of it by applying the
-        generator. Classifies the image via the discriminator. The model is
-        compiled using the given optimizer
-
-        Args:
-            optimizer: which optimizer to use
-        """
-        gen_input_latent = Input((self.latent_size,), name="Latent_Input")
-        gen_image = self.generator(gen_input_latent)
-        disc_image = self.discriminator(gen_image)
-        self.combined_model = Model(gen_input_latent, disc_image)
-        self.combined_model.compile(optimizer, loss=[wasserstein_loss])
-
-    def _build_generator(self):
-        """
-        Defines the architecture for the WGAN.
-
-        The generator takes a latent input vector and applies the following
-        block until the desired image size is reached: 3x3 convolutional layer
-        -> Upsamling layer -> with ReLu activation -> Batch Normalization. The
-        last Convolutional layer wit tanH activation results in 3 RGB channels
-        and serves as final output
-
-        Returns:
-            The DCGAN generator
-        """
-
-        noise_input = Input((self.latent_size,))
-        n_channels = 256
-
-        x = Dense((self.img_width // 2) * 4 * 4, name="Generator_Dense")(
-            noise_input
-        )
-        x = LeakyReLU(0.2)(x)
-        x = BatchNormalization()(x)
-        x = Reshape(((self.img_width // 2), 4, 4))(x)
-        x = Conv2D(
-            n_channels,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding="same",
-            kernel_initializer="he_normal",
-            use_bias=False,
-            data_format=DATA_FORMAT,
-        )(x)
-
-        cur_img_size = 4
-        n_channels = self.img_width // 2
-        while cur_img_size < self.img_shape[2]:
-            x = UpSampling2D(
-                data_format=DATA_FORMAT,
-            )(x)
-            x = Conv2D(
-                n_channels,
-                kernel_size=(3, 3),
-                strides=(1, 1),
-                padding="same",
-                kernel_initializer="he_normal",
-                use_bias=False,
-                data_format=DATA_FORMAT,
-            )(x)
-            x = LeakyReLU()(x)
-            x = BatchNormalization()(x)
-            cur_img_size *= 2
-            n_channels //= 2
-
-        generator_output = Conv2D(
-            self.channels,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding="same",
-            kernel_initializer="he_normal",
-            use_bias=False,
-            data_format=DATA_FORMAT,
-        )(x)
-        generator_output = Activation("tanh")(generator_output)
-        generator_model = Model(noise_input, generator_output)
-        return generator_model
-
-    def train(self, data_loader, global_steps, batch_size, **kwargs):
-        """
-        Trains the network.
-
-        Args:
-            data_loader: Data Loader to stream training batches to the network
-            global_steps: Absolute numbers of steps to train
-            batch_size: Size of the trainin batches
-            **kwargs: Keyword arguments. Add `path` to change the output path
-        """
-        path = kwargs.get("path", ".")
-        n_critic = kwargs.get("n_critic", 5)
-        model_dump_path = kwargs.get("write_model_to", None)
-        steps = global_steps // batch_size
-        for step in range(self.images_shown // batch_size, steps):
-            batch = data_loader.__getitem__(step)
-            self.train_on_batch(batch, n_critic=n_critic)
-            self.images_shown += batch_size
-
-            if step % (steps // 320) == 0:
-                self._print_output()
-                self._generate_images(path)
-
-                for _k, v in self.metrics.items():
-                    plot_metric(
-                        path,
-                        steps=self.images_shown,
-                        metric=v.get("values"),
-                        y_label=v.get("label"),
-                        file_name=v.get("file_name"),
-                    )
-                if model_dump_path:
-                    self.save(model_dump_path)
-        if model_dump_path:
-            self.save(model_dump_path)
-
-    def train_on_batch(
-        self, real_images: np.ndarray, n_critic: int = 5, **kwargs
-    ):
+    def train_on_batch(self, real_images: np.ndarray, **kwargs):
         """
         Runs a single gradient update on a batch of data.
 
         Args:
             real_images: numpy array of real input images used for training
-            n_critic: number of discriminator updates for each iteration
         """
+        n_critic = kwargs.get("n_critic", 5)
+        minibatch_size = real_images.shape[0] // n_critic
 
-        batch_size = real_images.shape[0] // n_critic
+        noise = torch.normal(
+            mean=0, std=1, size=(len(real_images), self.latent_size)
+        )
 
+        d_accuracies = []
         for i in range(n_critic):
             discriminator_minibatch = real_images[
-                i * batch_size : (i + 1) * batch_size
+                i * minibatch_size : (i + 1) * minibatch_size
             ]
-            losses = self.train_discriminator(
-                discriminator_minibatch, **kwargs
+            noise_minibatch = noise[
+                i * minibatch_size : (i + 1) * minibatch_size
+            ]
+
+            d_accuracies.append(
+                self.train_discriminator(
+                    discriminator_minibatch, noise_minibatch
+                )
             )
-        self.metrics["loss"]["values"].append(float(losses[0]))
-        self.metrics["D_loss_positives"]["values"].append(float(losses[1]))
-        self.metrics["D_loss_negatives"]["values"].append(float(losses[2]))
-        self.metrics["D_loss_dummies"]["values"].append(float(losses[3]))
+        d_accuracies = np.mean([d.detach().tolist() for d in d_accuracies])
+        self.metrics["D_loss"]["values"].append(np.mean(d_accuracies))
+        self.metrics["G_loss"]["values"].append(self.train_generator(noise))
 
-        total_loss = self._train_combined_model(batch_size, **kwargs)
-        self.metrics["G_loss"]["values"].append(float(total_loss))
-
-    def _train_combined_model(self, batch_size, **kwargs):
-        real_y = np.ones((batch_size, 1)) * -1
-        noise = np.random.normal(size=(batch_size, self.latent_size))
-        phase = kwargs.get("phase", "burn_in")
-        if phase == "fade_in":
-            return self.combined_model_fade_in.train_on_batch(noise, real_y)
-        return self.combined_model.train_on_batch(noise, real_y)
-
-    def train_discriminator(self, real_images, **kwargs):
+    def train_discriminator(
+        self, real_images: torch.Tensor, noise: torch.Tensor
+    ):
         """
         Runs a single gradient update on a batch of data.
 
@@ -337,45 +244,66 @@ class WGAN(DCGAN):
         Returns:
             the losses for this training iteration
         """
-        batch_size = len(real_images)
-        fake_y = np.ones((batch_size, 1))
-        real_y = np.ones((batch_size, 1)) * -1
-        dummy_y = np.zeros((batch_size, 1), dtype=np.float32)
-        noise = np.random.normal(size=(batch_size, self.latent_size))
-        phase = kwargs.get("phase", "burn_in")
-        if phase == "fade_in":
-            losses = self.discriminator_model_fade_in.train_on_batch(
-                [real_images, noise], [real_y, fake_y, dummy_y, dummy_y]
-            )
-        elif hasattr(self, "block_images_shown"):
-            losses = self.discriminator_model.train_on_batch(
-                [real_images, noise], [real_y, fake_y, dummy_y, dummy_y]
-            )
-        else:
-            losses = self.discriminator_model.train_on_batch(
-                [real_images, noise], [real_y, fake_y, dummy_y]
-            )
-        return losses
+        self.discriminator.train()
+        self.discriminator_optimizer.zero_grad()
+        with torch.no_grad():
+            generated_images = self.generator(noise)
+        fake_pred = self.discriminator(generated_images)
+        real_pred = self.discriminator(real_images)
+        loss = torch.mean(fake_pred) - torch.mean(real_pred)
+        gp = self._gradient_penalty(real_images, generated_images)
+        loss += gp
+        loss.backward()
+        self.discriminator_optimizer.step()
+        return loss
+
+    def train_generator(self, noise: torch.Tensor):
+        self.generator.train()
+        self.generator_optimizer.zero_grad()
+        generated_images = self.generator(noise)
+        fake_pred = self.discriminator(generated_images)
+        loss_fake = -torch.mean(fake_pred)
+        loss_fake.backward()
+        self.generator_optimizer.step()
+        return loss_fake.detach().cpu().numpy().tolist()
+
+    def _gradient_penalty(
+        self, real_samples: torch.Tensor, fake_samples: torch.Tensor
+    ) -> torch.Tensor:
+        batch_size = real_samples.shape[0]
+
+        random_avg_weights = torch.rand((batch_size, 1, 1, 1)).to(
+            real_samples.device
+        )
+        random_avg = random_avg_weights * real_samples + (
+            (1 - random_avg_weights) * fake_samples
+        )
+        random_avg.requires_grad_(True)
+
+        pred = self.discriminator(random_avg)
+        grad = torch.autograd.grad(
+            outputs=pred,
+            inputs=random_avg,
+            grad_outputs=torch.ones_like(pred),
+            create_graph=True,
+            retain_graph=True,
+            only_inputs=True,
+        )[0]
+        grad = grad.view(grad.shape[0], -1)
+        return (
+            self._gradient_penalty_weight
+            * ((grad.norm(p=2, dim=1) - 1) ** 2).mean()
+        )
 
     def _print_output(self):
-        loss = np.round(np.mean(self.metrics["loss"]["values"]), decimals=3)
         g_loss = np.round(
             np.mean(self.metrics["G_loss"]["values"]), decimals=3
         )
-        d_loss_p = np.round(
-            np.mean(self.metrics["D_loss_positives"]["values"]), decimals=3
-        )
-        d_loss_n = np.round(
-            np.mean(self.metrics["D_loss_negatives"]["values"]), decimals=3
-        )
-        d_loss_d = np.round(
-            np.mean(self.metrics["D_loss_dummies"]["values"]), decimals=3
+        d_loss = np.round(
+            np.mean(self.metrics["D_loss"]["values"]), decimals=3
         )
         logger.info(
             f"Images shown {self.images_shown}:"
-            + f" - Global Loss: {loss}"
-            + f" - Gen Loss: {g_loss}"
-            + f" - Disc Loss + : {d_loss_p}"
-            + f" - Disc Loss - : {d_loss_n}"
-            + f" - Disc Loss Dummies : {d_loss_d}"
+            + f" Generator Loss: {g_loss} -"
+            + f" Discriminator Loss: {d_loss}"
         )

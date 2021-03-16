@@ -6,13 +6,12 @@ import torch
 from torch import nn
 
 from networks.gan import GAN
-from networks.utils import plot_metric
-from networks.utils.layers import MinibatchSd
+from networks.utils import calc_n_filters, plot_metric
 from utils import logger
 from utils.image_operations import generate_images
 
 
-class Discrimininator(nn.Module):
+class DCDiscrimininator(nn.Module):
     def __init__(self, img_shape: Tuple[int, int, int], use_gpu: bool = False):
         """
         Builds the DCGAN discriminator.
@@ -26,21 +25,22 @@ class Discrimininator(nn.Module):
             img_shape: Shape of the input image
             use_gpu: Flag to train on GPU
         """
-        super(Discrimininator, self).__init__()
+        super(DCDiscrimininator, self).__init__()
         self.use_gpu = use_gpu
         self.img_shape = img_shape
-        n_filters = 16
+        n_filters = calc_n_filters(16)
         self.init_conv2d = nn.Conv2d(
-            img_shape[0], n_filters, kernel_size=(3, 3), stride=2
+            img_shape[0], n_filters, kernel_size=3, stride=2
         )
         nn.init.kaiming_normal_(self.init_conv2d.weight)
         cur_img_size = self.img_shape[2] // 2
+        n_filters *= 2
         self.conv2d_layers = nn.ModuleList()
         while cur_img_size > 4:
             conv2d_layer = nn.Conv2d(
-                n_filters,
-                n_filters * 2,
-                kernel_size=(3, 3),
+                calc_n_filters(n_filters),
+                calc_n_filters(n_filters * 2),
+                kernel_size=3,
                 stride=2,
                 padding=1,
             )
@@ -48,10 +48,9 @@ class Discrimininator(nn.Module):
             self.conv2d_layers.append(conv2d_layer)
             n_filters *= 2
             cur_img_size /= 2
+
         final_linear_input_dim = int(
-            self.conv2d_layers[-1].out_channels
-            * cur_img_size
-            * (cur_img_size + 1)
+            self.conv2d_layers[-1].out_channels * cur_img_size * 2
         )
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.xavier_uniform_(self.final_linear.weight)
@@ -66,20 +65,19 @@ class Discrimininator(nn.Module):
         if self.use_gpu:
             x = x.cuda()
         x = self.init_conv2d(x)
-        x = nn.LeakyReLU()(x)
+        x = nn.LeakyReLU(negative_slope=0.3)(x)
         x = nn.Dropout(0.3)(x)
         for conv2d_layer in self.conv2d_layers:
             x = conv2d_layer(x)
-            x = nn.LeakyReLU()(x)
+            x = nn.LeakyReLU(negative_slope=0.3)(x)
             x = nn.Dropout(0.3)(x)
 
-        x = MinibatchSd()(x)
         x = nn.Flatten()(x)
         x = self.final_linear(x)
         return nn.Sigmoid()(x)
 
 
-class Generator(nn.Module):
+class DCGenerator(nn.Module):
     def __init__(
         self,
         latent_size: int,
@@ -100,19 +98,17 @@ class Generator(nn.Module):
             img_shape: Shape of the input image
             use_gpu: Flag to train on GPU
         """
-        super(Generator, self).__init__()
+        super(DCGenerator, self).__init__()
         self.use_gpu = use_gpu
         self.img_shape = img_shape
         self.latent_size = latent_size
-
-        self.initial_linear = nn.Linear(
-            self.latent_size, self.latent_size * 4 * 4
-        )
+        n_filters = calc_n_filters(self.latent_size)
+        self.initial_linear = nn.Linear(self.latent_size, n_filters * 4 * 4)
         nn.init.xavier_uniform_(self.initial_linear.weight)
         self.init_batch_norm = nn.BatchNorm1d(self.initial_linear.out_features)
         self.init_conv2d = nn.Conv2d(
-            self.latent_size,
-            self.latent_size,
+            n_filters,
+            n_filters,
             kernel_size=1,
             stride=1,
         )
@@ -120,28 +116,37 @@ class Generator(nn.Module):
         cur_img_size = 4
         self.conv2d_layers = nn.ModuleList()
         self.batch_norm_layers = nn.ModuleList()
-        n_filters = self.latent_size
         while cur_img_size < self.img_shape[2]:
             conv2d_layer = nn.Conv2d(
-                n_filters, n_filters // 2, kernel_size=3, stride=1, padding=1
+                calc_n_filters(n_filters),
+                calc_n_filters(n_filters // 2),
+                kernel_size=3,
+                stride=1,
+                padding=1,
             )
             nn.init.kaiming_normal_(conv2d_layer.weight)
-            self.conv2d_layers.append(conv2d_layer)
-            self.batch_norm_layers.append(nn.BatchNorm2d(n_filters // 2))
             cur_img_size *= 2
-            n_filters //= 2
+            n_filters = calc_n_filters(n_filters // 2)
+            self.conv2d_layers.append(conv2d_layer)
+            self.batch_norm_layers.append(nn.BatchNorm2d(n_filters))
 
         self.final_conv2d = nn.Conv2d(
             n_filters, self.img_shape[0], kernel_size=1, stride=1
         )
         nn.init.xavier_uniform_(self.final_conv2d.weight)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the Deep Convolutional Discriminator.
+
+        Args:
+            x: Input Tensor
+        """
         if self.use_gpu:
             x = x.cuda()
         x = self.initial_linear(x)
         x = self.init_batch_norm(x)
-        x = nn.LeakyReLU()(x)
+        x = nn.LeakyReLU(negative_slope=0.3)(x)
         x = torch.reshape(x, (-1, self.latent_size, 4, 4))
         x = self.init_conv2d(x)
 
@@ -151,7 +156,7 @@ class Generator(nn.Module):
             x = nn.UpsamplingNearest2d(scale_factor=2)(x)
             x = conv2d_layer(x)
             x = batch_norm_layer(x)
-            x = nn.LeakyReLU()(x)
+            x = nn.LeakyReLU(negative_slope=0.3)(x)
 
         x = self.final_conv2d(x)
         return nn.Tanh()(x)
@@ -179,6 +184,7 @@ class DCGAN(GAN):
             channels: Number of image channels. Normally either 1 or 3.
             latent_size: Size of the latent vector that is used to generate the
                 image
+            use_gpu: Flag to use the GPU for training
         """
         super(DCGAN, self).__init__(use_gpu)
         self.img_height = np.int(img_height)
@@ -186,10 +192,8 @@ class DCGAN(GAN):
         self.channels = channels
         self.img_shape = (self.channels, self.img_height, self.img_width)
         self.latent_size = latent_size
-        self.discriminator = Discrimininator(self.img_shape, self.use_gpu)
-        self.generator = Generator(
-            self.latent_size, self.img_shape, self.use_gpu
-        )
+        self.discriminator = self.build_discriminator()
+        self.generator = self.build_generator()
         if self.use_gpu:
             self.discriminator.cuda()
             self.generator.cuda()
@@ -205,7 +209,19 @@ class DCGAN(GAN):
             "values": [],
         }
 
-    def train_on_batch(self, real_images: torch.Tensor):
+    def build_generator(self) -> DCGenerator:
+        """
+        Builds the class specific generator.
+        """
+        return DCGenerator(self.latent_size, self.img_shape, self.use_gpu)
+
+    def build_discriminator(self) -> DCDiscrimininator:
+        """
+        Builds the class specific discriminator.
+        """
+        return DCDiscrimininator(self.img_shape, self.use_gpu)
+
+    def train_on_batch(self, real_images: torch.Tensor, **kwargs):
         """
         Runs a single gradient update on a batch of data.
 
@@ -222,13 +238,13 @@ class DCGAN(GAN):
 
     def train_discriminator(
         self, real_images: torch.Tensor, noise: torch.Tensor
-    ):
+    ) -> float:
         """
         Runs a single gradient update for the discriminator.
 
         Args:
-            generated_images: array of generated images by the generator
-            real_images: array of real images
+            real_images: Array of real images
+            noise: Random noise input Tensor
         """
         self.discriminator.train()
         self.discriminator_optimizer.zero_grad()
@@ -278,7 +294,7 @@ class DCGAN(GAN):
         steps = global_steps // batch_size
         for step in range(self.images_shown // batch_size, steps):
             batch = data_loader.__getitem__(step)
-            self.train_on_batch(batch)
+            self.train_on_batch(batch, **kwargs)
             self.images_shown += batch_size
 
             if step % (steps // 320) == 0:

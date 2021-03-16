@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 from tensorflow.keras.utils import plot_model
 
 
@@ -20,3 +21,7 @@ def plot_progan(model, path: str, suffix: str = None):
                 show_shapes=True,
                 expand_nested=True,
             )
+
+
+def calc_n_filters(fmaps: int) -> int:
+    return int(np.clip(fmaps, 1, 512).item())

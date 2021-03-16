@@ -30,11 +30,10 @@ class DCDiscrimininator(nn.Module):
         self.img_shape = img_shape
         n_filters = calc_n_filters(16)
         self.init_conv2d = nn.Conv2d(
-            img_shape[0], n_filters, kernel_size=3, stride=2
+            img_shape[0], n_filters, kernel_size=3, stride=2, padding=1
         )
         nn.init.kaiming_normal_(self.init_conv2d.weight)
         cur_img_size = self.img_shape[2] // 2
-        n_filters *= 2
         self.conv2d_layers = nn.ModuleList()
         while cur_img_size > 4:
             conv2d_layer = nn.Conv2d(
@@ -50,7 +49,7 @@ class DCDiscrimininator(nn.Module):
             cur_img_size /= 2
 
         final_linear_input_dim = int(
-            self.conv2d_layers[-1].out_channels * cur_img_size * 2
+            self.conv2d_layers[-1].out_channels * cur_img_size ** 2
         )
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.xavier_uniform_(self.final_linear.weight)
@@ -266,7 +265,13 @@ class DCGAN(GAN):
         correct_real = torch.sum(torch.round(real_pred) == real).cpu().numpy()
         return (correct_real + correct_fake) / (len(generated_images) * 2)
 
-    def train_generator(self, noise: torch.Tensor):
+    def train_generator(self, noise: torch.Tensor) -> float:
+        """
+        Runs a single gradient update for the generator.
+
+        Args:
+            noise: Random noise input Tensor
+        """
         self.generator.train()
         self.generator_optimizer.zero_grad()
         fake = torch.ones((len(noise), 1))

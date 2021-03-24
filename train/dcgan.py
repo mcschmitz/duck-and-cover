@@ -36,7 +36,7 @@ gan = DCGAN(
     img_width=image_width,
     img_height=image_height,
     latent_size=LATENT_SIZE,
-    use_gpu=False,
+    use_gpu=True,
 )
 
 

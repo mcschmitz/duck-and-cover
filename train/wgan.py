@@ -20,8 +20,6 @@ warm_start = False
 
 gradient_penalty_weight = 10.0
 n_critic = 5
-train_steps = TRAIN_STEPS * n_critic
-batch_size = BATCH_SIZE * n_critic
 
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 Path(lp_path).mkdir(parents=True, exist_ok=True)
@@ -30,7 +28,7 @@ Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 
 data_loader = DataLoader(
     image_path=COVERS_PATH,
-    batch_size=batch_size,
+    batch_size=BATCH_SIZE,
     image_size=IMAGE_SIZE,
 )
 
@@ -41,7 +39,7 @@ gan = WGAN(
     img_width=image_width,
     img_height=image_height,
     latent_size=LATENT_SIZE,
-    use_gpu=False,
+    use_gpu=True,
     gradient_penalty_weight=gradient_penalty_weight,
 )
 
@@ -55,8 +53,8 @@ if warm_start:
 
 gan.train(
     data_loader=data_loader,
-    global_steps=train_steps,
-    batch_size=batch_size,
+    global_steps=TRAIN_STEPS,
+    batch_size=BATCH_SIZE,
     path=lp_path,
     n_critic=n_critic,
     write_model_to=model_dump_path,

@@ -134,7 +134,13 @@ class WGANGenerator(DCGenerator):
         )
         nn.init.xavier_uniform_(self.final_conv2d.weight)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the generator.
+
+        Args:
+            x: Input Tensor
+        """
         if self.use_gpu:
             x = x.cuda()
         x = self.initial_linear(x)
@@ -179,6 +185,7 @@ class WGAN(DCGAN):
             channels: Number of image channels. Normally either 1 or 3.
             latent_size: Size of the latent vector that is used to generate the
                 image
+            use_gpu: Flag to use the GPU for training and prediction
         """
         super(WGAN, self).__init__(
             img_height=img_height,
@@ -194,10 +201,16 @@ class WGAN(DCGAN):
             "values": [],
         }
 
-    def build_generator(self):
+    def build_generator(self) -> WGANGenerator:
+        """
+        Builds the WGAN Generator.
+        """
         return WGANGenerator(self.latent_size, self.img_shape, self.use_gpu)
 
-    def build_discriminator(self):
+    def build_discriminator(self) -> WGANDiscriminator:
+        """
+        Builds the WGAN Discriminator.
+        """
         return WGANDiscriminator(self.img_shape, self.use_gpu)
 
     def train_on_batch(self, real_images: np.ndarray, **kwargs):
@@ -208,28 +221,19 @@ class WGAN(DCGAN):
             real_images: numpy array of real input images used for training
         """
         n_critic = kwargs.get("n_critic", 5)
-        minibatch_size = real_images.shape[0] // n_critic
+
+        d_accuracies = []
+        for _ in range(n_critic):
+            noise = torch.normal(
+                mean=0, std=1, size=(len(real_images), self.latent_size)
+            )
+            d_accuracies.append(self.train_discriminator(real_images, noise))
+        d_accuracies = np.mean([d.detach().tolist() for d in d_accuracies])
+        self.metrics["D_loss"]["values"].append(np.mean(d_accuracies))
 
         noise = torch.normal(
             mean=0, std=1, size=(len(real_images), self.latent_size)
         )
-
-        d_accuracies = []
-        for i in range(n_critic):
-            discriminator_minibatch = real_images[
-                i * minibatch_size : (i + 1) * minibatch_size
-            ]
-            noise_minibatch = noise[
-                i * minibatch_size : (i + 1) * minibatch_size
-            ]
-
-            d_accuracies.append(
-                self.train_discriminator(
-                    discriminator_minibatch, noise_minibatch
-                )
-            )
-        d_accuracies = np.mean([d.detach().tolist() for d in d_accuracies])
-        self.metrics["D_loss"]["values"].append(np.mean(d_accuracies))
         self.metrics["G_loss"]["values"].append(self.train_generator(noise))
 
     def train_discriminator(
@@ -239,11 +243,16 @@ class WGAN(DCGAN):
         Runs a single gradient update on a batch of data.
 
         Args:
-            real_images: numpy array of real input images used for training
+            real_images: Real input images used for training
+            noise: Noise to use from image generation
 
         Returns:
             the losses for this training iteration
         """
+        if self.use_gpu:
+            real_images = real_images.cuda()
+            noise = noise.cuda()
+
         self.discriminator.train()
         self.discriminator_optimizer.zero_grad()
         with torch.no_grad():

@@ -13,7 +13,7 @@ from utils import logger
 class WGANDiscriminator(DCDiscrimininator):
     def __init__(self, img_shape: Tuple[int, int, int], use_gpu: bool = False):
         """
-        Builds the DCGAN discriminator.
+        Builds the WGAN discriminator.
 
         Builds the very simple discriminator that takes an image input and
         applies a 3x3 convolutional layer with ReLu activation and a 2x2 stride
@@ -84,12 +84,12 @@ class WGANGenerator(DCGenerator):
         use_gpu: bool = False,
     ):
         """
-        Builds the DCGAN generator.
+        Builds the WGAN generator.
 
         Builds the very simple generator that takes a latent input vector and
         applies the following block until the desired image size is reached:
         3x3 convolutional layer with ReLu activation -> Batch Normalization
-        -> Upsamling layer. The last Convolutional layer wit tanH activation
+        -> Upsampling layer. The last Convolutional layer wit tanH activation
         results in 3 RGB channels and serves as final output
 
         Args:
@@ -227,14 +227,18 @@ class WGAN(DCGAN):
             noise = torch.normal(
                 mean=0, std=1, size=(len(real_images), self.latent_size)
             )
-            d_accuracies.append(self.train_discriminator(real_images, noise))
+            d_accuracies.append(
+                self.train_discriminator(real_images, noise, **kwargs)
+            )
         d_accuracies = np.mean([d.detach().tolist() for d in d_accuracies])
         self.metrics["D_loss"]["values"].append(np.mean(d_accuracies))
 
         noise = torch.normal(
             mean=0, std=1, size=(len(real_images), self.latent_size)
         )
-        self.metrics["G_loss"]["values"].append(self.train_generator(noise))
+        self.metrics["G_loss"]["values"].append(
+            self.train_generator(noise, **kwargs)
+        )
 
     def train_discriminator(
         self, real_images: torch.Tensor, noise: torch.Tensor

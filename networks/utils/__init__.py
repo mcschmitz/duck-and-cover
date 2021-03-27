@@ -9,7 +9,6 @@ from matplotlib import pyplot as plt
 from networks.utils.cover_gan_utils import (
     calc_channels_at_stage,
     clip_channels,
-    plot_progan,
 )
 from networks.utils.wgan_utils import (
     drift_loss,

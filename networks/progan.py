@@ -30,7 +30,7 @@ from utils.image_operations import generate_images
 class ProGANDiscriminatorFinalBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         """
-        Final block for the Discriminator
+        Final block for the Discriminator.
 
         Args:
             in_channels: Number of input channels
@@ -57,7 +57,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass of the module
+        Forward pass of the module.
 
         Args:
             x: Input tensor
@@ -71,7 +71,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
 class DisGeneralConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         """
-        General block used in the discriminator
+        General block used in the discriminator.
 
         Args:
             in_channels: Number of input channels
@@ -98,7 +98,7 @@ class DisGeneralConvBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass of the general block
+        Forward pass of the general block.
 
         Args:
             x: Input tensor
@@ -115,6 +115,17 @@ class ProGANDiscriminator(nn.Module):
         n_channels: int = 3,
         latent_size: int = 512,
     ):
+        """
+        Builds the ProGAN discriminator.
+
+        Args:
+            n_blocks: Number of blocks.
+            n_channels: Number of input channels
+            latent_size: Latent size of the corresponding generator
+
+        References:
+            - Progressive Growing of GANs for Improved Quality, Stability, and Variation: https://arxiv.org/abs/1710.10196
+        """
         super().__init__()
         self.n_blocks = n_blocks
         self.num_channels = n_channels
@@ -148,22 +159,30 @@ class ProGANDiscriminator(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, depth: int, alpha: float
+        self, x: torch.Tensor, block: int, alpha: float
     ) -> torch.Tensor:
-        if depth > self.n_blocks:
+        """
+        Forward pass of the ProGAN discriminator.
+
+        Args:
+            x: Input tensor
+            block: Output block
+            alpha: Weight for average with the next block
+        """
+        if block > self.n_blocks:
             raise ValueError(
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
             )
 
-        if depth > 2:
-            residual = self.from_rgb[-(depth - 2)](
+        if block > 2:
+            residual = self.from_rgb[-(block - 2)](
                 nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
             )
-            straight = self.layers[-(depth - 1)](
-                self.from_rgb[-(depth - 1)](x)
+            straight = self.layers[-(block - 1)](
+                self.from_rgb[-(block - 1)](x)
             )
             y = (alpha * straight) + ((1 - alpha) * residual)
-            for layer_block in self.layers[-(depth - 2) : -1]:
+            for layer_block in self.layers[-(block - 2) : -1]:
                 y = layer_block(y)
         else:
             y = self.from_rgb[-1](x)
@@ -186,7 +205,8 @@ class ProGANDiscriminator(nn.Module):
 class GenInitialBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         """
-        Module implementing the initial block of the input
+        Module implementing the initial block of the input.
+
         Args:
             in_channels: number of input channels to the block
             out_channels: number of output channels of the block
@@ -210,6 +230,12 @@ class GenInitialBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the initial generator block.
+
+        Args:
+            x: Input Tensor
+        """
         y = torch.unsqueeze(torch.unsqueeze(x, -1), -1)
         y = PixelwiseNorm()(y)  # normalize the latents to hypersphere
         y = nn.LeakyReLU(0.2)(self.conv_1(y))
@@ -298,36 +324,43 @@ class ProGANGenerator(nn.Module):
             )
         )
 
+        self.rgb_converters = nn.ModuleList(
+            [
+                ScaledConv2d(
+                    calc_channels_at_stage(stage),
+                    n_channels,
+                    kernel_size=(1, 1),
+                )
+                for stage in range(0, n_blocks)
+            ]
+        )
+
     def forward(
-        self, x: torch.Tensor, depth: int, alpha: float
+        self, x: torch.Tensor, block: int, alpha: float
     ) -> torch.Tensor:
         """
         forward pass of the Generator
         Args:
             x: input latent noise
-            depth: depth from where the network's output is required
+            block: depth from where the network's output is required
             alpha: value of alpha for fade-in effect
         Returns: generated images at the give depth's resolution
         """
 
-        assert (
-            depth <= self.n_blocks
-        ), f"Requested output depth {depth} cannot be produced"
+        if block > self.n_blocks:
+            raise ValueError(
+                f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
+            )
 
-        if depth == 2:
-            y = self.rgb_converters[0](self.layers[0](x))
-        else:
-            y = x
-            for layer_block in self.layers[: depth - 2]:
-                y = layer_block(y)
-            residual = nn.functional.interpolate(
-                self.rgb_converters[depth - 3](y), scale_factor=2
-            )
-            straight = self.rgb_converters[depth - 2](
-                self.layers[depth - 2](y)
-            )
-            y = (alpha * straight) + ((1 - alpha) * residual)
-        return y
+        if block == 1:
+            return self.rgb_converters[0](self.layers[0](x))
+        for layer_block in self.layers[:block]:
+            x = layer_block(x)
+        residual = nn.functional.interpolate(
+            self.rgb_converters[block - 1](x), scale_factor=2
+        )
+        straight = self.rgb_converters[block](self.layers[block + 1](x))
+        return (alpha * straight) + ((1 - alpha) * residual)
 
     def get_save_info(self) -> Dict[str, Any]:
         return {
@@ -429,7 +462,6 @@ class ProGAN(WGAN):
 
         Keyword Args:
             path: Path to which model training graphs will be written
-            verbose: Boolean switch for verbosity
             write_model_to: Path that can be passed to write the model to during
                 training
             grad_acc_steps: Gradient accumulation steps. Ideally a factor of the
@@ -437,12 +469,11 @@ class ProGAN(WGAN):
                 training
         """
         path = kwargs.get("path", ".")
-        steps = global_steps // batch_size
-        verbose = kwargs.get("verbose", True)
         model_dump_path = kwargs.get("write_model_to", None)
-        n_critic = kwargs.get("n_critic", 1)
+        steps = global_steps // batch_size
 
         fade_images_shown = self.block_images_shown.get("fade_in")[block]
+
         if block == 0 or (fade_images_shown // batch_size) == steps:
             phase = "burn_in"
             logger.info(f"Starting burn in for resolution {2 ** (block + 2)}")
@@ -455,16 +486,20 @@ class ProGAN(WGAN):
         alphas = np.linspace(0, 1, steps).tolist()
         for step in range(phase_images_shown // batch_size, steps):
             batch = data_loader.__getitem__(step)
-            if phase == "fade_in":
-                self._update_alpha(alphas.pop(0))
+            alpha = alphas.pop(0) if phase == "burn_in" else 1.0
 
-            self.train_on_batch(batch, n_critic=n_critic, phase=phase)
+            self.train_on_batch(
+                batch,
+                alpha=alpha,
+                n_critic=kwargs.get("n_critic", 1),
+                block=block,
+            )
             self.images_shown += batch_size
             if phase == "fade_in":
                 self.block_images_shown["fade_in"][block] += batch_size
             else:
                 self.block_images_shown["burn_in"][block] += batch_size
-            if step % (steps // 32) == 0 and verbose:
+            if step % (steps // 32) == 0:
                 self._print_output()
                 self._generate_images(path, phase)
 
@@ -487,10 +522,54 @@ class ProGAN(WGAN):
                 batch_size=batch_size,
                 verbose=True,
                 minibatch_reps=1,
-                n_critic=n_critic,
                 path=path,
                 write_model_to=model_dump_path,
+                **kwargs,
             )
+
+    def train_discriminator(
+        self, real_images: torch.Tensor, noise: torch.Tensor, **kwargs
+    ):
+        """
+        Runs a single gradient update on a batch of data.
+
+        Args:
+            real_images: Real input images used for training
+            noise: Noise to use from image generation
+
+        Returns:
+            the losses for this training iteration
+        """
+        block = kwargs.get("block")
+        alpha = kwargs.get("alpha")
+
+        if self.use_gpu:
+            real_images = real_images.cuda()
+            noise = noise.cuda()
+
+        self.discriminator.train()
+        self.discriminator_optimizer.zero_grad()
+        with torch.no_grad():
+            generated_images = self.generator(noise, block=block, alpha=alpha)
+        fake_pred = self.discriminator(generated_images)
+        real_pred = self.discriminator(real_images)
+        loss = torch.mean(fake_pred) - torch.mean(real_pred)
+        gp = self._gradient_penalty(real_images, generated_images)
+        loss += gp
+        loss += 0.001 * torch.mean(real_pred ** 2)
+        loss.backward()
+        self.discriminator_optimizer.step()
+        return loss
+
+    def train_generator(self, noise: torch.Tensor, **kwargs):
+        self.generator.train()
+        self.generator_optimizer.zero_grad()
+        generated_images = self.generator(noise)
+        fake_pred = self.discriminator(generated_images)
+        loss_fake = -torch.mean(fake_pred)
+        loss_fake.backward()
+        self.generator_optimizer.step()
+        return loss_fake.detach().cpu().numpy().tolist()
 
     def _generate_images(self, path, phase):
         suffix = "_fade_in" if phase == "fade_in" else ""

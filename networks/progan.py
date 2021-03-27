@@ -1,35 +1,21 @@
 import copy
 import os
+from typing import Any, Dict
 
 import joblib
 import numpy as np
+import torch
 from defaultlist import defaultlist
 from tensorflow.keras import Model
-from tensorflow.keras import backend as K
-from tensorflow.keras.initializers import RandomNormal
-from tensorflow.keras.layers import (
-    AveragePooling2D,
-    Flatten,
-    Input,
-    LeakyReLU,
-    Reshape,
-    UpSampling2D,
-)
-from tensorflow.keras.losses import mse
+from torch import nn
 
-from networks.gradient_accumulator_model import (
-    GradientAccumulatorModel,
-    GradientAccumulatorSequential,
-)
-from networks.utils import drift_loss, plot_metric, wasserstein_loss
+from networks.utils import calc_channels_at_stage, plot_metric
 from networks.utils.layers import (
-    GetGradients,
     MinibatchStdDev,
-    PixelNorm,
-    RandomWeightedAverage,
-    ScaledConv2D,
+    PixelwiseNorm,
+    ScaledConv2d,
+    ScaledConv2dTranspose,
     ScaledDense,
-    WeightedSum,
 )
 from networks.wgan import WGAN
 from utils import logger
@@ -41,14 +27,330 @@ from utils.image_operations import generate_images
 #  TODO add album name
 
 
+class ProGANDiscriminatorFinalBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int):
+        """
+        Final block for the Discriminator
+
+        Args:
+            in_channels: Number of input channels
+            out_channels: Number of output channels
+        """
+        super(ProGANDiscriminatorFinalBlock, self).__init__()
+        self.conv_1 = ScaledConv2d(
+            in_channels + 1,
+            in_channels,
+            (3, 3),
+            padding=1,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+        self.conv_2 = ScaledConv2d(
+            in_channels,
+            out_channels,
+            (4, 4),
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+        final_linear_input_dim = int(self.conv_2.out_channels)
+        self.final_linear = ScaledDense(final_linear_input_dim, 1, gain=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the module
+
+        Args:
+            x: Input tensor
+        """
+        x = MinibatchStdDev()(x)
+        x = nn.LeakyReLU(0.2)(self.conv_1(x))
+        x = nn.LeakyReLU(0.2)(self.conv_2(x))
+        return self.final_linear(x)
+
+
+class DisGeneralConvBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int):
+        """
+        General block used in the discriminator
+
+        Args:
+            in_channels: Number of input channels
+            out_channels: Number of output channels
+        """
+        super(DisGeneralConvBlock, self).__init__()
+
+        self.conv_1 = ScaledConv2d(
+            in_channels,
+            in_channels,
+            (3, 3),
+            padding=1,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+        self.conv_2 = ScaledConv2d(
+            in_channels,
+            out_channels,
+            (3, 3),
+            padding=1,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the general block
+
+        Args:
+            x: Input tensor
+        """
+        x = nn.LeakyReLU(0.2)(self.conv_1(x))
+        x = nn.LeakyReLU(0.2)(self.conv_2(x))
+        return nn.AvgPool2d(2)(x)
+
+
+class ProGANDiscriminator(nn.Module):
+    def __init__(
+        self,
+        n_blocks: int = 7,
+        n_channels: int = 3,
+        latent_size: int = 512,
+    ):
+        super().__init__()
+        self.n_blocks = n_blocks
+        self.num_channels = n_channels
+        self.latent_size = latent_size
+
+        self.layers = nn.ModuleList()
+        self.layers.append(
+            nn.Sequential(
+                ScaledConv2d(
+                    n_channels,
+                    calc_channels_at_stage(n_blocks),
+                    kernel_size=(1, 1),
+                    use_dynamic_wscale=True,
+                ),
+                nn.LeakyReLU(0.2),
+            )
+        )
+
+        for block in reversed(range(1, n_blocks)):
+            self.layers.append(
+                DisGeneralConvBlock(
+                    calc_channels_at_stage(block + 1),
+                    calc_channels_at_stage(block),
+                ),
+            )
+
+        self.layers.append(
+            ProGANDiscriminatorFinalBlock(
+                calc_channels_at_stage(1), latent_size // 2
+            )
+        )
+
+    def forward(
+        self, x: torch.Tensor, depth: int, alpha: float
+    ) -> torch.Tensor:
+        if depth > self.n_blocks:
+            raise ValueError(
+                f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
+            )
+
+        if depth > 2:
+            residual = self.from_rgb[-(depth - 2)](
+                nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
+            )
+            straight = self.layers[-(depth - 1)](
+                self.from_rgb[-(depth - 1)](x)
+            )
+            y = (alpha * straight) + ((1 - alpha) * residual)
+            for layer_block in self.layers[-(depth - 2) : -1]:
+                y = layer_block(y)
+        else:
+            y = self.from_rgb[-1](x)
+        y = self.layers[-1](y)
+        return y
+
+    def get_save_info(self) -> Dict[str, Any]:
+        return {
+            "conf": {
+                "depth": self.n_blocks,
+                "num_channels": self.num_channels,
+                "latent_size": self.latent_size,
+                "use_eql": self.use_eql,
+                "num_classes": self.num_classes,
+            },
+            "state_dict": self.state_dict(),
+        }
+
+
+class GenInitialBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int):
+        """
+        Module implementing the initial block of the input
+        Args:
+            in_channels: number of input channels to the block
+            out_channels: number of output channels of the block
+        """
+        super(GenInitialBlock, self).__init__()
+
+        self.conv_1 = ScaledConv2dTranspose(
+            in_channels,
+            out_channels,
+            (4, 4),
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+        self.conv_2 = ScaledConv2d(
+            out_channels,
+            out_channels,
+            (3, 3),
+            padding=1,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = torch.unsqueeze(torch.unsqueeze(x, -1), -1)
+        y = PixelwiseNorm()(y)  # normalize the latents to hypersphere
+        y = nn.LeakyReLU(0.2)(self.conv_1(y))
+        y = nn.LeakyReLU(0.2)(self.conv_2(y))
+        y = PixelwiseNorm()(y)
+        return y
+
+
+class GenGeneralConvBlock(nn.Module):
+    """
+    Module implementing a general convolutional block
+    Args:
+        in_channels: number of input channels to the block
+        out_channels: number of output channels required
+    """
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super(GenGeneralConvBlock, self).__init__()
+
+        self.conv_1 = ScaledConv2d(
+            in_channels,
+            out_channels,
+            (3, 3),
+            padding=1,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+        self.conv_2 = ScaledConv2d(
+            out_channels,
+            out_channels,
+            (3, 3),
+            padding=1,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = nn.functional.interpolate(x, scale_factor=2)
+        y = PixelwiseNorm()(nn.LeakyReLU(0.2)(self.conv_1(y)))
+        y = PixelwiseNorm()(nn.LeakyReLU(0.2)(self.conv_2(y)))
+
+        return y
+
+
+class ProGANGenerator(nn.Module):
+    def __init__(
+        self,
+        n_blocks: int = 10,
+        n_channels: int = 3,
+        latent_size: int = 512,
+    ):
+        """
+        Generator Module (block) of the GAN network
+        Args:
+            n_blocks: required depth of the Network
+            n_channels: number of output channels (default = 3 for RGB)
+            latent_size: size of the latent manifold
+        """
+        super().__init__()
+        self.n_blocks = n_blocks
+        self.latent_size = latent_size
+        self.n_channels = n_channels
+
+        self.layers = nn.ModuleList()
+        self.layers.append(
+            GenInitialBlock(
+                latent_size,
+                calc_channels_at_stage(0),
+            )
+        )
+
+        for block in range(1, n_blocks):
+            self.layers.append(
+                GenGeneralConvBlock(
+                    calc_channels_at_stage(block),
+                    calc_channels_at_stage(block + 1),
+                )
+            )
+
+        self.layers.append(
+            ScaledConv2d(
+                calc_channels_at_stage(n_blocks),
+                n_channels,
+                kernel_size=(1, 1),
+                gain=1,
+            )
+        )
+
+    def forward(
+        self, x: torch.Tensor, depth: int, alpha: float
+    ) -> torch.Tensor:
+        """
+        forward pass of the Generator
+        Args:
+            x: input latent noise
+            depth: depth from where the network's output is required
+            alpha: value of alpha for fade-in effect
+        Returns: generated images at the give depth's resolution
+        """
+
+        assert (
+            depth <= self.n_blocks
+        ), f"Requested output depth {depth} cannot be produced"
+
+        if depth == 2:
+            y = self.rgb_converters[0](self.layers[0](x))
+        else:
+            y = x
+            for layer_block in self.layers[: depth - 2]:
+                y = layer_block(y)
+            residual = nn.functional.interpolate(
+                self.rgb_converters[depth - 3](y), scale_factor=2
+            )
+            straight = self.rgb_converters[depth - 2](
+                self.layers[depth - 2](y)
+            )
+            y = (alpha * straight) + ((1 - alpha) * residual)
+        return y
+
+    def get_save_info(self) -> Dict[str, Any]:
+        return {
+            "conf": {
+                "depth": self.n_blocks,
+                "num_channels": self.n_channels,
+                "latent_size": self.latent_size,
+                "use_eql": self.use_eql,
+            },
+            "state_dict": self.state_dict(),
+        }
+
+
 class ProGAN(WGAN):
     def __init__(
         self,
+        gradient_penalty_weight: float,
         img_height: int,
         img_width: int,
-        gradient_penalty_weight: float = 10,
-        latent_size: int = 128,
         channels: int = 3,
+        latent_size: int = 128,
+        use_gpu: bool = False,
+        n_blocks: int = 7,
     ):
         """
         Progressive growing GAN.
@@ -73,218 +375,40 @@ class ProGAN(WGAN):
             latent_size: Size of the latent vector that is used to generate the
                 image
         """
+        self.n_blocks = n_blocks
+        self.latent_size = latent_size
         super(ProGAN, self).__init__(
             img_height=img_height,
             img_width=img_width,
             channels=channels,
             latent_size=latent_size,
             gradient_penalty_weight=gradient_penalty_weight,
+            use_gpu=use_gpu,
         )
-        self.img_shape = ()
         self.block_images_shown = {
             "burn_in": defaultlist(int),
             "fade_in": defaultlist(int),
         }
-        self.generator_fade_in = None
-        self.discriminator_fade_in = None
-        self.discriminator_model_fade_in = None
-        self.combined_model_fade_in = None
 
-    def build_models(
-        self,
-        optimizer,
-        gradient_accumulation_steps: int = 1,
-    ):
+    def build_discriminator(self) -> ProGANDiscriminator:
         """
-        Builds the desired GAN that allows to generate covers.
-
-        Builds the generator, the discriminator and the combined model for a
-        WGAN using Wasserstein loss with gradient penalty to improve learning.
-        Iteratively adds new generator and discriminator blocks to the GAN to
-        improve
-        the learning.
-
-        Args:
-            optimizer: Which optimizer to use for the combined model
-            gradient_accumulation_steps: gradient accumulation steps that
-                should be done when training.
+        Builds the ProGAN Discriminator.
         """
-        self.generator = self._build_generator()
-        self.discriminator = self._build_discriminator(optimizer=optimizer)
-        self.generator.trainable = False
-        self.discriminator_model = self._build_discriminator_model(
-            optimizer,
-            grad_acc_steps=gradient_accumulation_steps,
-            discriminator=self.discriminator,
-            generator=self.generator,
-        )
-        self.combined_model = self._build_combined_model(
-            optimizer,
-            grad_acc_steps=gradient_accumulation_steps,
-            discriminator=self.discriminator,
-            generator=self.generator,
+        return ProGANDiscriminator(
+            n_blocks=self.n_blocks,
+            n_channels=self.channels,
+            latent_size=self.latent_size,
         )
 
-    def add_block(self, optimizer, gradient_accumulation_steps: int = 1):
-        # Add generator block
-        self.generator, self.generator_fade_in = self._add_generator_block(
-            self.generator
+    def build_generator(self) -> ProGANGenerator:
+        """
+        Builds the ProGAN Generator.
+        """
+        return ProGANGenerator(
+            n_blocks=self.n_blocks,
+            n_channels=self.channels,
+            latent_size=self.latent_size,
         )
-
-        # Add discriminator block
-        optimizer = copy.copy(optimizer)
-        (
-            self.discriminator,
-            self.discriminator_fade_in,
-        ) = self._add_discriminator_block(
-            self.discriminator, optimizer=optimizer
-        )
-        self.generator.trainable = False
-        self.generator_fade_in.trainable = False
-        self.discriminator_model = self._build_discriminator_model(
-            optimizer,
-            grad_acc_steps=gradient_accumulation_steps,
-            discriminator=self.discriminator,
-            generator=self.generator,
-        )
-        self.discriminator_model_fade_in = self._build_discriminator_model(
-            optimizer,
-            grad_acc_steps=gradient_accumulation_steps,
-            discriminator=self.discriminator_fade_in,
-            generator=self.generator_fade_in,
-        )
-        self.combined_model = self._build_combined_model(
-            optimizer,
-            grad_acc_steps=gradient_accumulation_steps,
-            discriminator=self.discriminator,
-            generator=self.generator,
-        )
-        self.combined_model_fade_in = self._build_combined_model(
-            optimizer,
-            grad_acc_steps=gradient_accumulation_steps,
-            discriminator=self.discriminator_fade_in,
-            generator=self.generator_fade_in,
-        )
-
-    def _build_discriminator_model(
-        self, optimizer, grad_acc_steps, discriminator, generator
-    ) -> Model:
-        disc_input_shp = list(discriminator.input.shape[1:])
-        disc_input_image = Input(disc_input_shp, name="Img_Input")
-        disc_input_noise = Input(
-            (self.latent_size,), name="Noise_Input_for_Discriminator"
-        )
-        gen_image_noise = generator(disc_input_noise)
-        disc_image_noise = discriminator(gen_image_noise)
-        disc_image_real = discriminator(disc_input_image)
-        avg_samples = RandomWeightedAverage()(
-            [disc_input_image, gen_image_noise]
-        )
-        gradients = GetGradients(model=discriminator)(avg_samples)
-        gp = self._gradient_penalty(gradients)
-        discriminator_model = GradientAccumulatorModel(
-            inputs=[disc_input_image, disc_input_noise],
-            outputs=[disc_image_real, disc_image_noise, gp, disc_image_real],
-            gradient_accumulation_steps=grad_acc_steps,
-        )
-        optimizer = copy.copy(optimizer)
-        discriminator_model.compile(
-            loss=[wasserstein_loss, wasserstein_loss, mse, drift_loss],
-            optimizer=optimizer,
-            loss_weights=[1, 1, 1, 0.001],
-        )
-        return discriminator_model
-
-    def _build_combined_model(
-        self, optimizer, grad_acc_steps, discriminator, generator
-    ):
-        discriminator.trainable = False
-        generator.trainable = True
-        model = GradientAccumulatorSequential(
-            gradient_accumulation_steps=grad_acc_steps
-        )
-        model.add(generator)
-        model.add(discriminator)
-        optimizer = copy.copy(optimizer)
-        model.compile(loss=wasserstein_loss, optimizer=optimizer)
-        return model
-
-    def _build_generator(self) -> Model:
-        init = RandomNormal(0, 1)
-        n_filters = self.img_width // 2
-
-        latent_input = Input(shape=self.latent_size)
-        x = ScaledDense(
-            units=4 * 4 * (self.img_width // 2),
-            kernel_initializer=init,
-            gain=np.sqrt(2) / 4,
-        )(latent_input)
-        x = Reshape((self.img_width // 2, 4, 4))(x)
-
-        for _ in range(2):  # noqa: WPS122
-            x = ScaledConv2D(
-                filters=n_filters,
-                kernel_size=(3, 3),
-                padding="same",
-                kernel_initializer=init,
-                data_format=DATA_FORMAT,
-            )(x)
-            x = LeakyReLU(alpha=0.2)(x)
-            x = PixelNorm()(x)
-
-        out_image = ScaledConv2D(
-            filters=self.channels,
-            kernel_size=(1, 1),
-            padding="same",
-            kernel_initializer=init,
-            gain=1,
-            data_format=DATA_FORMAT,
-        )(x)
-
-        return Model(latent_input, out_image)
-
-    def _build_discriminator(
-        self, optimizer, input_shape: tuple = (3, 4, 4)
-    ) -> Model:
-        init = RandomNormal(0, 1)
-        n_filters = self._calc_filters(4)
-        image_input = Input(input_shape)
-
-        x = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(1, 1),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(image_input)
-        x = LeakyReLU(0.2)(x)
-
-        x = MinibatchStdDev()(x)
-        x = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(3, 3),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(x)
-        x = LeakyReLU(0.2)(x)
-
-        x = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(4, 4),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(x)
-        x = LeakyReLU(0.2)(x)
-
-        x = Flatten()(x)
-        x = ScaledDense(units=1, gain=1)(x)
-
-        model = Model(image_input, x)
-        optimizer = copy.copy(optimizer)
-        model.compile(loss=wasserstein_loss, optimizer=optimizer)
-        return model
 
     def train(
         self,
@@ -367,125 +491,6 @@ class ProGAN(WGAN):
                 path=path,
                 write_model_to=model_dump_path,
             )
-
-    def _update_alpha(self, alpha):
-        models = [
-            self.generator_fade_in,
-            self.discriminator_model_fade_in,
-            self.combined_model_fade_in,
-        ]
-        for model in models:
-            for layer in model.layers:
-                if isinstance(layer, WeightedSum):
-                    K.set_value(layer.alpha, alpha)
-
-    def _add_discriminator_block(
-        self,
-        old_model: GradientAccumulatorModel,
-        optimizer,
-        n_input_layers: int = 3,
-    ) -> list:
-        n_filters = self.img_width // 2
-
-        init = RandomNormal(0, 1)
-        in_shape = list(old_model.input.shape)
-        input_shape = (
-            in_shape[1],
-            in_shape[-1] * 2,
-            in_shape[-1] * 2,
-        )
-        in_image = Input(shape=input_shape)
-
-        d = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(1, 1),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(in_image)
-        d = LeakyReLU(alpha=0.2)(d)
-
-        d = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(3, 3),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(3, 3),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = AveragePooling2D(2, 2, data_format=DATA_FORMAT)(d)
-        block_new = d
-
-        for i in range(n_input_layers, len(old_model.layers)):
-            d = old_model.layers[i](d)
-
-        model1 = Model(in_image, d)
-        model1.compile(loss=wasserstein_loss, optimizer=optimizer)
-
-        downsample = AveragePooling2D(2, 2, data_format=DATA_FORMAT)(in_image)
-        block_old = old_model.layers[1](downsample)
-        block_old = old_model.layers[2](block_old)
-        d = WeightedSum()([block_old, block_new])
-
-        for j in range(n_input_layers, len(old_model.layers)):
-            d = old_model.layers[j](d)
-        model2 = Model(in_image, d)
-        model2.compile(loss=wasserstein_loss, optimizer=optimizer)
-        return [model1, model2]
-
-    def _add_generator_block(
-        self, old_model: GradientAccumulatorModel
-    ) -> list:
-        cur_resolution = old_model.output_shape[-1]
-        n_filters = self._calc_filters(cur_resolution)
-
-        init = RandomNormal(0, 1)
-
-        block_end = old_model.layers[-2].output
-        upsampling = UpSampling2D(data_format=DATA_FORMAT)(block_end)
-        g = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(3, 3),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(upsampling)
-        g = LeakyReLU(alpha=0.2)(g)
-        g = PixelNorm()(g)
-
-        g = ScaledConv2D(
-            filters=n_filters,
-            kernel_size=(3, 3),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(g)
-        g = LeakyReLU(alpha=0.2)(g)
-        g = PixelNorm()(g)
-
-        out_image = ScaledConv2D(
-            filters=self.channels,
-            kernel_size=(1, 1),
-            padding="same",
-            kernel_initializer=init,
-            data_format=DATA_FORMAT,
-        )(g)
-        model1 = Model(old_model.input, out_image)
-
-        out_old = old_model.layers[-1]
-        out_image2 = out_old(upsampling)
-        merged = WeightedSum()([out_image2, out_image])
-
-        model2 = Model(old_model.input, merged)
-        return [model1, model2]
 
     def _generate_images(self, path, phase):
         suffix = "_fade_in" if phase == "fade_in" else ""

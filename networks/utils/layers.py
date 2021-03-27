@@ -1,13 +1,11 @@
+from typing import Any
+
 import numpy as np
-import tensorflow as tf
 import torch
-from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Add, Conv2D, Dense, Layer
-from tensorflow.python.ops.init_ops_v2 import _compute_fans
-from torch.nn import Module
+from torch import nn
 
 
-class MinibatchStdDev(Module):
+class MinibatchStdDev(nn.Module):
     """
     Calculates the minibatch standard deviation and adds it to the output.
 
@@ -33,53 +31,14 @@ class MinibatchStdDev(Module):
         return combined
 
 
-class RandomWeightedAverage(Add):
-    """
-    Takes a randomly-weighted average of two tensors. In geometric terms, this
-    outputs a random point on the line between each pair of input points.
-
-    Inheriting from _Merge is a little messy but it was the quickest
-    solution I could think of. Improvements appreciated
-
-    References:
-       See https://github.com/keras-team/keras-contrib/blob/master/examples/improved_wgan.py for original source code
-    """
-
-    def _merge_function(self, inputs):
-        if len(inputs) != 2:
-            raise ValueError("inputs has to be of length 2.")
-        batch_size = tf.shape(inputs[0])[0]
-        weights = tf.random.uniform([batch_size, 1, 1, 1], 0.0, 1.0)
-        return weights * inputs[0] + (1 - weights) * inputs[1]
-
-
-class WeightedSum(Add):
-    def __init__(self, alpha: float = 0.0, **kwargs):
-        """
-        Weighted sum layer that outputs the weighted sum of two input tensors.
-
-        Calculates the weighted sum a * (1 - alpha) + b * (alpha) for the input
-        tensors a and b and weight alpha
-
-        Args:
-            alpha: alpha weight
-            **kwargs: keyword args passed to parent class
-        """
-        super(WeightedSum, self).__init__(**kwargs)
-        self.alpha = K.variable(alpha, name="ws_alpha")
-
-    def _merge_function(self, inputs):
-        assert len(inputs) == 2
-        output = ((1.0 - self.alpha) * inputs[0]) + (self.alpha * inputs[1])
-        return output
-
-
-class ScaledDense(Dense):
+class ScaledDense(nn.Linear):
     def __init__(
         self,
+        in_features,
+        out_features,
+        bias=True,
         gain: float = None,
         use_dynamic_wscale: bool = True,
-        **kwargs,
     ):
         """
         Dense layer with weight scaling.
@@ -89,27 +48,98 @@ class ScaledDense(Dense):
         sqrt(2/fan_in) where fan_in is the number of input units of the
         layer
         """
-        super(ScaledDense, self).__init__(**kwargs)
+        super().__init__(in_features, out_features, bias)
         self.use_dynamic_wscale = use_dynamic_wscale
         self.gain = gain if gain else np.sqrt(2)
 
-    def call(self, inputs):
-        fan_in = float(_compute_fans(self.weights[0].shape)[0])
-        wscale = self.gain / np.sqrt(max(1.0, fan_in))
-        output = tf.tensordot(inputs, self.kernel * wscale, 1)
-        if self.use_bias:
-            output = K.bias_add(output, self.bias, data_format="channels_last")
-        if self.activation is not None:
-            output = self.activation(output)
-        return output
+        torch.nn.init.kaiming_normal_(self.weight)
+        if bias:
+            torch.nn.init.zeros_(self.bias)
+
+        if self.use_dynamic_wscale:
+            self.gain = gain if gain else np.sqrt(2)
+            fan_in = self.in_features
+            self.gain = gain / np.sqrt(max(1.0, fan_in))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.use_dynamic_wscale:
+            return nn.functional.linear(x, self.weight * self.gain, self.bias)
+        return nn.functional.linear(x, self.weight, self.bias)
 
 
-class ScaledConv2D(Conv2D):
+class ScaledConv2dTranspose(nn.ConvTranspose2d):
     def __init__(
         self,
-        gain: float = np.sqrt(2),
-        use_dynamic_wscale: bool = True,
-        **kwargs,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        output_padding=0,
+        groups=1,
+        bias=True,
+        dilation=1,
+        padding_mode="zeros",
+        use_dynamic_wscale: bool = False,
+        gain: float = None,
+    ) -> None:
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            output_padding,
+            groups,
+            bias,
+            dilation,
+            padding_mode,
+        )
+        torch.nn.init.normal_(self.weight)
+        if bias:
+            torch.nn.init.zeros_(self.bias)
+
+        self.use_dynamic_wscale = use_dynamic_wscale
+        if self.use_dynamic_wscale:
+            self.gain = gain if gain else np.sqrt(2)
+            fan_in = np.prod(self.kernel_size) * self.in_channels
+            self.gain = self.gain / np.sqrt(max(1.0, fan_in))
+
+    def forward(
+        self, x: torch.Tensor, output_size: Any = None
+    ) -> torch.Tensor:
+        output_padding = self._output_padding(
+            input, output_size, self.stride, self.padding, self.kernel_size
+        )
+        weight = (
+            self.weight * self.gain if self.use_dynamic_wscale else self.weight
+        )
+        return torch.conv_transpose2d(
+            input=x,
+            weight=weight,  # scale the weight on runtime
+            bias=self.bias,
+            stride=self.stride,
+            padding=self.padding,
+            output_padding=output_padding,
+            groups=self.groups,
+            dilation=self.dilation,
+        )
+
+
+class ScaledConv2d(nn.Conv2d):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        padding_mode="zeros",
+        use_dynamic_wscale: bool = False,
+        gain: float = None,
     ):
         """
         Scaled Convolutional Layer.
@@ -124,77 +154,48 @@ class ScaledConv2D(Conv2D):
                 Switching it off results in a ordinary 2D convolutional layer.
             **kwargs:
         """
-        super(ScaledConv2D, self).__init__(**kwargs)
-        self.use_dynamic_wscale = use_dynamic_wscale
-        self.gain = gain
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            groups,
+            bias,
+            padding_mode,
+        )
+        torch.nn.init.normal_(self.weight)
+        if bias:
+            torch.nn.init.zeros_(self.bias)
 
-    def call(self, inputs):
-        fan_in = float(_compute_fans(self.weights[0].shape)[0])
-        wscale = self.gain / np.sqrt(max(1.0, fan_in))
-        outputs = K.conv2d(
-            inputs,
-            self.kernel * wscale,
-            strides=self.strides,
+        self.use_dynamic_wscale = use_dynamic_wscale
+        if self.use_dynamic_wscale:
+            self.gain = gain if gain else np.sqrt(2)
+            fan_in = np.prod(self.kernel_size) * self.in_channels
+            self.gain = self.gain / np.sqrt(max(1.0, fan_in))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        weight = (
+            self.weight * self.gain if self.use_dynamic_wscale else self.weight
+        )
+        return torch.conv2d(
+            input=x,
+            weight=weight,
+            bias=self.bias,
+            stride=self.stride,
             padding=self.padding,
-            data_format=self.data_format,
-            dilation_rate=self.dilation_rate,
+            dilation=self.dilation,
+            groups=self.groups,
         )
 
-        if self.use_bias:
-            outputs = K.bias_add(
-                outputs, self.bias, data_format=self.data_format
-            )
 
-        if self.activation is not None:
-            return self.activation(outputs)
-        return outputs
+class PixelwiseNorm(nn.Module):
+    def __init__(self):
+        super(PixelwiseNorm, self).__init__()
 
-
-class PixelNorm(Layer):
-    def __init__(self, **kwargs):
-        """
-        Pixel normalization layer that normalizes an input tensor along its
-        channel axis by scaling its features along this axis to unit length.
-
-        Args:
-            channel_axis: channel axis. tensor value will be normalized along
-                this axis
-            kwargs: Keyword arguments for keras layer
-        """
-        super(PixelNorm, self).__init__(**kwargs)
-
-    def call(self, inputs):
-        values = inputs ** 2.0
-        mean_values = K.mean(values, axis=-1, keepdims=True)
-        mean_values += 1.0e-8
-        l2 = K.sqrt(mean_values)
-        normalized = inputs / l2
-        return normalized
-
-    def compute_output_shape(self, input_shape):
-        return input_shape
-
-
-class GetGradients(Layer):
-    def __init__(self, model, weight: int = 1):
-        """
-        Gradient Penalty Layer.
-
-        Computes the gradient penalty for a given set of targets and gradients.
-
-        Args:
-            weight: Allows weighting of the Gradient Penalty
-        """
-        super(GetGradients, self).__init__()
-        self.weight = weight
-        self.model = model
-
-    def call(self, input):
-        with tf.GradientTape() as tape:
-            tape.watch(input)
-            pred = self.model(input)
-        gradients = tape.gradient(pred, input)
-        return gradients
-
-    def compute_output_shape(self, input_shapes):
-        return input_shapes
+    @staticmethod
+    def forward(x: torch.Tensor, alpha: float = 1e-8) -> torch.Tensor:
+        y = x.pow(2.0).mean(dim=1, keepdim=True).add(alpha).sqrt()  # [N1HW]
+        y = x / y  # normalize the input x volume
+        return y

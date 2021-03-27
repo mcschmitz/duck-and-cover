@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from networks.gan import GAN
-from networks.utils import calc_n_filters, plot_metric
+from networks.utils import clip_channels, plot_metric
 from utils import logger
 from utils.image_operations import generate_images
 
@@ -28,7 +28,7 @@ class DCDiscrimininator(nn.Module):
         super(DCDiscrimininator, self).__init__()
         self.use_gpu = use_gpu
         self.img_shape = img_shape
-        n_filters = calc_n_filters(16)
+        n_filters = clip_channels(16)
         self.init_conv2d = nn.Conv2d(
             img_shape[0], n_filters, kernel_size=3, stride=2, padding=1
         )
@@ -37,8 +37,8 @@ class DCDiscrimininator(nn.Module):
         self.conv2d_layers = nn.ModuleList()
         while cur_img_size > 4:
             conv2d_layer = nn.Conv2d(
-                calc_n_filters(n_filters),
-                calc_n_filters(n_filters * 2),
+                clip_channels(n_filters),
+                clip_channels(n_filters * 2),
                 kernel_size=3,
                 stride=2,
                 padding=1,
@@ -101,7 +101,7 @@ class DCGenerator(nn.Module):
         self.use_gpu = use_gpu
         self.img_shape = img_shape
         self.latent_size = latent_size
-        n_filters = calc_n_filters(self.latent_size)
+        n_filters = clip_channels(self.latent_size)
         self.initial_linear = nn.Linear(self.latent_size, n_filters * 4 * 4)
         nn.init.xavier_uniform_(self.initial_linear.weight)
         self.init_batch_norm = nn.BatchNorm1d(self.initial_linear.out_features)
@@ -117,15 +117,15 @@ class DCGenerator(nn.Module):
         self.batch_norm_layers = nn.ModuleList()
         while cur_img_size < self.img_shape[2]:
             conv2d_layer = nn.Conv2d(
-                calc_n_filters(n_filters),
-                calc_n_filters(n_filters // 2),
+                clip_channels(n_filters),
+                clip_channels(n_filters // 2),
                 kernel_size=3,
                 stride=1,
                 padding=1,
             )
             nn.init.kaiming_normal_(conv2d_layer.weight)
             cur_img_size *= 2
-            n_filters = calc_n_filters(n_filters // 2)
+            n_filters = clip_channels(n_filters // 2)
             self.conv2d_layers.append(conv2d_layer)
             self.batch_norm_layers.append(nn.BatchNorm2d(n_filters))
 

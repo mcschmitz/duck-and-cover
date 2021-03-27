@@ -25,9 +25,9 @@ class MinibatchStdDev(nn.Module):
         sd = torch.sqrt(avg_squared_diff)
         avg_sd = torch.mean(sd)
         shape = x.shape
-        ones = torch.ones((shape[0], shape[1], shape[2], 1)).to(avg_sd.device)
+        ones = torch.ones((shape[0], 1, shape[2], shape[3])).to(avg_sd.device)
         output = ones * avg_sd
-        combined = torch.cat([x, output], dim=-1)
+        combined = torch.cat([x, output], dim=1)
         return combined
 
 

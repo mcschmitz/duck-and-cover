@@ -19,7 +19,7 @@ IMAGE_SIZES = 2 ** np.arange(2, N_BLOCKS + 2)
 GRADIENT_ACC_STEPS = [1, 1, 1, 1, 1, 1, 1]
 
 warm_start = False
-starting_from_block = 1
+starting_from_block = 0
 
 gradient_penalty_weight = 10.0
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)

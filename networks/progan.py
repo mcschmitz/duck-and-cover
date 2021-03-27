@@ -1,4 +1,3 @@
-import copy
 import os
 from typing import Any, Dict
 
@@ -6,7 +5,6 @@ import joblib
 import numpy as np
 import torch
 from defaultlist import defaultlist
-from tensorflow.keras import Model
 from torch import nn
 
 from networks.utils import calc_channels_at_stage, plot_metric
@@ -15,7 +13,6 @@ from networks.utils.layers import (
     PixelwiseNorm,
     ScaledConv2d,
     ScaledConv2dTranspose,
-    ScaledDense,
 )
 from networks.wgan import WGAN
 from utils import logger
@@ -52,8 +49,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
-        final_linear_input_dim = int(self.conv_2.out_channels)
-        self.final_linear = ScaledDense(final_linear_input_dim, 1, gain=1)
+        self.conv_3 = ScaledConv2d(out_channels, 1, (1, 1), bias=True, gain=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -65,7 +61,8 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         x = MinibatchStdDev()(x)
         x = nn.LeakyReLU(0.2)(self.conv_1(x))
         x = nn.LeakyReLU(0.2)(self.conv_2(x))
-        return self.final_linear(x)
+        x = self.conv_3(x)
+        return nn.Flatten()(x)
 
 
 class DisGeneralConvBlock(nn.Module):
@@ -157,6 +154,19 @@ class ProGANDiscriminator(nn.Module):
                 calc_channels_at_stage(1), latent_size // 2
             )
         )
+        self.from_rgb = nn.ModuleList(
+            [
+                nn.Sequential(
+                    ScaledConv2d(
+                        n_channels,
+                        calc_channels_at_stage(stage),
+                        kernel_size=(1, 1),
+                    ),
+                    nn.LeakyReLU(0.2),
+                )
+                for stage in range(1, n_blocks)
+            ]
+        )
 
     def forward(
         self, x: torch.Tensor, block: int, alpha: float
@@ -173,8 +183,9 @@ class ProGANDiscriminator(nn.Module):
             raise ValueError(
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
             )
-
-        if block > 2:
+        if block == 0:
+            x = self.from_rgb[0](x)
+        else:
             residual = self.from_rgb[-(block - 2)](
                 nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
             )
@@ -184,18 +195,17 @@ class ProGANDiscriminator(nn.Module):
             y = (alpha * straight) + ((1 - alpha) * residual)
             for layer_block in self.layers[-(block - 2) : -1]:
                 y = layer_block(y)
-        else:
-            y = self.from_rgb[-1](x)
-        y = self.layers[-1](y)
-        return y
+        return self.layers[-1](x)
 
     def get_save_info(self) -> Dict[str, Any]:
+        """
+        Collects the info about the Discriminator when writing the model.
+        """
         return {
             "conf": {
                 "depth": self.n_blocks,
                 "num_channels": self.num_channels,
                 "latent_size": self.latent_size,
-                "use_eql": self.use_eql,
                 "num_classes": self.num_classes,
             },
             "state_dict": self.state_dict(),
@@ -245,14 +255,14 @@ class GenInitialBlock(nn.Module):
 
 
 class GenGeneralConvBlock(nn.Module):
-    """
-    Module implementing a general convolutional block
-    Args:
-        in_channels: number of input channels to the block
-        out_channels: number of output channels required
-    """
-
     def __init__(self, in_channels: int, out_channels: int):
+        """
+        General generator block.
+
+        Args:
+            in_channels: Number of input channels to the block
+            out_channels: Number of output channels required
+        """
         super(GenGeneralConvBlock, self).__init__()
 
         self.conv_1 = ScaledConv2d(
@@ -273,6 +283,12 @@ class GenGeneralConvBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the general generator block.
+
+        Args:
+            x: Input tensor
+        """
         y = nn.functional.interpolate(x, scale_factor=2)
         y = PixelwiseNorm()(nn.LeakyReLU(0.2)(self.conv_1(y)))
         y = PixelwiseNorm()(nn.LeakyReLU(0.2)(self.conv_2(y)))
@@ -288,11 +304,12 @@ class ProGANGenerator(nn.Module):
         latent_size: int = 512,
     ):
         """
-        Generator Module (block) of the GAN network
+        Generator Model of the ProGAN network.
+
         Args:
-            n_blocks: required depth of the Network
-            n_channels: number of output channels (default = 3 for RGB)
-            latent_size: size of the latent manifold
+            n_blocks: Depth of the network
+            n_channels: Number of output channels (default = 3 for RGB)
+            latent_size: Latent space dimensions
         """
         super().__init__()
         self.n_blocks = n_blocks
@@ -352,7 +369,7 @@ class ProGANGenerator(nn.Module):
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
             )
 
-        if block == 1:
+        if block == 0:
             return self.rgb_converters[0](self.layers[0](x))
         for layer_block in self.layers[:block]:
             x = layer_block(x)
@@ -501,7 +518,7 @@ class ProGAN(WGAN):
                 self.block_images_shown["burn_in"][block] += batch_size
             if step % (steps // 32) == 0:
                 self._print_output()
-                self._generate_images(path, phase)
+                self._generate_images(path, phase, block=block)
 
                 for _k, v in self.metrics.items():
                     plot_metric(
@@ -551,10 +568,14 @@ class ProGAN(WGAN):
         self.discriminator_optimizer.zero_grad()
         with torch.no_grad():
             generated_images = self.generator(noise, block=block, alpha=alpha)
-        fake_pred = self.discriminator(generated_images)
-        real_pred = self.discriminator(real_images)
+        fake_pred = self.discriminator(
+            generated_images, block=block, alpha=alpha
+        )
+        real_pred = self.discriminator(real_images, block=block, alpha=alpha)
         loss = torch.mean(fake_pred) - torch.mean(real_pred)
-        gp = self._gradient_penalty(real_images, generated_images)
+        gp = self._gradient_penalty(
+            real_images, generated_images, block=block, alpha=alpha
+        )
         loss += gp
         loss += 0.001 * torch.mean(real_pred ** 2)
         loss.backward()
@@ -562,80 +583,55 @@ class ProGAN(WGAN):
         return loss
 
     def train_generator(self, noise: torch.Tensor, **kwargs):
+        block = kwargs.get("block")
+        alpha = kwargs.get("alpha")
+
+        if self.use_gpu:
+            noise = noise.cuda()
+
         self.generator.train()
         self.generator_optimizer.zero_grad()
-        generated_images = self.generator(noise)
-        fake_pred = self.discriminator(generated_images)
+        generated_images = self.generator(noise, block=block, alpha=alpha)
+        fake_pred = self.discriminator(
+            generated_images, block=block, alpha=alpha
+        )
         loss_fake = -torch.mean(fake_pred)
         loss_fake.backward()
         self.generator_optimizer.step()
         return loss_fake.detach().cpu().numpy().tolist()
 
-    def _generate_images(self, path, phase):
-        suffix = "_fade_in" if phase == "fade_in" else ""
+    def _generate_images(self, path, phase, block: int):
         for s in range(25):
             img_path = os.path.join(
                 path, f"{s}_fixed_step_gif{self.images_shown}.png"
             )
             generate_images(
-                getattr(self, f"generator{suffix}"),
+                self.generator,
                 img_path,
                 target_size=(256, 256),
                 seed=s,
                 n_imgs=1,
+                block=block,
+                alpha=0.0,
+                use_gpu=self.use_gpu,
             )
 
         if phase == "fade_in":
             min_max_alpha = (0, 1)
             for a in min_max_alpha:
-                self._update_alpha(a)
                 img_path = os.path.join(
                     path,
                     f"fixed_step{self.images_shown}_alpha{a}.png",
                 )
                 generate_images(
-                    getattr(self, f"generator{suffix}"),
+                    self.generator,
                     img_path,
                     target_size=(256, 256),
                     seed=101,
+                    block=block,
+                    alpha=a,
+                    use_gpu=self.use_gpu,
                 )
-
-    def save(self, path):
-        gan = copy.copy(self)
-        fade_in_img_shown = self.block_images_shown["fade_in"]
-        burn_in_img_shown = self.block_images_shown["burn_in"]
-        if fade_in_img_shown[-1] < burn_in_img_shown[-1] and len(
-            burn_in_img_shown
-        ) < len(fade_in_img_shown):
-            model_to_save = getattr(gan, "generator_fade_in")
-            if model_to_save:
-                model_to_save.save_weights(os.path.join(path, "G_fade_in.h5"))
-                getattr(gan, f"discriminator_fade_in").save_weights(
-                    os.path.join(path, f"D_fade_in.h5")
-                )
-                getattr(gan, f"discriminator_model_fade_in").save_weights(
-                    os.path.join(path, f"DM_fade_in.h5")
-                )
-                getattr(gan, f"combined_model_fade_in").save_weights(
-                    os.path.join(path, f"C_fade_in.h5")
-                )
-        else:
-            model_to_save = getattr(gan, "generator")
-            if model_to_save:
-                model_to_save.save_weights(os.path.join(path, "G.h5"))
-                getattr(gan, f"discriminator").save_weights(
-                    os.path.join(path, f"D.h5")
-                )
-                getattr(gan, f"discriminator_model").save_weights(
-                    os.path.join(path, f"DM.h5")
-                )
-                getattr(gan, f"combined_model").save_weights(
-                    os.path.join(path, f"C.h5")
-                )
-        for k, v in gan.__dict__.items():
-            if isinstance(v, Model):
-                setattr(gan, k, None)
-        joblib.dump(gan, os.path.join(path, "GAN.pkl"))
 
     def load(self, path):
         models = ["_fade_in"]

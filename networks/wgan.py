@@ -281,7 +281,7 @@ class WGAN(DCGAN):
         return loss_fake.detach().cpu().numpy().tolist()
 
     def _gradient_penalty(
-        self, real_samples: torch.Tensor, fake_samples: torch.Tensor
+        self, real_samples: torch.Tensor, fake_samples: torch.Tensor, **kwargs
     ) -> torch.Tensor:
         batch_size = real_samples.shape[0]
 
@@ -293,7 +293,7 @@ class WGAN(DCGAN):
         )
         random_avg.requires_grad_(True)
 
-        pred = self.discriminator(random_avg)
+        pred = self.discriminator(random_avg, **kwargs)
         grad = torch.autograd.grad(
             outputs=pred,
             inputs=random_avg,

@@ -40,6 +40,7 @@ def generate_images(
     n_imgs: int = 10,
     seed: int = None,
     target_size: tuple = (64, 64),
+    **kwargs,
 ):
     """
     Generates a list of images by predicting with the given generator.
@@ -67,9 +68,12 @@ def generate_images(
         x0 = np.random.normal(size=generator_model.latent_size)
         x1 = np.random.normal(size=generator_model.latent_size)
         x = np.linspace(x0, x1, 10)
-        generated_images = (
-            generator_model(torch.Tensor(x)).detach().cpu().numpy()
-        )
+        x = torch.Tensor(x)
+        if kwargs.get("use_gpu", False):
+            x = x.cuda()
+            generator_model = generator_model.cuda()
+            kwargs.pop("use_gpu")
+        generated_images = generator_model(x, **kwargs).detach().cpu().numpy()
         generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:
             img = array_to_img(img, scale=True)

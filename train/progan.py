@@ -36,6 +36,7 @@ gan = ProGAN(
     use_gpu=True,
     gradient_penalty_weight=gradient_penalty_weight,
     n_blocks=N_BLOCKS,
+    add_year_information=True,
 )
 
 gan.set_optimizers(

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 
 import joblib
+import numpy as np
 import torch
 from torch.optim import Adam
 
@@ -11,12 +12,25 @@ from utils import logger
 
 
 class GAN(ABC):
-    def __init__(self, use_gpu: bool = False):
+    def __init__(
+        self,
+        img_height: int,
+        img_width: int,
+        channels: int = 3,
+        latent_size: int = 128,
+        use_gpu: bool = False,
+        **kwargs,
+    ):
         """
         Abstract GAN Class.
 
         Args:
-            use_gpu: Flag to use GPU for training
+            img_height: height of the image. Should be a power of 2
+            img_width: width of the image. Should be a power of 2
+            channels: Number of image channels. Normally either 1 or 3.
+            latent_size: Size of the latent vector that is used to generate the
+                image
+            use_gpu: Flag to use the GPU for training and prediction
         """
         self.discriminator = None
         self.generator = None
@@ -26,6 +40,18 @@ class GAN(ABC):
         self.generator_loss = []
         self.metrics = defaultdict(dict)
         self.use_gpu = torch.cuda.is_available() and use_gpu
+
+        self.img_height = np.int(img_height)
+        self.img_width = np.int(img_width)
+        self.channels = channels
+
+        self.img_shape = (self.channels, self.img_height, self.img_width)
+        self.latent_size = latent_size
+        self.discriminator = self.build_discriminator(**kwargs)
+        self.generator = self.build_generator(**kwargs)
+        if self.use_gpu:
+            self.discriminator.cuda()
+            self.generator.cuda()
 
     def set_optimizers(self, discriminator_optimizer, generator_optimizer):
         """
@@ -41,6 +67,18 @@ class GAN(ABC):
         self.generator_optimizer = Adam(
             self.generator.parameters(), **generator_optimizer
         )
+
+    @abstractmethod
+    def build_generator(self, **kwargs):
+        """
+        Builds the class specific generator.
+        """
+
+    @abstractmethod
+    def build_discriminator(self, **kwargs):
+        """
+        Builds the class specific discriminator.
+        """
 
     @abstractmethod
     def train_on_batch(self, *args):

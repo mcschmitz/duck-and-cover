@@ -1,3 +1,5 @@
+from typing import Dict
+
 import numpy as np
 import pandas as pd
 import torch
@@ -55,7 +57,7 @@ class DataLoader(Sequence):
     def __len__(self):
         return self.n_images // self.batch_size
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> Dict[str, torch.Tensor]:
         batch_x = np.zeros(
             (self.batch_size, 3, self.image_size, self.image_size)
         )
@@ -75,9 +77,9 @@ class DataLoader(Sequence):
                     -1, 1
                 )
                 year = self.release_year_scaler.transform(year)
-                year_x.append(year)
+                year_x.append(year.flatten())
         self._iterator_i = batch_idx[-1]
-        return DataLoader._wrap_output(batch_x, year=year_x)
+        return {"images": torch.Tensor(batch_x), "year": torch.Tensor(year_x)}
 
     def _get_batch_idx(self):
         positions = np.arange(
@@ -96,30 +98,3 @@ class DataLoader(Sequence):
             )
             self.files = self.files.to_list()
         return batch_idx
-
-    @classmethod
-    def _wrap_output(
-        cls, x: np.array = None, genres: np.array = None, year: np.array = None
-    ):
-        """
-        Wraps the output of the data loader to one object.
-
-        Returns the images and if required the genre and year information
-
-        Args:
-            x: numpy array of images
-            genres: numpy array of genre information
-            year: numpy array of release year information
-
-        Returns:
-            List of return values. Contains numpy array of images and release year information as well as genre
-                information if requested
-        """
-        return_values = [x]
-        if year is not None:
-            return_values.append(year)
-        if genres is not None:
-            return_values.append([genres])
-        if len(return_values) == 1:
-            return torch.Tensor(return_values[0])
-        return return_values

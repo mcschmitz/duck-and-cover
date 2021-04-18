@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
@@ -170,6 +170,7 @@ class WGAN(DCGAN):
         channels: int = 3,
         latent_size: int = 128,
         use_gpu: bool = False,
+        **kwargs,
     ):
         """
         Wasserstein GAN.
@@ -193,6 +194,7 @@ class WGAN(DCGAN):
             channels=channels,
             latent_size=latent_size,
             use_gpu=use_gpu,
+            **kwargs,
         )
         self._gradient_penalty_weight = gradient_penalty_weight
         self.metrics["D_loss"] = {
@@ -213,48 +215,44 @@ class WGAN(DCGAN):
         """
         return WGANDiscriminator(self.img_shape, self.use_gpu)
 
-    def train_on_batch(self, real_images: np.ndarray, **kwargs):
+    def train_on_batch(self, batch: np.ndarray, **kwargs):
         """
         Runs a single gradient update on a batch of data.
 
         Args:
-            real_images: numpy array of real input images used for training
         """
         n_critic = kwargs.get("n_critic", 5)
 
         d_accuracies = []
         for _ in range(n_critic):
             noise = torch.normal(
-                mean=0, std=1, size=(len(real_images), self.latent_size)
+                mean=0, std=1, size=(len(batch["images"]), self.latent_size)
             )
             d_accuracies.append(
-                self.train_discriminator(real_images, noise, **kwargs)
+                self.train_discriminator(batch, noise, **kwargs)
             )
         d_accuracies = np.mean([d.detach().tolist() for d in d_accuracies])
         self.metrics["D_loss"]["values"].append(np.mean(d_accuracies))
 
         noise = torch.normal(
-            mean=0, std=1, size=(len(real_images), self.latent_size)
+            mean=0, std=1, size=(len(batch["images"]), self.latent_size)
         )
         self.metrics["G_loss"]["values"].append(
-            self.train_generator(noise, **kwargs)
+            self.train_generator(batch, noise, **kwargs)
         )
 
-    def train_discriminator(
-        self, real_images: torch.Tensor, noise: torch.Tensor
-    ):
+    def train_discriminator(self, batch: torch.Tensor, noise: torch.Tensor):
         """
         Runs a single gradient update on a batch of data.
 
         Args:
-            real_images: Real input images used for training
             noise: Noise to use from image generation
 
         Returns:
             the losses for this training iteration
         """
         if self.use_gpu:
-            real_images = real_images.cuda()
+            batch = batch.cuda()
             noise = noise.cuda()
 
         self.discriminator.train()
@@ -262,9 +260,9 @@ class WGAN(DCGAN):
         with torch.no_grad():
             generated_images = self.generator(noise)
         fake_pred = self.discriminator(generated_images)
-        real_pred = self.discriminator(real_images)
+        real_pred = self.discriminator(batch)
         loss = torch.mean(fake_pred) - torch.mean(real_pred)
-        gp = self._gradient_penalty(real_images, generated_images)
+        gp = self._gradient_penalty(batch, generated_images)
         loss += gp
         loss.backward()
         self.discriminator_optimizer.step()
@@ -281,19 +279,24 @@ class WGAN(DCGAN):
         return loss_fake.detach().cpu().numpy().tolist()
 
     def _gradient_penalty(
-        self, real_samples: torch.Tensor, fake_samples: torch.Tensor, **kwargs
+        self,
+        real_batch: Dict[str, torch.Tensor],
+        fake_batch: Dict[str, torch.Tensor],
+        **kwargs,
     ) -> torch.Tensor:
-        batch_size = real_samples.shape[0]
+        batch_size = real_batch["images"].shape[0]
 
         random_avg_weights = torch.rand((batch_size, 1, 1, 1)).to(
-            real_samples.device
+            real_batch["images"].device
         )
-        random_avg = random_avg_weights * real_samples + (
-            (1 - random_avg_weights) * fake_samples
+        random_avg = random_avg_weights * real_batch["images"] + (
+            (1 - random_avg_weights) * fake_batch["images"]
         )
         random_avg.requires_grad_(True)
 
-        pred = self.discriminator(random_avg, **kwargs)
+        pred = self.discriminator(
+            images=random_avg, year=real_batch["year"], **kwargs
+        )
         grad = torch.autograd.grad(
             outputs=pred,
             inputs=random_avg,

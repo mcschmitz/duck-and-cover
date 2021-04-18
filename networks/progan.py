@@ -18,24 +18,34 @@ from networks.wgan import WGAN
 from utils import logger
 from utils.image_operations import generate_images
 
-#  TODO Add release year information
 #  TODO Add genre information
 #  TODO Add artist name
 #  TODO add album name
 
 
 class ProGANDiscriminatorFinalBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        add_year_information: bool = False,
+    ):
         """
         Final block for the Discriminator.
 
         Args:
             in_channels: Number of input channels
             out_channels: Number of output channels
+            add_year_information: Flag to add the year information of the cover
         """
         super(ProGANDiscriminatorFinalBlock, self).__init__()
+        final_block_in_channels = in_channels + 1
+        self.add_year_information = add_year_information
+        if self.add_year_information:
+            final_block_in_channels += 1
+
         self.conv_1 = ScaledConv2d(
-            in_channels + 1,
+            final_block_in_channels,
             in_channels,
             kernel_size=3,
             padding=1,
@@ -51,14 +61,21 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         )
         self.dense = ScaledDense(out_channels, 1, bias=True, gain=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, images: torch.Tensor, year: torch.Tensor = None
+    ) -> torch.Tensor:
         """
         Forward pass of the module.
 
         Args:
             x: Input tensor
         """
-        x = MinibatchStdDev()(x)
+        x = MinibatchStdDev()(images)
+        if self.add_year_information:
+            o = torch.ones_like(x[:, 0, :, :])
+            year_channel = torch.stack([oi * yi for oi, yi in zip(o, year)])
+            year_channel = year_channel.reshape(-1, 1, x.shape[2], x.shape[3])
+            x = torch.cat([x, year_channel], 1)
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
         x = self.conv_2(x)
@@ -115,19 +132,21 @@ class ProGANDiscriminator(nn.Module):
         n_blocks: int = 7,
         n_channels: int = 3,
         latent_size: int = 512,
+        add_year_information: bool = False,
     ):
         """
         Builds the ProGAN discriminator.
 
         Args:
             n_blocks: Number of blocks.
-            n_channels: Number of input channels
+            n_chanScaledConv2dnels: Number of input channels
             latent_size: Latent size of the corresponding generator
 
         References:
             - Progressive Growing of GANs for Improved Quality, Stability, and Variation: https://arxiv.org/abs/1710.10196
         """
         super().__init__()
+        self.add_year_information = add_year_information
         self.n_blocks = n_blocks
         self.num_channels = n_channels
         self.latent_size = latent_size
@@ -143,7 +162,9 @@ class ProGANDiscriminator(nn.Module):
 
         self.layers.append(
             ProGANDiscriminatorFinalBlock(
-                calc_channels_at_stage(0), latent_size
+                calc_channels_at_stage(0),
+                latent_size,
+                add_year_information=add_year_information,
             )
         )
         self.from_rgb = nn.ModuleList(
@@ -161,7 +182,11 @@ class ProGANDiscriminator(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, block: int, alpha: float
+        self,
+        images: torch.Tensor,
+        year: torch.Tensor = None,
+        block: int = 0,
+        alpha: float = 1.0,
     ) -> torch.Tensor:
         """
         Forward pass of the ProGAN discriminator.
@@ -176,17 +201,17 @@ class ProGANDiscriminator(nn.Module):
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
             )
         if block == 0:
-            x = self.from_rgb[0](x)
+            x = self.from_rgb[0](images)
         else:
             residual = self.from_rgb[block - 1](
-                nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
+                nn.functional.avg_pool2d(images, kernel_size=2, stride=2)
             )
             straight = self.layers[block - 1](self.from_rgb[block](x))
             x = (alpha * straight) + ((1 - alpha) * residual)
 
             for layer_block in reversed(self.layers[: block - 1]):
                 x = layer_block(x)
-        return self.layers[-1](x)
+        return self.layers[-1](images=x, year=year)
 
     def get_save_info(self) -> Dict[str, Any]:
         """
@@ -296,6 +321,7 @@ class ProGANGenerator(nn.Module):
         n_blocks: int = 10,
         n_channels: int = 3,
         latent_size: int = 512,
+        add_year_information: bool = False,
     ):
         """
         Generator Model of the ProGAN network.
@@ -306,6 +332,10 @@ class ProGANGenerator(nn.Module):
             latent_size: Latent space dimensions
         """
         super().__init__()
+        self.add_year_information = add_year_information
+        if add_year_information:
+            latent_size += 1
+
         self.n_blocks = n_blocks
         self.latent_size = latent_size
         self.n_channels = n_channels
@@ -395,6 +425,7 @@ class ProGAN(WGAN):
         latent_size: int = 128,
         use_gpu: bool = False,
         n_blocks: int = 7,
+        **kwargs,
     ):
         """
         Progressive growing GAN.
@@ -428,13 +459,15 @@ class ProGAN(WGAN):
             latent_size=latent_size,
             gradient_penalty_weight=gradient_penalty_weight,
             use_gpu=use_gpu,
+            **kwargs,
         )
         self.block_images_shown = {
             "burn_in": defaultlist(int),
             "fade_in": defaultlist(int),
         }
+        self.add_year_information = kwargs.get("add_year_information", False)
 
-    def build_discriminator(self) -> ProGANDiscriminator:
+    def build_discriminator(self, **kwargs) -> ProGANDiscriminator:
         """
         Builds the ProGAN Discriminator.
         """
@@ -442,9 +475,10 @@ class ProGAN(WGAN):
             n_blocks=self.n_blocks,
             n_channels=self.channels,
             latent_size=self.latent_size,
+            add_year_information=kwargs.get("add_year_information", False),
         )
 
-    def build_generator(self) -> ProGANGenerator:
+    def build_generator(self, **kwargs) -> ProGANGenerator:
         """
         Builds the ProGAN Generator.
         """
@@ -452,6 +486,7 @@ class ProGAN(WGAN):
             n_blocks=self.n_blocks,
             n_channels=self.channels,
             latent_size=self.latent_size,
+            add_year_information=kwargs.get("add_year_information", False),
         )
 
     def train(
@@ -539,13 +574,13 @@ class ProGAN(WGAN):
             )
 
     def train_discriminator(
-        self, real_images: torch.Tensor, noise: torch.Tensor, **kwargs
+        self, batch: Dict[str, torch.Tensor], noise: torch.Tensor, **kwargs
     ):
         """
         Runs a single gradient update on a batch of data.
 
         Args:
-            real_images: Real input images used for training
+            batch: Real input images used for training
             noise: Noise to use from image generation
 
         Returns:
@@ -555,20 +590,32 @@ class ProGAN(WGAN):
         alpha = kwargs.get("alpha")
 
         if self.use_gpu:
-            real_images = real_images.cuda()
+            batch = {k: v.cuda() for k, v in batch.items()}
             noise = noise.cuda()
 
+        if self.add_year_information:
+            noise = torch.cat((noise, batch.get("year")), 1)
         self.discriminator.train()
         self.discriminator_optimizer.zero_grad()
         with torch.no_grad():
-            generated_images = self.generator(noise, block=block, alpha=alpha)
+            fake_images = self.generator(noise, block=block, alpha=alpha)
+
         fake_pred = self.discriminator(
-            generated_images, block=block, alpha=alpha
+            images=fake_images,
+            year=batch.get("year"),
+            block=block,
+            alpha=alpha,
         )
-        real_pred = self.discriminator(real_images, block=block, alpha=alpha)
+        real_pred = self.discriminator(
+            images=batch.get("images"),
+            year=batch.get("year"),
+            block=block,
+            alpha=alpha,
+        )
         loss = torch.mean(fake_pred) - torch.mean(real_pred)
+        fake_batch = {"images": fake_images, "year": batch.get("year")}
         gp = self._gradient_penalty(
-            real_images, generated_images, block=block, alpha=alpha
+            batch, fake_batch, block=block, alpha=alpha
         )
         loss += gp
         loss += 0.001 * torch.mean(real_pred ** 2)
@@ -576,18 +623,27 @@ class ProGAN(WGAN):
         self.discriminator_optimizer.step()
         return loss
 
-    def train_generator(self, noise: torch.Tensor, **kwargs):
+    def train_generator(
+        self, batch: Dict[str, torch.Tensor], noise: torch.Tensor, **kwargs
+    ):
         block = kwargs.get("block")
         alpha = kwargs.get("alpha")
 
         if self.use_gpu:
+            batch = {k: v.cuda() for k, v in batch.items()}
             noise = noise.cuda()
+
+        if self.add_year_information:
+            noise = torch.cat((noise, batch.get("year")), 1)
 
         self.generator.train()
         self.generator_optimizer.zero_grad()
         generated_images = self.generator(noise, block=block, alpha=alpha)
         fake_pred = self.discriminator(
-            generated_images, block=block, alpha=alpha
+            images=generated_images,
+            year=batch.get("year"),
+            block=block,
+            alpha=alpha,
         )
         loss_fake = -torch.mean(fake_pred)
         loss_fake.backward()

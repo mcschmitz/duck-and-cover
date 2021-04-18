@@ -169,6 +169,7 @@ class DCGAN(GAN):
         channels: int = 3,
         latent_size: int = 128,
         use_gpu: bool = False,
+        **kwargs,
     ):
         """
         Simple Deep Convolutional GAN.
@@ -185,18 +186,14 @@ class DCGAN(GAN):
                 image
             use_gpu: Flag to use the GPU for training
         """
-        super(DCGAN, self).__init__(use_gpu)
-        self.img_height = np.int(img_height)
-        self.img_width = np.int(img_width)
-        self.channels = channels
-        self.img_shape = (self.channels, self.img_height, self.img_width)
-        self.latent_size = latent_size
-        self.discriminator = self.build_discriminator()
-        self.generator = self.build_generator()
-        if self.use_gpu:
-            self.discriminator.cuda()
-            self.generator.cuda()
-
+        super(DCGAN, self).__init__(
+            use_gpu=use_gpu,
+            img_width=img_width,
+            img_height=img_height,
+            channels=channels,
+            latent_size=latent_size,
+            **kwargs,
+        )
         self.metrics["D_accuracy"] = {
             "file_name": "d_acc.png",
             "label": "Discriminator Accuracy",
@@ -208,13 +205,13 @@ class DCGAN(GAN):
             "values": [],
         }
 
-    def build_generator(self) -> DCGenerator:
+    def build_generator(self, **kwargs) -> DCGenerator:
         """
         Builds the class specific generator.
         """
         return DCGenerator(self.latent_size, self.img_shape, self.use_gpu)
 
-    def build_discriminator(self) -> DCDiscrimininator:
+    def build_discriminator(self, **kwargs) -> DCDiscrimininator:
         """
         Builds the class specific discriminator.
         """

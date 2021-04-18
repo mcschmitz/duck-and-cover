@@ -1,13 +1,10 @@
-import os
-from typing import List
-
 import numpy as np
+import pandas as pd
 import torch
 from skimage.io import imread
 from skimage.transform import resize
-from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.utils import Sequence
-from tqdm import tqdm
 
 from utils import logger
 
@@ -15,57 +12,45 @@ from utils import logger
 class DataLoader(Sequence):
     def __init__(
         self,
-        image_path: str,
+        meta_data_path: str,
         image_size: int = 256,
-        binarizer: MultiLabelBinarizer = None,
         batch_size: int = 32,
+        return_release_year: bool = False,
     ):
         """
         Image loader that takes a path and crawls the directory and
         subdirectories for images and loads them.
 
         Args:
-            image_path: Path to the dictionary that should be crawled for image data
+            meta_data_path: Path to the json file that contains information
+                about the training data.
             image_size: output size of the images
-            binarizer: Binarizer used to create dummy features out of additional meta information
             batch_size: Size of one Batch
+            return_release_year: Flag to return release year information
         """
-        self.binarizer = binarizer
         self._iterator_i = 0
         self.image_size = image_size
         self.batch_size = batch_size
+        self.meta_df = pd.read_json(
+            meta_data_path, orient="records", lines=True
+        )
+        self.meta_df = self.meta_df.dropna(
+            subset=["file_path_64", "file_path_300"]
+        )
+        self.files = (
+            self.meta_df["file_path_64"]
+            if self.image_size <= 64
+            else self.meta_df["file_path_300"]
+        )
+        self.files = self.files.to_list()
 
-        np_path = os.path.join(image_path, f"all{image_size}.npy")
-        if os.path.exists(np_path):
-            try:
-                self._images = np.load(np_path)
-            except MemoryError:
-                logger.warning(
-                    "Data does not fit into memory. Will be streamed from disk"
-                )
-                self._images = get_image_paths(image_path)
-                self._iterator = np.arange(0, self._images.shape[0])
-        else:
-            try:
-                files = get_image_paths(image_path)
-                self._images = np.zeros(
-                    (len(files), 3, image_size, image_size)
-                )
-
-                for i, file_path in enumerate(tqdm(files)):
-                    img = imread(file_path)
-                    img = resize(img, (image_size, image_size, 3))
-                    img = np.moveaxis(img, -1, 0)
-                    self._images[i] = img
-                np.save(np_path, self._images)
-                self._iterator = np.arange(0, self._images.shape[0])
-            except MemoryError:
-                logger.warning(
-                    "Data does not fit into memory. Will be streamed from disk"
-                )
-                self._images = get_image_paths(image_path)
-
-        self.n_images = len(self._images)
+        self.return_release_year = return_release_year
+        if self.return_release_year:
+            self.meta_df = self.meta_df.dropna(subset=["album_release"])
+            self.release_year_scaler = StandardScaler().fit(
+                self.meta_df["album_release"].values.reshape(-1, 1)
+            )
+        self.n_images = len(self.meta_df)
 
     def __len__(self):
         return self.n_images // self.batch_size
@@ -74,21 +59,25 @@ class DataLoader(Sequence):
         batch_x = np.zeros(
             (self.batch_size, 3, self.image_size, self.image_size)
         )
+        year_x = [] if self.return_release_year else None
         batch_idx = self._get_batch_idx()
-        if isinstance(self._images, np.ndarray):
-            batch_x = self._images[batch_idx]
-        else:
-            for i, b_idx in enumerate(batch_idx):
-                file_path = self._images[b_idx]
-                try:
-                    img = imread(file_path)
-                    img = np.moveaxis(img, -1, 0)
-                except ValueError as err:
-                    logger.error(f"Unable to load {file_path}. Error: {err}")
-                img = resize(img, (3, self.image_size, self.image_size))
-                batch_x[i] = img
+        for i, b_idx in enumerate(batch_idx):
+            file_path = self.files[b_idx]
+            try:
+                img = imread(file_path)
+                img = np.moveaxis(img, -1, 0)
+            except ValueError as err:
+                logger.error(f"Unable to load {file_path}. Error: {err}")
+            img = resize(img, (3, self.image_size, self.image_size))
+            batch_x[i] = img
+            if self.return_release_year:
+                year = np.array(self.meta_df["album_release"][b_idx]).reshape(
+                    -1, 1
+                )
+                year = self.release_year_scaler.transform(year)
+                year_x.append(year)
         self._iterator_i = batch_idx[-1]
-        return DataLoader._wrap_output(batch_x)
+        return DataLoader._wrap_output(batch_x, year=year_x)
 
     def _get_batch_idx(self):
         positions = np.arange(
@@ -99,7 +88,13 @@ class DataLoader(Sequence):
         ]
         if 0 in batch_idx:
             logger.info("Data Generator exceeded. Will shuffle input data.")
-            np.random.shuffle(self._images)
+            self.meta_df = self.meta_df.sample(frac=1).reset_index(drop=True)
+            self.files = (
+                self.meta_df["file_path_64"]
+                if self.image_size <= 64
+                else self.meta_df["file_path_300"]
+            )
+            self.files = self.files.to_list()
         return batch_idx
 
     @classmethod
@@ -128,18 +123,3 @@ class DataLoader(Sequence):
         if len(return_values) == 1:
             return torch.Tensor(return_values[0])
         return return_values
-
-
-def get_image_paths(directory: str) -> List[str]:
-    """
-    Crawls a directory for images.
-
-    Args:
-        directory: Directory to crawl
-    """
-    paths = []
-    for dirpath, _dirnames, filenames in os.walk(directory):
-        jpgs = {f for f in filenames if f.endswith(".jpg")}
-        for filename in jpgs:
-            paths.append(os.path.join(dirpath, filename))
-    return paths

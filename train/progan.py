@@ -11,14 +11,14 @@ from utils.image_operations import plot_final_gif
 image_ratio = config.get("image_ratio")
 BATCH_SIZE = [16, 16, 16, 16, 16, 16, 14]
 LATENT_SIZE = 512
-PATH = f"progan-{LATENT_SIZE}"
+PATH = f"progan-release-year-{LATENT_SIZE}"
 TRAIN_STEPS = int(1e6)
 N_BLOCKS = 7
 IMAGE_SIZES = 2 ** np.arange(2, N_BLOCKS + 2)
 GRADIENT_ACC_STEPS = [1, 1, 1, 1, 1, 1, 1]
 
-warm_start = True
-starting_from_block = 6
+warm_start = False
+starting_from_block = 0
 
 gradient_penalty_weight = 10.0
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
@@ -48,11 +48,11 @@ if warm_start:
 
 for block in range(starting_from_block, N_BLOCKS):
     image_size = IMAGE_SIZES[block]
-    data_path = os.path.join(
-        config.get("base_data_path"), f"covers{300 if image_size > 64 else 64}"
-    )
     data_loader = DataLoader(
-        data_path, image_size=image_size, batch_size=BATCH_SIZE[block]
+        image_size=image_size,
+        batch_size=BATCH_SIZE[block],
+        return_release_year=True,
+        meta_data_path="data/album_data_frame.json",
     )
 
     batch_size = BATCH_SIZE[block]

@@ -56,6 +56,9 @@ def generate_images(
         seed: seed to use to generate the numbers of the latent space
         target_size: target size of the image
     """
+    use_gpu = kwargs.get("use_gpu", False)
+    if "use_gpu" in kwargs:
+        kwargs.pop("use_gpu")
     if seed is not None:
         np.random.seed(seed)
     else:
@@ -69,10 +72,9 @@ def generate_images(
         x1 = np.random.normal(size=generator_model.latent_size)
         x = np.linspace(x0, x1, 10)
         x = torch.Tensor(x)
-        if kwargs.get("use_gpu", False):
+        if use_gpu:
             x = x.cuda()
             generator_model = generator_model.cuda()
-            kwargs.pop("use_gpu")
         generated_images = generator_model(x, **kwargs).detach().cpu().numpy()
         generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:

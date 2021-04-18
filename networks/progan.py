@@ -1,7 +1,6 @@
 import os
 from typing import Any, Dict
 
-import joblib
 import numpy as np
 import torch
 from defaultlist import defaultlist
@@ -13,6 +12,7 @@ from networks.utils.layers import (
     PixelwiseNorm,
     ScaledConv2d,
     ScaledConv2dTranspose,
+    ScaledDense,
 )
 from networks.wgan import WGAN
 from utils import logger
@@ -37,7 +37,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         self.conv_1 = ScaledConv2d(
             in_channels + 1,
             in_channels,
-            (3, 3),
+            kernel_size=3,
             padding=1,
             bias=True,
             use_dynamic_wscale=True,
@@ -45,11 +45,11 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         self.conv_2 = ScaledConv2d(
             in_channels,
             out_channels,
-            (4, 4),
+            kernel_size=4,
             bias=True,
             use_dynamic_wscale=True,
         )
-        self.conv_3 = ScaledConv2d(out_channels, 1, (1, 1), bias=True, gain=1)
+        self.dense = ScaledDense(out_channels, 1, bias=True, gain=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -59,13 +59,15 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             x: Input tensor
         """
         x = MinibatchStdDev()(x)
-        x = nn.LeakyReLU(0.2)(self.conv_1(x))
-        x = nn.LeakyReLU(0.2)(self.conv_2(x))
-        x = self.conv_3(x)
-        return nn.Flatten()(x)
+        x = self.conv_1(x)
+        x = nn.LeakyReLU(0.2)(x)
+        x = self.conv_2(x)
+        x = nn.LeakyReLU(0.2)(x)
+        x = nn.Flatten()(x)
+        return self.dense(x)
 
 
-class DisGeneralConvBlock(nn.Module):
+class ProGANDiscriminatorGeneralBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         """
         General block used in the discriminator.
@@ -74,12 +76,12 @@ class DisGeneralConvBlock(nn.Module):
             in_channels: Number of input channels
             out_channels: Number of output channels
         """
-        super(DisGeneralConvBlock, self).__init__()
+        super(ProGANDiscriminatorGeneralBlock, self).__init__()
 
         self.conv_1 = ScaledConv2d(
             in_channels,
             in_channels,
-            (3, 3),
+            kernel_size=3,
             padding=1,
             bias=True,
             use_dynamic_wscale=True,
@@ -87,7 +89,7 @@ class DisGeneralConvBlock(nn.Module):
         self.conv_2 = ScaledConv2d(
             in_channels,
             out_channels,
-            (3, 3),
+            kernel_size=3,
             padding=1,
             bias=True,
             use_dynamic_wscale=True,
@@ -100,8 +102,10 @@ class DisGeneralConvBlock(nn.Module):
         Args:
             x: Input tensor
         """
-        x = nn.LeakyReLU(0.2)(self.conv_1(x))
-        x = nn.LeakyReLU(0.2)(self.conv_2(x))
+        x = self.conv_1(x)
+        x = nn.LeakyReLU(0.2)(x)
+        x = self.conv_2(x)
+        x = nn.LeakyReLU(0.2)(x)
         return nn.AvgPool2d(2)(x)
 
 
@@ -129,21 +133,9 @@ class ProGANDiscriminator(nn.Module):
         self.latent_size = latent_size
 
         self.layers = nn.ModuleList()
-        self.layers.append(
-            nn.Sequential(
-                ScaledConv2d(
-                    n_channels,
-                    calc_channels_at_stage(n_blocks),
-                    kernel_size=(1, 1),
-                    use_dynamic_wscale=True,
-                ),
-                nn.LeakyReLU(0.2),
-            )
-        )
-
-        for block in reversed(range(1, n_blocks)):
+        for block in range(0, n_blocks):
             self.layers.append(
-                DisGeneralConvBlock(
+                ProGANDiscriminatorGeneralBlock(
                     calc_channels_at_stage(block + 1),
                     calc_channels_at_stage(block),
                 ),
@@ -151,7 +143,7 @@ class ProGANDiscriminator(nn.Module):
 
         self.layers.append(
             ProGANDiscriminatorFinalBlock(
-                calc_channels_at_stage(1), latent_size // 2
+                calc_channels_at_stage(0), latent_size
             )
         )
         self.from_rgb = nn.ModuleList(
@@ -160,11 +152,11 @@ class ProGANDiscriminator(nn.Module):
                     ScaledConv2d(
                         n_channels,
                         calc_channels_at_stage(stage),
-                        kernel_size=(1, 1),
+                        kernel_size=1,
                     ),
                     nn.LeakyReLU(0.2),
                 )
-                for stage in range(1, n_blocks)
+                for stage in range(0, n_blocks)
             ]
         )
 
@@ -186,15 +178,14 @@ class ProGANDiscriminator(nn.Module):
         if block == 0:
             x = self.from_rgb[0](x)
         else:
-            residual = self.from_rgb[-(block - 2)](
+            residual = self.from_rgb[block - 1](
                 nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
             )
-            straight = self.layers[-(block - 1)](
-                self.from_rgb[-(block - 1)](x)
-            )
-            y = (alpha * straight) + ((1 - alpha) * residual)
-            for layer_block in self.layers[-(block - 2) : -1]:
-                y = layer_block(y)
+            straight = self.layers[block - 1](self.from_rgb[block](x))
+            x = (alpha * straight) + ((1 - alpha) * residual)
+
+            for layer_block in reversed(self.layers[: block - 1]):
+                x = layer_block(x)
         return self.layers[-1](x)
 
     def get_save_info(self) -> Dict[str, Any]:
@@ -226,14 +217,14 @@ class GenInitialBlock(nn.Module):
         self.conv_1 = ScaledConv2dTranspose(
             in_channels,
             out_channels,
-            (4, 4),
+            kernel_size=4,
             bias=True,
             use_dynamic_wscale=True,
         )
         self.conv_2 = ScaledConv2d(
             out_channels,
             out_channels,
-            (3, 3),
+            kernel_size=3,
             padding=1,
             bias=True,
             use_dynamic_wscale=True,
@@ -246,12 +237,13 @@ class GenInitialBlock(nn.Module):
         Args:
             x: Input Tensor
         """
-        y = torch.unsqueeze(torch.unsqueeze(x, -1), -1)
-        y = PixelwiseNorm()(y)  # normalize the latents to hypersphere
-        y = nn.LeakyReLU(0.2)(self.conv_1(y))
-        y = nn.LeakyReLU(0.2)(self.conv_2(y))
-        y = PixelwiseNorm()(y)
-        return y
+        x = torch.unsqueeze(torch.unsqueeze(x, -1), -1)
+        x = self.conv_1(x)
+        x = nn.LeakyReLU(0.2)(x)
+        x = PixelwiseNorm()(x)
+        x = self.conv_2(x)
+        x = nn.LeakyReLU(0.2)(x)
+        return PixelwiseNorm()(x)
 
 
 class GenGeneralConvBlock(nn.Module):
@@ -268,7 +260,7 @@ class GenGeneralConvBlock(nn.Module):
         self.conv_1 = ScaledConv2d(
             in_channels,
             out_channels,
-            (3, 3),
+            kernel_size=3,
             padding=1,
             bias=True,
             use_dynamic_wscale=True,
@@ -276,7 +268,7 @@ class GenGeneralConvBlock(nn.Module):
         self.conv_2 = ScaledConv2d(
             out_channels,
             out_channels,
-            (3, 3),
+            kernel_size=3,
             padding=1,
             bias=True,
             use_dynamic_wscale=True,
@@ -289,11 +281,13 @@ class GenGeneralConvBlock(nn.Module):
         Args:
             x: Input tensor
         """
-        y = nn.functional.interpolate(x, scale_factor=2)
-        y = PixelwiseNorm()(nn.LeakyReLU(0.2)(self.conv_1(y)))
-        y = PixelwiseNorm()(nn.LeakyReLU(0.2)(self.conv_2(y)))
-
-        return y
+        x = nn.functional.interpolate(x, scale_factor=2)
+        x = self.conv_1(x)
+        x = nn.LeakyReLU(0.2)(x)
+        x = PixelwiseNorm()(x)
+        x = self.conv_2(x)
+        x = nn.LeakyReLU(0.2)(x)
+        return PixelwiseNorm()(x)
 
 
 class ProGANGenerator(nn.Module):
@@ -324,7 +318,7 @@ class ProGANGenerator(nn.Module):
             )
         )
 
-        for block in range(1, n_blocks):
+        for block in range(0, n_blocks):
             self.layers.append(
                 GenGeneralConvBlock(
                     calc_channels_at_stage(block),
@@ -356,12 +350,12 @@ class ProGANGenerator(nn.Module):
         self, x: torch.Tensor, block: int, alpha: float
     ) -> torch.Tensor:
         """
-        forward pass of the Generator
+        Forward pass of the Generator.
+
         Args:
             x: input latent noise
             block: depth from where the network's output is required
             alpha: value of alpha for fade-in effect
-        Returns: generated images at the give depth's resolution
         """
 
         if block > self.n_blocks:
@@ -376,7 +370,7 @@ class ProGANGenerator(nn.Module):
         residual = nn.functional.interpolate(
             self.rgb_converters[block - 1](x), scale_factor=2
         )
-        straight = self.rgb_converters[block](self.layers[block + 1](x))
+        straight = self.rgb_converters[block](self.layers[block](x))
         return (alpha * straight) + ((1 - alpha) * residual)
 
     def get_save_info(self) -> Dict[str, Any]:
@@ -488,6 +482,7 @@ class ProGAN(WGAN):
         path = kwargs.get("path", ".")
         model_dump_path = kwargs.get("write_model_to", None)
         steps = global_steps // batch_size
+        alphas = np.linspace(0, 1, steps).tolist()
 
         fade_images_shown = self.block_images_shown.get("fade_in")[block]
 
@@ -499,11 +494,12 @@ class ProGAN(WGAN):
             phase = "fade_in"
             logger.info(f"Starting fade in for resolution {2 ** (block + 2)}")
             phase_images_shown = self.block_images_shown.get("fade_in")[block]
+            for _ in range(phase_images_shown // batch_size):
+                alphas.pop(0)
 
-        alphas = np.linspace(0, 1, steps).tolist()
         for step in range(phase_images_shown // batch_size, steps):
             batch = data_loader.__getitem__(step)
-            alpha = alphas.pop(0) if phase == "burn_in" else 1.0
+            alpha = alphas.pop(0) if phase == "fade_in" else 1.0
 
             self.train_on_batch(
                 batch,
@@ -518,7 +514,7 @@ class ProGAN(WGAN):
                 self.block_images_shown["burn_in"][block] += batch_size
             if step % (steps // 32) == 0:
                 self._print_output()
-                self._generate_images(path, phase, block=block)
+                self._generate_images(path, phase, block=block, alpha=alpha)
 
                 for _k, v in self.metrics.items():
                     plot_metric(
@@ -537,11 +533,9 @@ class ProGAN(WGAN):
                 block=block,
                 global_steps=global_steps,
                 batch_size=batch_size,
-                verbose=True,
                 minibatch_reps=1,
                 path=path,
                 write_model_to=model_dump_path,
-                **kwargs,
             )
 
     def train_discriminator(
@@ -600,7 +594,7 @@ class ProGAN(WGAN):
         self.generator_optimizer.step()
         return loss_fake.detach().cpu().numpy().tolist()
 
-    def _generate_images(self, path, phase, block: int):
+    def _generate_images(self, path, phase, block: int, alpha: float = 1.0):
         for s in range(25):
             img_path = os.path.join(
                 path, f"{s}_fixed_step_gif{self.images_shown}.png"
@@ -612,7 +606,7 @@ class ProGAN(WGAN):
                 seed=s,
                 n_imgs=1,
                 block=block,
-                alpha=0.0,
+                alpha=alpha,
                 use_gpu=self.use_gpu,
             )
 
@@ -634,28 +628,5 @@ class ProGAN(WGAN):
                 )
 
     def load(self, path):
-        models = ["_fade_in"]
-        gan = joblib.load(os.path.join(path, "GAN.pkl"))
-        fade_in_img_shown = gan.block_images_shown["fade_in"]
-        burn_in_img_shown = gan.block_images_shown["burn_in"]
-        if fade_in_img_shown[-1] < burn_in_img_shown[-1] and len(
-            burn_in_img_shown
-        ) == len(fade_in_img_shown):
-            models.append("")
-        for fade_in in models:
-            weights_to_load = os.path.join(path, f"G{fade_in}.h5")
-            if os.path.isfile(weights_to_load):
-                getattr(self, f"generator{fade_in}").load(weights_to_load)
-                getattr(self, f"discriminator{fade_in}").load(
-                    os.path.join(path, f"D{fade_in}.h5")
-                )
-                getattr(self, f"discriminator_model{fade_in}").load(
-                    os.path.join(path, f"DM{fade_in}.h5")
-                )
-                getattr(self, f"combined_model{fade_in}").load(
-                    os.path.join(path, f"C{fade_in}.h5")
-                )
-
-        self.images_shown = gan.images_shown
-        self.metrics = gan.metrics
+        gan = super(ProGAN, self).load(path)
         self.block_images_shown = gan.block_images_shown

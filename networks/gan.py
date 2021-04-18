@@ -14,6 +14,9 @@ class GAN(ABC):
     def __init__(self, use_gpu: bool = False):
         """
         Abstract GAN Class.
+
+        Args:
+            use_gpu: Flag to use GPU for training
         """
         self.discriminator = None
         self.generator = None
@@ -22,11 +25,16 @@ class GAN(ABC):
         self.images_shown = 0
         self.generator_loss = []
         self.metrics = defaultdict(dict)
-        self.use_gpu = self.train_on_gpu = (
-            torch.cuda.is_available() and use_gpu
-        )
+        self.use_gpu = torch.cuda.is_available() and use_gpu
 
     def set_optimizers(self, discriminator_optimizer, generator_optimizer):
+        """
+        Assign both the discriminator and the generator optimizer.
+
+        Args:
+            discriminator_optimizer: PyTorch discriminator optimizer
+            generator_optimizer: PyTorch generator optimizer
+        """
         self.discriminator_optimizer = Adam(
             params=self.discriminator.parameters(), **discriminator_optimizer
         )
@@ -122,3 +130,4 @@ class GAN(ABC):
         self.discriminator_optimizer.load_state_dict(
             discriminator_cktp["discriminator_optimizer"]
         )
+        return gan

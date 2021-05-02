@@ -68,7 +68,8 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         Forward pass of the module.
 
         Args:
-            x: Input tensor
+            images: Input tensor of images
+            year: Input tensor containing the release year of the images
         """
         x = MinibatchStdDev()(images)
         if self.add_year_information:
@@ -139,8 +140,10 @@ class ProGANDiscriminator(nn.Module):
 
         Args:
             n_blocks: Number of blocks.
-            n_chanScaledConv2dnels: Number of input channels
+            n_channels: Number of input channels
             latent_size: Latent size of the corresponding generator
+            add_year_information: Flag to take year information into
+                consideration during discrimination
 
         References:
             - Progressive Growing of GANs for Improved Quality, Stability, and Variation: https://arxiv.org/abs/1710.10196
@@ -206,7 +209,7 @@ class ProGANDiscriminator(nn.Module):
             residual = self.from_rgb[block - 1](
                 nn.functional.avg_pool2d(images, kernel_size=2, stride=2)
             )
-            straight = self.layers[block - 1](self.from_rgb[block](x))
+            straight = self.layers[block - 1](self.from_rgb[block](images))
             x = (alpha * straight) + ((1 - alpha) * residual)
 
             for layer_block in reversed(self.layers[: block - 1]):
@@ -466,6 +469,7 @@ class ProGAN(WGAN):
             "fade_in": defaultlist(int),
         }
         self.add_year_information = kwargs.get("add_year_information", False)
+        self.release_year_scaler = None
 
     def build_discriminator(self, **kwargs) -> ProGANDiscriminator:
         """
@@ -549,7 +553,22 @@ class ProGAN(WGAN):
                 self.block_images_shown["burn_in"][block] += batch_size
             if step % (steps // 32) == 0:
                 self._print_output()
-                self._generate_images(path, phase, block=block, alpha=alpha)
+
+                for s in range(25):
+                    img_path = os.path.join(
+                        path, f"{s}_fixed_step_gif{self.images_shown}.png"
+                    )
+                    generate_images(
+                        self.generator,
+                        img_path,
+                        target_size=(256, 256),
+                        seed=s,
+                        n_imgs=1,
+                        block=block,
+                        alpha=alpha,
+                        use_gpu=self.use_gpu,
+                        release_year_scaler=self.release_year_scaler,
+                    )
 
                 for _k, v in self.metrics.items():
                     plot_metric(
@@ -649,39 +668,6 @@ class ProGAN(WGAN):
         loss_fake.backward()
         self.generator_optimizer.step()
         return loss_fake.detach().cpu().numpy().tolist()
-
-    def _generate_images(self, path, phase, block: int, alpha: float = 1.0):
-        for s in range(25):
-            img_path = os.path.join(
-                path, f"{s}_fixed_step_gif{self.images_shown}.png"
-            )
-            generate_images(
-                self.generator,
-                img_path,
-                target_size=(256, 256),
-                seed=s,
-                n_imgs=1,
-                block=block,
-                alpha=alpha,
-                use_gpu=self.use_gpu,
-            )
-
-        if phase == "fade_in":
-            min_max_alpha = (0, 1)
-            for a in min_max_alpha:
-                img_path = os.path.join(
-                    path,
-                    f"fixed_step{self.images_shown}_alpha{a}.png",
-                )
-                generate_images(
-                    self.generator,
-                    img_path,
-                    target_size=(256, 256),
-                    seed=101,
-                    block=block,
-                    alpha=a,
-                    use_gpu=self.use_gpu,
-                )
 
     def load(self, path):
         gan = super(ProGAN, self).load(path)

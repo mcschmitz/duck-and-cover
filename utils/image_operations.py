@@ -57,6 +57,7 @@ def generate_images(
         target_size: target size of the image
     """
     use_gpu = kwargs.get("use_gpu", False)
+    release_year_scaler = kwargs.get("release_year_scaler")
     if "use_gpu" in kwargs:
         kwargs.pop("use_gpu")
     if seed is not None:
@@ -64,13 +65,22 @@ def generate_images(
     else:
         np.random.seed()
     generator_model.eval()
+    latent_size = generator_model.latent_size
+    if release_year_scaler:
+        kwargs.pop("release_year_scaler")
+        year = np.random.randint(1925, 2025, 1).reshape(-1, 1)
+        scaled_year = release_year_scaler.transform(year)
+        scaled_year_vec = np.repeat(scaled_year, 10).reshape(-1, 1)
+        latent_size -= 1
     idx = 1
-    figsize = (np.array(target_size) * [10, n_imgs]).astype(int)
-    plt.figure(figsize=figsize, dpi=1)
+    figsize = (np.array(target_size) * [10, n_imgs]).astype(int) / 300
+    fig = plt.figure(figsize=figsize, dpi=300)
     for _ in range(n_imgs):
-        x0 = np.random.normal(size=generator_model.latent_size)
-        x1 = np.random.normal(size=generator_model.latent_size)
+        x0 = np.random.normal(size=latent_size)
+        x1 = np.random.normal(size=latent_size)
         x = np.linspace(x0, x1, 10)
+        if release_year_scaler:
+            x = np.hstack([x, scaled_year_vec])
         x = torch.Tensor(x)
         if use_gpu:
             x = x.cuda()
@@ -87,7 +97,15 @@ def generate_images(
             plt.subplots_adjust(
                 left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1
             )
-    plt.savefig(output_dir, dpi=1)
+    if release_year_scaler:
+        fig.axes[0].text(
+            2,
+            15,
+            f"Release year: {year[0][0]}",
+            color="black",
+            fontsize=4,
+        )
+    plt.savefig(output_dir)
     plt.close()
 
 

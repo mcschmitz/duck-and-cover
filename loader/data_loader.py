@@ -67,9 +67,9 @@ class DataLoader(Sequence):
             file_path = self.files[b_idx]
             try:
                 img = imread(file_path)
-                img = np.moveaxis(img, -1, 0)
-            except ValueError as err:
+            except FileNotFoundError as err:
                 logger.error(f"Unable to load {file_path}. Error: {err}")
+            img = np.moveaxis(img, -1, 0)
             img = resize(img, (3, self.image_size, self.image_size))
             batch_x[i] = img
             if self.return_release_year:

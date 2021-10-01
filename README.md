@@ -39,10 +39,10 @@ Data gathering consists of two steps:
 The first network built is a simple
 [Deep Convolutional GAN](https://arxiv.org/pdf/1511.06434.pdf). The 
 results aren't really satisfying since a DCGAN is not able to capture
-the manifold variations in an album Cover:
+the manifold variations in an album Cover and collapses pretty early on:
 
 <div align="center">
-  <img src="learning_progress/0_dcgan/fixed.gif">
+  <img src="img/learning_progress_gan.gif">
 </div>
 
 Switching from a normal binary crossentropy loss for both discriminator
@@ -51,7 +51,7 @@ with gradient penalty](https://arxiv.org/pdf/1704.00028.pdf) yields much
 better results than the DCGAN:
 
 <div align="center">
-  <img src="learning_progress/1_wgan/fixed.gif">
+  <img src="img/learning_progress_wgan.gif">
 </div>
 
 Obviously optimizing the wasserstein loss results in more stable
@@ -59,3 +59,14 @@ gradients which leads to a steady learning phase, whereas the gradient
 penalty prevents varnished gradients. This results in a detectable
 structure in the generated images, so that they even adumbrate interpret
 or album names on top or bottom of the generated covers.
+
+Now let's have a look at the results of the ProGAN. Clearly once can see how the
+model is built up from a very small resolution to a final resolution of 
+512x512 pixel. This allows the network to learn the structure of the image 
+little by little and produces an image that has clearer edges on those 
+structures. The results are far from perfect, but much better than on the 
+Deep Convolutional GAN and on the Wassertrein GAN.
+
+<div align="center">
+  <img src="img/learning_progress_progan.gif">
+</div>

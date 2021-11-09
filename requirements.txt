@@ -105,7 +105,7 @@ pycparser==2.20
 pydocstyle==5.1.1
 pydot==1.4.1
 pyflakes==2.2.0
-Pygments==2.7.2
+Pygments==2.7.4
 pygtrie==2.3.2
 pyOpenSSL==19.0.0
 pyparsing==2.4.7

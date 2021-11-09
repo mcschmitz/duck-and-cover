@@ -7,6 +7,7 @@ from torch.optim import AdamW
 from transformers import BatchEncoding, BertConfig, BertModel
 
 from constants import GPU_AVAILABLE
+from utils import logger
 
 
 class GenreDecoder(nn.Module):
@@ -74,6 +75,7 @@ class GenreAutoencoder(nn.Module):
         self.optimizer, self.scheduler = self.init_optimizer(
             scheduler, optimizer_params
         )
+        self.metrics = {"train_loss": []}
         if GPU_AVAILABLE:
             self.encoder.cuda()
             self.decoder.cuda()
@@ -96,6 +98,7 @@ class GenreAutoencoder(nn.Module):
         Assign both the discriminator and the generator optimizer.
 
         Args:
+            scheduler: Learning rate scheduler
             optimizer_params: PyTorch optimizer parameters
         """
         encoders = (self.encoder, self.decoder)
@@ -106,7 +109,7 @@ class GenreAutoencoder(nn.Module):
                     "params": [
                         p for p in encoder.parameters() if p.requires_grad
                     ],
-                    "weight_decay": 0.0,
+                    "weight_decay": 0,
                 },
             ]
             optimizer_grouped_parameters.extend(params)
@@ -130,6 +133,7 @@ class GenreAutoencoder(nn.Module):
             data_loader: Data Loader used for training
             steps: Absolute number of training steps
             batch_size: Batch size for training
+            **kwargs: Keyword arguments. See below.
 
         Keyword Args:
             path: Path to which model training graphs will be written
@@ -141,11 +145,14 @@ class GenreAutoencoder(nn.Module):
         """
         kwargs.get("path", ".")
         kwargs.get("write_model_to", None)
+        print_output_every_n = kwargs.get("print_output_every_n", steps // 100)
         for step in range(steps):
             batch, labels = data_loader.__getitem__(step)
-            self.train_on_batch(batch, labels)
-            # if step % (steps // 32) == 0:
-            #     self._print_output()
+            self.metrics["train_loss"].append(
+                self.train_on_batch(batch, labels)
+            )
+            if step % print_output_every_n == 0:
+                self._print_output(n=print_output_every_n)
             #     for _k, v in self.metrics.items():
             #         plot_metric(
             #             path,
@@ -157,7 +164,17 @@ class GenreAutoencoder(nn.Module):
             #     if model_dump_path:
             #         self.save(model_dump_path)
 
-    def train_on_batch(self, batch, labels) -> np.ndarray:
+    def train_on_batch(self, batch: BatchEncoding, labels: torch.Tensor) -> np.ndarray:
+        """
+        Trains the AE on the given batch.
+
+        Args:
+            batch: Tokenized genre sequence
+            labels: True genres
+
+        Returns:
+            Scalar loss of this batch
+        """
         if GPU_AVAILABLE:
             batch = {k: v.cuda() for k, v in batch.items()}
             labels = labels.cuda()
@@ -170,3 +187,17 @@ class GenreAutoencoder(nn.Module):
         self.optimizer.step()
         self.scheduler.step()
         return loss.cpu().detach().numpy()
+
+    def _print_output(self, n):
+        steps = (len(self.metrics["train_loss"]) * n) - n
+        train_loss = np.round(
+            np.mean(self.metrics["train_loss"][-n:]), decimals=3
+        )
+        # val_loss = np.round(
+        #     np.mean(self.metrics["val_loss"][-n:]), decimals=3
+        # )
+        logger.info(
+            f"Steps: {steps}"
+            + f" Train Loss: {train_loss} -"
+            # + f" Discriminator Loss: {d_loss}"
+        )

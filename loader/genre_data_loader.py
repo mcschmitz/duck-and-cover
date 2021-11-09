@@ -1,11 +1,13 @@
 import os
 from pathlib import Path
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.preprocessing import MultiLabelBinarizer
 from tokenizers import BertWordPieceTokenizer
-from transformers import BertTokenizer
+from transformers import BatchEncoding, BertTokenizer
 
 from utils import logger
 
@@ -39,24 +41,30 @@ class GenreDataLoader:
         self.meta_df = self.meta_df.dropna(subset=["artist_genre"])
         self.tokenizer = self.setup_tokenizer(tokenizer_path)
         self.n_samples = len(self.meta_df)
+        self.label_binarizer = MultiLabelBinarizer()
+        self.label_binarizer.fit(self.meta_df["artist_genre"].to_list())
 
     def __len__(self):
         return self.n_samples // self.batch_size
 
-    def __getitem__(self, item) -> torch.LongTensor:
+    def __getitem__(self, item) -> Tuple[BatchEncoding, torch.Tensor]:
         genre_strings = []
+        labels_list = []
         batch_idx = self._get_batch_idx()
         for b_idx in batch_idx:
-            genre_strings.append(
-                ", ".join(self.meta_df["artist_genre"][b_idx])
-            )
+            labels_list.append(self.meta_df["artist_genre"][b_idx])
+            genre_strings.append(" ".join(self.meta_df["artist_genre"][b_idx]))
         self._iterator_i = batch_idx[-1]
-        return self.tokenizer(
-            genre_strings,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-            padding=True,
+        labels = self.label_binarizer.transform(labels_list)
+        return (
+            self.tokenizer(
+                genre_strings,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            ),
+            torch.Tensor(labels),
         )
 
     def setup_tokenizer(self, path: str):
@@ -88,7 +96,7 @@ class GenreDataLoader:
             subframe = df[i : i + batch_size]
             genre_lists = subframe["artist_genre"].tolist()
             genre_lists = [sorted(gl) for gl in genre_lists]
-            yield [", ".join(gl) for gl in genre_lists]
+            yield [" ".join(gl) for gl in genre_lists]
 
     def _get_batch_idx(self):
         positions = np.arange(

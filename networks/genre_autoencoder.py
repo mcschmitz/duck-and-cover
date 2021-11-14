@@ -147,7 +147,7 @@ class GenreAutoencoder(nn.Module):
         kwargs.get("write_model_to", None)
         print_output_every_n = kwargs.get("print_output_every_n", steps // 100)
         for step in range(steps):
-            batch, labels = data_loader.__getitem__(step)
+            batch, labels = data_loader.train_generator[step]
             self.metrics["train_loss"].append(
                 self.train_on_batch(batch, labels)
             )
@@ -164,7 +164,9 @@ class GenreAutoencoder(nn.Module):
             #     if model_dump_path:
             #         self.save(model_dump_path)
 
-    def train_on_batch(self, batch: BatchEncoding, labels: torch.Tensor) -> np.ndarray:
+    def train_on_batch(
+        self, batch: BatchEncoding, labels: torch.Tensor
+    ) -> np.ndarray:
         """
         Trains the AE on the given batch.
 

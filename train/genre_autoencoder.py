@@ -27,10 +27,11 @@ data_loader = GenreDataLoader(
     meta_data_path="data/album_data_frame.json",
     tokenizer_path="data/genre_encoder_tokenizer",
 )
+num_labels = data_loader.get_number_of_classes()
 vocab_size = data_loader.tokenizer.vocab_size
 
 autoencoder = GenreAutoencoder(
-    num_labels=3319,
+    num_labels=num_labels,
     encoding_dim=LATENT_SIZE,
     scheduler=scheduler,
     optimizer_params={"lr": 0.001, "betas": (0.0, 0.99)},

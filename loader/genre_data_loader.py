@@ -30,8 +30,6 @@ class GenreDataLoader:
                 vocab file. If not exists, will train a tokenizer.
             batch_size: Size of one Batch
         """
-        self._iterator_i = 0
-        self.batch_size = batch_size
         self.meta_df = pd.read_json(
             meta_data_path, orient="records", lines=True
         )
@@ -39,32 +37,24 @@ class GenreDataLoader:
             subset=["file_path_64", "file_path_300"]
         )
         self.meta_df = self.meta_df.dropna(subset=["artist_genre"])
-        self.tokenizer = self.setup_tokenizer(tokenizer_path)
-        self.n_samples = len(self.meta_df)
+        tokenizer = self.setup_tokenizer(tokenizer_path)
         self.label_binarizer = MultiLabelBinarizer()
         self.label_binarizer.fit(self.meta_df["artist_genre"].to_list())
-
-    def __len__(self):
-        return self.n_samples // self.batch_size
-
-    def __getitem__(self, item) -> Tuple[BatchEncoding, torch.Tensor]:
-        genre_strings = []
-        labels_list = []
-        batch_idx = self._get_batch_idx()
-        for b_idx in batch_idx:
-            labels_list.append(self.meta_df["artist_genre"][b_idx])
-            genre_strings.append(" ".join(self.meta_df["artist_genre"][b_idx]))
-        self._iterator_i = batch_idx[-1]
-        labels = self.label_binarizer.transform(labels_list)
-        return (
-            self.tokenizer(
-                genre_strings,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                padding=True,
-            ),
-            torch.Tensor(labels),
+        train_set = self.meta_df.sample(frac=0.7)
+        data = self.meta_df[~self.meta_df.index.isin(train_set.index)]
+        val_set = data.sample(frac=2 / 3)
+        test_set = data[~data.index.isin(val_set.index)]
+        self.train_generator = GenreTrainGenerator(
+            data=train_set,
+            batch_size=batch_size,
+            tokenizer=tokenizer,
+            binarizer=self.label_binarizer,
+        )
+        self.val_generator = GenreSetGenerator(
+            data=val_set, tokenizer=tokenizer, binarizer=self.label_binarizer
+        )
+        self.test_generator = GenreSetGenerator(
+            data=test_set, tokenizer=tokenizer, binarizer=self.label_binarizer
         )
 
     def setup_tokenizer(self, path: str):
@@ -90,6 +80,12 @@ class GenreDataLoader:
         tokenizer.save_model(path)
         return BertTokenizer(vocab_file=f"{path}/vocab.txt")
 
+    def get_number_of_classes(self) -> int:
+        """
+        Returns the total number of genres.
+        """
+        return len(self.label_binarizer.classes_)
+
     @classmethod
     def _batch_iterator(cls, df, batch_size=1000):
         for i in range(0, len(df), batch_size):
@@ -97,6 +93,55 @@ class GenreDataLoader:
             genre_lists = subframe["artist_genre"].tolist()
             genre_lists = [sorted(gl) for gl in genre_lists]
             yield [" ".join(gl) for gl in genre_lists]
+
+
+class GenreTrainGenerator:
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        batch_size: int,
+        tokenizer: BertTokenizer,
+        binarizer: MultiLabelBinarizer,
+    ):
+        """
+        Trainset generator for the  gerne data.
+
+        Args:
+            data: Dataset to be used for training
+            batch_size: training batch size
+            tokenizer: BertWordPieceTokenizer that should be used to tokenize
+                the concatenated genre list.
+            binarizer: MultiLabelBinarizer to binarize the actual gerne lables
+        """
+        self._iterator_i = 0
+        self.batch_size = batch_size
+        self.data = data.reset_index(drop=True)
+        self.n_samples = len(self.data)
+        self.tokenizer = tokenizer
+        self.label_binarizer = binarizer
+
+    def __len__(self):
+        return self.n_samples // self.batch_size
+
+    def __getitem__(self, item) -> Tuple[BatchEncoding, torch.Tensor]:
+        genre_strings = []
+        labels_list = []
+        batch_idx = self._get_batch_idx()
+        for b_idx in batch_idx:
+            labels_list.append(self.data["artist_genre"][b_idx])
+            genre_strings.append(" ".join(self.data["artist_genre"][b_idx]))
+        self._iterator_i = batch_idx[-1]
+        labels = self.label_binarizer.transform(labels_list)
+        return (
+            self.tokenizer(
+                genre_strings,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            ),
+            torch.Tensor(labels),
+        )
 
     def _get_batch_idx(self):
         positions = np.arange(
@@ -107,5 +152,48 @@ class GenreDataLoader:
         ]
         if 0 in batch_idx:
             logger.info("Data Generator exceeded. Will shuffle input data.")
-            self.meta_df = self.meta_df.sample(frac=1).reset_index(drop=True)
+            self.data = self.data.sample(frac=1).reset_index(drop=True)
         return batch_idx
+
+
+class GenreSetGenerator:
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        tokenizer: BertTokenizer,
+        binarizer: MultiLabelBinarizer,
+    ):
+        """
+        Dataset generator for the gerne validation or test data.
+
+        Args:
+            data: Dataset to be used for validation or testing
+            tokenizer: BertWordPieceTokenizer that should be used to tokenize
+                the concatenated genre list.
+            binarizer: MultiLabelBinarizer to binarize the actual gerne lables
+        """
+        self.data = data.reset_index(drop=True)
+        self.n_samples = len(self.data)
+        self.tokenizer = tokenizer
+        self.label_binarizer = binarizer
+
+    def return_data(self) -> Tuple[BatchEncoding, torch.Tensor]:
+        """
+        Retruns the entire tokenized dataset + the actual genre labels.
+        """
+        genre_strings = []
+        labels_list = []
+        for _idx, row in self.data.iterrows():
+            labels_list.append(row["artist_genre"])
+            genre_strings.append(" ".join(row["artist_genre"]))
+        labels = self.label_binarizer.transform(labels_list)
+        return (
+            self.tokenizer(
+                genre_strings,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            ),
+            torch.Tensor(labels),
+        )

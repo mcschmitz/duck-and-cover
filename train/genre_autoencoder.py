@@ -1,26 +1,23 @@
 import os
-from functools import partial
 from pathlib import Path
 
-from transformers.optimization import get_linear_schedule_with_warmup
+import pytorch_lightning as pl
+from transformers import BertConfig
 
+from config import config
 from loader import GenreDataLoader
-from networks import GenreAutoencoder
+from networks import GenreAutoencoder, GenreDecoder, GenreEncoder
 
-BATCH_SIZE = 16
-LATENT_SIZE = 128
+BATCH_SIZE = 64
+LATENT_SIZE = 768
 PATH = f"genre_autoencoder-{LATENT_SIZE}"
+lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 TRAIN_STEPS = int(1e6)
 
 model_dump_path = os.path.join(PATH, "model")
 Path(model_dump_path).mkdir(parents=True, exist_ok=True)
+Path(lp_path).mkdir(parents=True, exist_ok=True)
 
-
-scheduler = learning_rate_schedule = partial(
-    get_linear_schedule_with_warmup,
-    num_warmup_steps=int(TRAIN_STEPS * 0.1),
-    num_training_steps=TRAIN_STEPS,
-)
 
 data_loader = GenreDataLoader(
     batch_size=BATCH_SIZE,
@@ -30,18 +27,17 @@ data_loader = GenreDataLoader(
 num_labels = data_loader.get_number_of_classes()
 vocab_size = data_loader.tokenizer.vocab_size
 
-autoencoder = GenreAutoencoder(
-    num_labels=num_labels,
-    encoding_dim=LATENT_SIZE,
-    scheduler=scheduler,
-    optimizer_params={"lr": 0.001, "betas": (0.0, 0.99)},
+bert_config = BertConfig(
     vocab_size=vocab_size,
+    hidden_size=LATENT_SIZE,
+    max_position_embeddings=64,
 )
 
-autoencoder.train(
-    data_loader=data_loader,
-    steps=TRAIN_STEPS,
-    batch_size=BATCH_SIZE,
-    write_model_to=model_dump_path,
-)
-autoencoder.save(model_dump_path)
+encoder = GenreEncoder(bert_config)
+
+decoder = GenreDecoder(input_dim=LATENT_SIZE, num_labels=num_labels)
+
+autoencoder = GenreAutoencoder(encoder, decoder)
+
+trainer = pl.Trainer(gpus=-1, max_steps=TRAIN_STEPS)
+trainer.fit(autoencoder, train_dataloader=data_loader.train_generator)

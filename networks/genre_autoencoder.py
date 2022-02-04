@@ -1,12 +1,17 @@
 from typing import Dict
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
+from sklearn.metrics import hamming_loss
 from torch import nn
 from torch.optim import AdamW
+from tqdm import tqdm
 from transformers import BatchEncoding, BertConfig, BertModel
+from transformers.optimization import get_linear_schedule_with_warmup
 
 from constants import GPU_AVAILABLE
+from networks.utils import plot_metric
 from utils import logger
 
 
@@ -38,15 +43,30 @@ class GenreDecoder(nn.Module):
         return nn.Sigmoid()(x)
 
 
-class GenreAutoencoder(nn.Module):
-    def __init__(
-        self,
-        num_labels: int,
-        encoding_dim: int,
-        scheduler,
-        optimizer_params: Dict,
-        vocab_size: int,
-    ):
+class GenreEncoder(nn.Module):
+    def __init__(self, config: BertConfig):
+        """
+        Genre encoderEncoder that uses BERT to encode a list of genres into a
+        dense space.
+
+        Args:
+             config: Huggingface Bert Model config.
+        """
+        super(GenreEncoder, self).__init__()
+        self.encoder = BertModel(config)
+
+    def forward(self, x: Dict[str, torch.Tensor]):
+        """
+        Encoding method.
+
+        Args:
+            x: Tokenized genre input
+        """
+        return self.encoder(**x).pooler_output
+
+
+class GenreAutoencoder(pl.LightningModule):
+    def __init__(self, encoder, decoder):
         """
         A model which can be seen as an autoencoder (AE) for the genre strings.
         Takes a Bert-like tokenized concatenated string of genre strings as
@@ -54,31 +74,43 @@ class GenreAutoencoder(nn.Module):
         small Bert-like model.
 
         Args:
-            num_labels: Total number of genres
-            encoding_dim: Latent size of the AE
-            scheduler: Learning rate scheduler
-            optimizer_params: Params for the Adam optimizer
-            vocab_size: Total size of genre vocab.
+            encoder: Genre encoder
+            decoder: Genre decoder
         """
         super(GenreAutoencoder, self).__init__()
-        bert_config = BertConfig(
-            vocab_size=vocab_size,
-            hidden_size=encoding_dim,
-            num_hidden_layers=4,
-            num_attention_heads=4,
-            max_position_embeddings=64,
-        )
-        self.encoder = BertModel(bert_config)
-        self.decoder = GenreDecoder(
-            input_dim=encoding_dim, num_labels=num_labels
-        )
-        self.optimizer, self.scheduler = self.init_optimizer(
-            scheduler, optimizer_params
-        )
-        self.metrics = {"train_loss": []}
-        if GPU_AVAILABLE:
-            self.encoder.cuda()
-            self.decoder.cuda()
+        self.encoder = encoder
+        self.decoder = decoder
+
+        self.loss = nn.BCELoss()
+
+        self.metrics = {
+            "train_loss": {
+                "file_name": "train_loss.png",
+                "label": "Train Loss",
+                "values": [],
+            },
+            "val_loss": {
+                "file_name": "val_loss.png",
+                "label": "Val. Loss",
+                "values": [],
+            },
+            "val_accuracy": {
+                "file_name": "val_accuracy.png",
+                "label": "Val. Accuracy",
+                "values": [],
+            },
+            "val_em_ratio": {
+                "file_name": "val_em_ratio.png",
+                "label": "Val. Exact Match Ratio",
+                "values": [],
+            },
+            "val_hamming_loss": {
+                "file_name": "val_hamming_loss.png",
+                "label": "Val. Hamming Loss",
+                "values": [],
+            },
+            "samples_seen": 0,
+        }
 
     def forward(self, x: BatchEncoding) -> torch.Tensor:
         """
@@ -90,16 +122,12 @@ class GenreAutoencoder(nn.Module):
         Returns:
             Genre embedding
         """
-        encoding = self.encoder(**x).pooler_output
+        encoding = self.encoder(x)
         return self.decoder(encoding)
 
-    def init_optimizer(self, scheduler, optimizer_params):
+    def configure_optimizers(self):
         """
         Assign both the discriminator and the generator optimizer.
-
-        Args:
-            scheduler: Learning rate scheduler
-            optimizer_params: PyTorch optimizer parameters
         """
         encoders = (self.encoder, self.decoder)
         optimizer_grouped_parameters = []
@@ -114,12 +142,16 @@ class GenreAutoencoder(nn.Module):
             ]
             optimizer_grouped_parameters.extend(params)
         optimizer = AdamW(
-            params=optimizer_grouped_parameters, **optimizer_params
+            params=optimizer_grouped_parameters, lr=1e-6, betas=(0.0, 0.99)
         )
-        scheduler = scheduler(optimizer)
-        return optimizer, scheduler
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=int(self.trainer.max_steps * 0.1),
+            num_training_steps=self.trainer.max_steps,
+        )
+        return [optimizer], [scheduler]
 
-    def train(
+    def train2(
         self,
         data_loader,
         steps: int,
@@ -143,63 +175,96 @@ class GenreAutoencoder(nn.Module):
                 batch size. Otherwise not the entire batch will be used for
                 training
         """
-        kwargs.get("path", ".")
-        kwargs.get("write_model_to", None)
+        path = kwargs.get("path", ".")
         print_output_every_n = kwargs.get("print_output_every_n", steps // 100)
         for step in range(steps):
             batch, labels = data_loader.train_generator[step]
-            self.metrics["train_loss"].append(
+            self.metrics["train_loss"]["values"].append(
                 self.train_on_batch(batch, labels)
             )
+            self.samples_seen += len(batch)
             if step % print_output_every_n == 0:
+                self.validate(data_loader)
                 self._print_output(n=print_output_every_n)
-            #     for _k, v in self.metrics.items():
-            #         plot_metric(
-            #             path,
-            #             steps=self.images_shown,
-            #             metric=v.get("values"),
-            #             y_label=v.get("label"),
-            #             file_name=v.get("file_name"),
-            #         )
-            #     if model_dump_path:
-            #         self.save(model_dump_path)
+                for _k, v in self.metrics.items():
+                    plot_metric(
+                        path,
+                        steps=self.samples_seen,
+                        metric=v.get("values"),
+                        y_label=v.get("label"),
+                        file_name=v.get("file_name"),
+                    )
 
-    def train_on_batch(
-        self, batch: BatchEncoding, labels: torch.Tensor
-    ) -> np.ndarray:
+    def training_step(self, batch: BatchEncoding):
         """
         Trains the AE on the given batch.
 
         Args:
             batch: Tokenized genre sequence
-            labels: True genres
 
         Returns:
             Scalar loss of this batch
         """
-        if GPU_AVAILABLE:
-            batch = {k: v.cuda() for k, v in batch.items()}
-            labels = labels.cuda()
-        self.encoder.train()
-        self.decoder.train()
-        self.optimizer.zero_grad()
-        x = self(batch)
-        loss = nn.BCELoss()(x, labels)
-        loss.backward(retain_graph=True)
-        self.optimizer.step()
-        self.scheduler.step()
-        return loss.cpu().detach().numpy()
+        x, labels = batch
+        x = self(x)
+        return self.loss(x, labels)
 
     def _print_output(self, n):
-        steps = (len(self.metrics["train_loss"]) * n) - n
+        steps = (len(self.metrics["train_loss"]["values"]) * n) - n
         train_loss = np.round(
-            np.mean(self.metrics["train_loss"][-n:]), decimals=3
+            np.mean(self.metrics["train_loss"]["values"][-n:]), decimals=3
         )
-        # val_loss = np.round(
-        #     np.mean(self.metrics["val_loss"][-n:]), decimals=3
-        # )
+        val_loss = np.round(self.metrics["val_loss"]["values"][-1], decimals=3)
+        val_accuracy = np.round(
+            self.metrics["val_accuracy"]["values"][-1], decimals=3
+        )
+        val_em_ratio = np.round(
+            self.metrics["val_em_ratio"]["values"][-1], decimals=3
+        )
+        val_hamming_loss = np.round(
+            self.metrics["val_hamming_loss"]["values"][-1],
+            decimals=3,
+        )
         logger.info(
             f"Steps: {steps}"
             + f" Train Loss: {train_loss} -"
-            # + f" Discriminator Loss: {d_loss}"
+            + f" Val Loss: {val_loss} -"
+            + f" Val Acc.: {val_accuracy} -"
+            + f" Val EM Ratio: {val_em_ratio} -"
+            + f" Val Hamming Loss: {val_hamming_loss}"
+        )
+
+    def validate(self, data_loader):
+        self.encoder.eval()
+        self.decoder.eval()
+        data, labels = data_loader.return_dataset("val_set")
+        input_ids = torch.split(data["input_ids"], 512)
+        attention_mask = torch.split(data["attention_mask"], 512)
+        token_type_ids = torch.split(data["token_type_ids"], 512)
+        prediction = []
+        for ii, am, tti in tqdm(
+            zip(input_ids, attention_mask, token_type_ids),
+            total=len(input_ids),
+        ):
+            batch = {
+                "input_ids": ii,
+                "attention_mask": am,
+                "token_type_ids": tti,
+            }
+            if GPU_AVAILABLE:
+                batch = {k: v.cuda() for k, v in batch.items()}
+            with torch.no_grad():
+                prediction.append(self(batch))
+        prediction = torch.cat(prediction).cpu()
+        loss = nn.BCELoss()(prediction, labels)
+        self.metrics["val_loss"]["values"].append(loss.numpy().tolist())
+        correct = labels == prediction.round()
+        self.metrics["val_accuracy"]["values"].append(
+            np.mean(correct.numpy() != 0).tolist()
+        )
+        self.metrics["val_em_ratio"]["values"].append(
+            np.mean(correct.numpy().all(1)).tolist()
+        )
+        self.metrics["val_hamming_loss"]["values"].append(
+            hamming_loss(labels, prediction.round())
         )

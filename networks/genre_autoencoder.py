@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pytorch_lightning as pl
@@ -6,13 +6,8 @@ import torch
 from sklearn.metrics import hamming_loss
 from torch import nn
 from torch.optim import AdamW
-from tqdm import tqdm
 from transformers import BatchEncoding, BertConfig, BertModel
 from transformers.optimization import get_linear_schedule_with_warmup
-
-from constants import GPU_AVAILABLE
-from networks.utils import plot_metric
-from utils import logger
 
 
 class GenreDecoder(nn.Module):
@@ -83,35 +78,6 @@ class GenreAutoencoder(pl.LightningModule):
 
         self.loss = nn.BCELoss()
 
-        self.metrics = {
-            "train_loss": {
-                "file_name": "train_loss.png",
-                "label": "Train Loss",
-                "values": [],
-            },
-            "val_loss": {
-                "file_name": "val_loss.png",
-                "label": "Val. Loss",
-                "values": [],
-            },
-            "val_accuracy": {
-                "file_name": "val_accuracy.png",
-                "label": "Val. Accuracy",
-                "values": [],
-            },
-            "val_em_ratio": {
-                "file_name": "val_em_ratio.png",
-                "label": "Val. Exact Match Ratio",
-                "values": [],
-            },
-            "val_hamming_loss": {
-                "file_name": "val_hamming_loss.png",
-                "label": "Val. Hamming Loss",
-                "values": [],
-            },
-            "samples_seen": 0,
-        }
-
     def forward(self, x: BatchEncoding) -> torch.Tensor:
         """
         Runs a forward pass for a concatenated list of genre strings.
@@ -142,7 +108,7 @@ class GenreAutoencoder(pl.LightningModule):
             ]
             optimizer_grouped_parameters.extend(params)
         optimizer = AdamW(
-            params=optimizer_grouped_parameters, lr=1e-6, betas=(0.0, 0.99)
+            params=optimizer_grouped_parameters, lr=1e-6, betas=(0, 0.99)
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
@@ -150,50 +116,6 @@ class GenreAutoencoder(pl.LightningModule):
             num_training_steps=self.trainer.max_steps,
         )
         return [optimizer], [scheduler]
-
-    def train2(
-        self,
-        data_loader,
-        steps: int,
-        batch_size: int,
-        **kwargs,
-    ):
-        """
-        Trains the Genre Autoencoder.
-
-        Args:
-            data_loader: Data Loader used for training
-            steps: Absolute number of training steps
-            batch_size: Batch size for training
-            **kwargs: Keyword arguments. See below.
-
-        Keyword Args:
-            path: Path to which model training graphs will be written
-            write_model_to: Path that can be passed to write the model to during
-                training
-            grad_acc_steps: Gradient accumulation steps. Ideally a factor of the
-                batch size. Otherwise not the entire batch will be used for
-                training
-        """
-        path = kwargs.get("path", ".")
-        print_output_every_n = kwargs.get("print_output_every_n", steps // 100)
-        for step in range(steps):
-            batch, labels = data_loader.train_generator[step]
-            self.metrics["train_loss"]["values"].append(
-                self.train_on_batch(batch, labels)
-            )
-            self.samples_seen += len(batch)
-            if step % print_output_every_n == 0:
-                self.validate(data_loader)
-                self._print_output(n=print_output_every_n)
-                for _k, v in self.metrics.items():
-                    plot_metric(
-                        path,
-                        steps=self.samples_seen,
-                        metric=v.get("values"),
-                        y_label=v.get("label"),
-                        file_name=v.get("file_name"),
-                    )
 
     def training_step(self, batch: BatchEncoding):
         """
@@ -207,64 +129,41 @@ class GenreAutoencoder(pl.LightningModule):
         """
         x, labels = batch
         x = self(x)
-        return self.loss(x, labels)
+        loss = self.loss(x, labels)
+        self.log("train/loss", loss)
+        return loss
 
-    def _print_output(self, n):
-        steps = (len(self.metrics["train_loss"]["values"]) * n) - n
-        train_loss = np.round(
-            np.mean(self.metrics["train_loss"]["values"][-n:]), decimals=3
-        )
-        val_loss = np.round(self.metrics["val_loss"]["values"][-1], decimals=3)
-        val_accuracy = np.round(
-            self.metrics["val_accuracy"]["values"][-1], decimals=3
-        )
-        val_em_ratio = np.round(
-            self.metrics["val_em_ratio"]["values"][-1], decimals=3
-        )
-        val_hamming_loss = np.round(
-            self.metrics["val_hamming_loss"]["values"][-1],
-            decimals=3,
-        )
-        logger.info(
-            f"Steps: {steps}"
-            + f" Train Loss: {train_loss} -"
-            + f" Val Loss: {val_loss} -"
-            + f" Val Acc.: {val_accuracy} -"
-            + f" Val EM Ratio: {val_em_ratio} -"
-            + f" Val Hamming Loss: {val_hamming_loss}"
-        )
+    def validation_step(self, batch: Tuple, _batch_idx) -> Dict:
+        """
+        Takes a batch from the validation generator and predicts it.
 
-    def validate(self, data_loader):
-        self.encoder.eval()
-        self.decoder.eval()
-        data, labels = data_loader.return_dataset("val_set")
-        input_ids = torch.split(data["input_ids"], 512)
-        attention_mask = torch.split(data["attention_mask"], 512)
-        token_type_ids = torch.split(data["token_type_ids"], 512)
-        prediction = []
-        for ii, am, tti in tqdm(
-            zip(input_ids, attention_mask, token_type_ids),
-            total=len(input_ids),
-        ):
-            batch = {
-                "input_ids": ii,
-                "attention_mask": am,
-                "token_type_ids": tti,
+        Args:
+            batch: Batch. A Tuple of data and labels
+            _batch_idx: Batch index
+        """
+        data, labels = batch
+        return {"pred": self(data), "true": labels}
+
+    def validation_epoch_end(self, x: List[Dict]):
+        """
+        Takes the predictions from the validation steps and calculates the
+        validation metrics on it.
+
+        Args:
+            x: List of validation_step outputs
+        """
+        prediction = torch.cat([xi["pred"].cpu() for xi in x])
+        true = torch.cat([xi["true"].cpu() for xi in x])
+        loss = self.loss(prediction, true)
+        correct = true == prediction.round()
+        accuracy = correct.numpy().mean()
+        em_ratio = np.mean(correct.numpy().all(1)).tolist()
+        h_loss = hamming_loss(true.cpu(), prediction.round())
+        self.log_dict(
+            {
+                "val/loss": loss,
+                "val/accuracy": accuracy,
+                "val/exact-match-ratio": em_ratio,
+                "val/hamming-loss": h_loss,
             }
-            if GPU_AVAILABLE:
-                batch = {k: v.cuda() for k, v in batch.items()}
-            with torch.no_grad():
-                prediction.append(self(batch))
-        prediction = torch.cat(prediction).cpu()
-        loss = nn.BCELoss()(prediction, labels)
-        self.metrics["val_loss"]["values"].append(loss.numpy().tolist())
-        correct = labels == prediction.round()
-        self.metrics["val_accuracy"]["values"].append(
-            np.mean(correct.numpy() != 0).tolist()
-        )
-        self.metrics["val_em_ratio"]["values"].append(
-            np.mean(correct.numpy().all(1)).tolist()
-        )
-        self.metrics["val_hamming_loss"]["values"].append(
-            hamming_loss(labels, prediction.round())
         )

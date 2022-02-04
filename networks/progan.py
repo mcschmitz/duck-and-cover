@@ -637,7 +637,7 @@ class ProGAN(WGAN):
             batch, fake_batch, block=block, alpha=alpha
         )
         loss += gp
-        loss += 0.001 * torch.mean(real_pred ** 2)
+        loss += 0.001 * torch.mean(real_pred**2)
         loss.backward()
         self.discriminator_optimizer.step()
         return loss

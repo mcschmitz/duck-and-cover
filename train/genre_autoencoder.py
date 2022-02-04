@@ -39,5 +39,37 @@ decoder = GenreDecoder(input_dim=LATENT_SIZE, num_labels=num_labels)
 
 autoencoder = GenreAutoencoder(encoder, decoder)
 
-trainer = pl.Trainer(gpus=-1, max_steps=TRAIN_STEPS)
-trainer.fit(autoencoder, train_dataloader=data_loader.train_generator)
+logger = pl.loggers.WandbLogger(
+    project="duck-and-cover", entity="manne", tags=["genre-autoencoder"]
+)
+callbacks = [
+    pl.callbacks.EarlyStopping(
+        monitor="val/exact-match-ratio",
+        mode="max",
+        patience=int(TRAIN_STEPS * 0.1),
+        verbose=True,
+    ),
+    pl.callbacks.ModelCheckpoint(
+        monitor="val/exact-match-ratio",
+        dirpath=model_dump_path,
+        mode="max",
+        verbose=True,
+        save_last=False,
+        every_n_train_steps=0,
+        every_n_epochs=1,
+        save_on_train_epoch_end=False,
+    ),
+]
+
+trainer = pl.Trainer(
+    gpus=-1,
+    max_steps=TRAIN_STEPS,
+    logger=logger,
+    val_check_interval=100,
+    enable_progress_bar=False,
+)
+trainer.fit(
+    autoencoder,
+    train_dataloader=data_loader.train_generator,
+    val_dataloaders=data_loader.val_generator,
+)

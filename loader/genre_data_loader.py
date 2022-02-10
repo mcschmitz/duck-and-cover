@@ -1,15 +1,17 @@
-import os
-from pathlib import Path
 from typing import Tuple
+
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.preprocessing import MultiLabelBinarizer
-from tokenizers import BertWordPieceTokenizer
-from tqdm import tqdm
-from transformers import BatchEncoding, BertTokenizer
-
+from transformers import (
+    AutoTokenizer,
+    BatchEncoding,
+    BertTokenizer,
+    DataCollatorForWholeWordMask,
+)
 from utils import logger
 
 
@@ -38,7 +40,7 @@ class GenreDataLoader:
             subset=["file_path_64", "file_path_300"]
         )
         self.meta_df = self.meta_df.dropna(subset=["artist_genre"])
-        self.tokenizer = self.setup_tokenizer(tokenizer_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         self.label_binarizer = MultiLabelBinarizer()
         self.label_binarizer.fit(self.meta_df["artist_genre"].to_list())
         train_set = self.meta_df.sample(frac=0.7)
@@ -57,29 +59,6 @@ class GenreDataLoader:
             tokenizer=self.tokenizer,
             binarizer=self.label_binarizer,
         )
-
-    def setup_tokenizer(self, path: str):
-        """
-        Trains a Bert Tokenizer on the comma separated list of genre strings or
-        loads a tokenizer from a given path.
-
-        Args:
-            path: Tokenizer directory that holds the vocab file
-        """
-        if os.path.exists(f"{path}/vocab.txt"):
-            return BertTokenizer(vocab_file=f"{path}/vocab.txt")
-        tokenizer = BertWordPieceTokenizer(
-            clean_text=True,
-            handle_chinese_chars=False,
-            strip_accents=False,
-            lowercase=False,
-        )
-        tokenizer.train_from_iterator(
-            GenreDataLoader._batch_iterator(self.meta_df, 50000),
-        )
-        Path(path).mkdir(parents=True, exist_ok=True)
-        tokenizer.save_model(path)
-        return BertTokenizer(vocab_file=f"{path}/vocab.txt")
 
     def get_number_of_classes(self) -> int:
         """
@@ -105,7 +84,7 @@ class GenreTrainGenerator:
         binarizer: MultiLabelBinarizer,
     ):
         """
-        Trainset generator for the  gerne data.
+        Trainset generator for the  genre data.
 
         Args:
             data: Dataset to be used for training
@@ -120,6 +99,9 @@ class GenreTrainGenerator:
         self.n_samples = len(self.data)
         self.tokenizer = tokenizer
         self.label_binarizer = binarizer
+        self.collator = DataCollatorForWholeWordMask(
+            self.tokenizer, mlm_probability=0.5
+        )
 
     def __iter__(self):
         yield from (self[batch_id] for batch_id in range(len(self)))
@@ -127,23 +109,36 @@ class GenreTrainGenerator:
     def __len__(self):
         return self.n_samples // self.batch_size
 
-    def __getitem__(self, item) -> Tuple[BatchEncoding, torch.Tensor]:
+    def __getitem__(
+        self, item
+    ) -> Tuple[BatchEncoding, BatchEncoding, BatchEncoding, torch.Tensor]:
         genre_strings = []
         labels_list = []
         batch_idx = self._get_batch_idx()
         for b_idx in batch_idx:
             labels_list.append(self.data["artist_genre"][b_idx])
-            genre_strings.append(" ".join(self.data["artist_genre"][b_idx]))
+            genre_strings.append(" , ".join(self.data["artist_genre"][b_idx]))
         self._iterator_i = batch_idx[-1]
         labels = self.label_binarizer.transform(labels_list)
+
+        tokenized_genre = self.tokenizer(
+            genre_strings,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        )
+        features = [
+            {"input_ids": t.tolist()} for t in tokenized_genre["input_ids"]
+        ]
+        collated_features = self.collator(features)
+        masked_tokenized_genre = tokenized_genre.copy()
+        masked_tokenized_genre["input_ids"] = collated_features["input_ids"]
+        masked_labels = collated_features["labels"]
         return (
-            self.tokenizer(
-                genre_strings,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                padding=True,
-            ),
+            tokenized_genre,
+            masked_tokenized_genre,
+            masked_labels,
             torch.Tensor(labels),
         )
 
@@ -186,7 +181,7 @@ class GenreDatasetGenerator:
         labels_list = []
         for _idx, row in tqdm(self.data.iterrows(), total=len(self.data)):
             labels_list.append(row["artist_genre"])
-            genre_strings.append(" ".join(row["artist_genre"]))
+            genre_strings.append(" , ".join(row["artist_genre"]))
         self.labels = torch.Tensor(self.label_binarizer.transform(labels_list))
         self.data = self.tokenizer(
             genre_strings,

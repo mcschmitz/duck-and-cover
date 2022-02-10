@@ -2,45 +2,42 @@ import os
 from pathlib import Path
 
 import pytorch_lightning as pl
-from transformers import BertConfig
-
 from config import config
 from loader import GenreDataLoader
-from networks import GenreAutoencoder, GenreDecoder, GenreEncoder
+from networks import GenreAutoencoder, GenreDecoder
+from transformers import BertConfig, BertForMaskedLM, BertModel
+
+bert_config_name = "prajjwal1/bert-mini"
 
 BATCH_SIZE = 64
-LATENT_SIZE = 768
-PATH = f"genre_autoencoder-{LATENT_SIZE}"
+bert_config = BertConfig.from_pretrained(bert_config_name)
+PATH = f"genre_autoencoder-{bert_config.hidden_size}"
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
+
 TRAIN_STEPS = int(1e6)
 
 model_dump_path = os.path.join(PATH, "model")
 Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 Path(lp_path).mkdir(parents=True, exist_ok=True)
 
-
 data_loader = GenreDataLoader(
     batch_size=BATCH_SIZE,
     meta_data_path="data/album_data_frame.json",
-    tokenizer_path="data/genre_encoder_tokenizer",
+    tokenizer_path=bert_config_name,
 )
 num_labels = data_loader.get_number_of_classes()
-vocab_size = data_loader.tokenizer.vocab_size
+vocab_size = len(data_loader.tokenizer.get_vocab())
 
-bert_config = BertConfig(
-    vocab_size=vocab_size,
-    hidden_size=LATENT_SIZE,
-    max_position_embeddings=64,
+
+encoder = BertForMaskedLM(bert_config)
+encoder.bert = BertModel(bert_config, add_pooling_layer=True)
+decoder = GenreDecoder(
+    input_dim=bert_config.hidden_size, num_labels=num_labels
 )
-
-encoder = GenreEncoder(bert_config)
-
-decoder = GenreDecoder(input_dim=LATENT_SIZE, num_labels=num_labels)
-
 autoencoder = GenreAutoencoder(encoder, decoder)
 
 logger = pl.loggers.WandbLogger(
-    project="duck-and-cover", entity="manne", tags=["genre-autoencoder"]
+    project="duck-and-cover", entity="mcschmitz", tags=["genre-autoencoder"]
 )
 callbacks = [
     pl.callbacks.EarlyStopping(
@@ -65,8 +62,9 @@ trainer = pl.Trainer(
     gpus=-1,
     max_steps=TRAIN_STEPS,
     logger=logger,
-    val_check_interval=100,
+    val_check_interval=1.0,
     enable_progress_bar=False,
+    weights_save_path=model_dump_path,
 )
 trainer.fit(
     autoencoder,

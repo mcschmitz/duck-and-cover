@@ -117,10 +117,6 @@ data/*
 !/data/genres.txt
 tmp
 learning_progress/*
-learning_progress/0_dcgan/*
-!learning_progress/0_dcgan/fixed.gif
-learning_progress/1_wgan/*
-!learning_progress/1_wgan/fixed.gif
 
 # Credentials
 credentials.py

@@ -4,8 +4,6 @@ from typing import Any, Dict
 import numpy as np
 import torch
 from defaultlist import defaultlist
-from torch import nn
-
 from networks.utils import calc_channels_at_stage, plot_metric
 from networks.utils.layers import (
     MinibatchStdDev,
@@ -15,12 +13,9 @@ from networks.utils.layers import (
     ScaledDense,
 )
 from networks.wgan import WGAN
+from torch import nn
 from utils import logger
 from utils.image_operations import generate_images
-
-#  TODO Add genre information
-#  TODO Add artist name
-#  TODO add album name
 
 
 class ProGANDiscriminatorFinalBlock(nn.Module):
@@ -637,7 +632,7 @@ class ProGAN(WGAN):
             batch, fake_batch, block=block, alpha=alpha
         )
         loss += gp
-        loss += 0.001 * torch.mean(real_pred**2)
+        loss += 0.001 * torch.mean(real_pred ** 2)
         loss.backward()
         self.discriminator_optimizer.step()
         return loss

@@ -16,9 +16,8 @@ lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 
 TRAIN_STEPS = int(1e6)
 
-model_dump_path = os.path.join(PATH, "model")
+model_dump_path = os.path.join(lp_path, "model")
 Path(model_dump_path).mkdir(parents=True, exist_ok=True)
-Path(lp_path).mkdir(parents=True, exist_ok=True)
 
 data_loader = GenreDataLoader(
     batch_size=BATCH_SIZE,
@@ -41,13 +40,13 @@ logger = pl.loggers.WandbLogger(
 )
 callbacks = [
     pl.callbacks.EarlyStopping(
-        monitor="val/exact-match-ratio",
+        monitor="val/accuracy",
         mode="max",
         patience=int(TRAIN_STEPS * 0.1),
         verbose=True,
     ),
     pl.callbacks.ModelCheckpoint(
-        monitor="val/exact-match-ratio",
+        monitor="val/accuracy",
         dirpath=model_dump_path,
         mode="max",
         verbose=True,

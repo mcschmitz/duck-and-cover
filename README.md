@@ -74,8 +74,11 @@ Deep Convolutional GAN and on the Wassertrein GAN.
 ### Next Steps:
 1. Train the GenreAE with a learning rate of 1e-4 and
 2. Migrate ProGAN training to PTLightning
+   1. Add callback to log images to W&B
 3. Pick 25 Albums that exist, but are not in the dataset in order to test 
    and integrate them into the training process
 4. Train ProGan + Genre
 5. Integrate Artist Name
 6. Integrate Album Name
+7. Migrate W-GAN to PTLightning
+8. Migrate DCGAN to PTLightning

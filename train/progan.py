@@ -2,17 +2,22 @@ import os
 from pathlib import Path
 
 import numpy as np
-
+import pytorch_lightning as pl
 from config import config
 from loader import DataLoader
 from networks import ProGAN
+from tasks.progan import ProGANTask
 from utils.image_operations import plot_final_gif
 
-add_release_year = True
+add_release_year = False
 
 prefix = []
 if add_release_year:
     prefix += ["release-year"]
+
+logger = pl.loggers.WandbLogger(
+    project="duck-and-cover", entity="mcschmitz", tags=["ProGAN"] + prefix
+)
 
 prefix = "-" + "-".join(prefix)
 image_ratio = config.get("image_ratio")
@@ -22,12 +27,10 @@ PATH = f"progan-{prefix}-{LATENT_SIZE}"
 TRAIN_STEPS = int(1e6)
 N_BLOCKS = 7
 IMAGE_SIZES = 2 ** np.arange(2, N_BLOCKS + 2)
-GRADIENT_ACC_STEPS = [1, 1, 1, 1, 1, 1, 1]
 
-warm_start = True
-starting_from_block = 6
+warm_start = False
+starting_from_block = 0
 
-gradient_penalty_weight = 10.0
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 Path(lp_path).mkdir(parents=True, exist_ok=True)
 model_dump_path = os.path.join(lp_path, "model")
@@ -36,25 +39,30 @@ Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 image_width = max(IMAGE_SIZES) * image_ratio[0]
 image_height = max(IMAGE_SIZES) * image_ratio[1]
 
-gan = ProGAN(
+pro_gan = ProGAN(
     img_width=image_width,
     img_height=image_height,
     latent_size=LATENT_SIZE,
-    use_gpu=True,
-    gradient_penalty_weight=gradient_penalty_weight,
     n_blocks=N_BLOCKS,
     add_year_information=add_release_year,
 )
+generator = pro_gan.build_generator()
+discriminator = pro_gan.build_discriminator()
 
-gan.set_optimizers(
-    generator_optimizer={"lr": 0.001, "betas": (0.0, 0.99)},
-    discriminator_optimizer={"lr": 0.001, "betas": (0.0, 0.99)},
+pro_gan_task = ProGANTask(
+    generator=generator, discriminator=discriminator, block=starting_from_block
+)
+trainer = pl.Trainer(
+    max_steps=TRAIN_STEPS,
+    enable_checkpointing=False,
+    logger=logger,
+    enable_progress_bar=False,
 )
 
 if warm_start:
-    gan.load(path=model_dump_path)
+    pro_gan_task.load_from_checkpoint(path=model_dump_path)
 
-for block in range(starting_from_block, N_BLOCKS):
+for block in range(pro_gan_task.block, N_BLOCKS):
     image_size = IMAGE_SIZES[block]
     data_loader = DataLoader(
         image_size=image_size,
@@ -63,10 +71,11 @@ for block in range(starting_from_block, N_BLOCKS):
         meta_data_path="data/album_data_frame.json",
     )
     if add_release_year:
-        gan.release_year_scaler = data_loader.release_year_scaler
+        pro_gan_task.release_year_scaler = data_loader.release_year_scaler
+    trainer.fit(pro_gan_task, train_dataloader=data_loader)
 
     batch_size = BATCH_SIZE[block]
-    gan.train(
+    pro_gan_task.train(
         data_loader=data_loader,
         block=block,
         global_steps=TRAIN_STEPS,

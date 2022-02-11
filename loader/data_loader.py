@@ -52,6 +52,9 @@ class DataLoader:
             )
         self.n_images = len(self.meta_df)
 
+    def __iter__(self):
+        yield from (self[batch_id] for batch_id in range(len(self)))
+
     def __len__(self):
         return self.n_images // self.batch_size
 
@@ -77,7 +80,9 @@ class DataLoader:
                 year = self.release_year_scaler.transform(year)
                 year_x.append(year.flatten())
         self._iterator_i = batch_idx[-1]
-        return {"images": torch.Tensor(batch_x), "year": torch.Tensor(year_x)}
+        images = torch.Tensor(batch_x)
+        year = torch.Tensor(year_x) if year_x else None
+        return {"images": images, "year": year}
 
     def _get_batch_idx(self):
         positions = np.arange(

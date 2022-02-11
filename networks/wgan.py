@@ -1,13 +1,11 @@
-from typing import Dict, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
-from torch import nn
-
 from networks.dcgan import DCGAN, DCDiscrimininator, DCGenerator
 from networks.utils import clip_channels
 from networks.utils.layers import MinibatchStdDev
-from utils import logger
+from torch import nn
 
 
 class WGANDiscriminator(DCDiscrimininator):
@@ -164,7 +162,6 @@ class WGANGenerator(DCGenerator):
 class WGAN(DCGAN):
     def __init__(
         self,
-        gradient_penalty_weight: float,
         img_height: int,
         img_width: int,
         channels: int = 3,
@@ -196,12 +193,11 @@ class WGAN(DCGAN):
             use_gpu=use_gpu,
             **kwargs,
         )
-        self._gradient_penalty_weight = gradient_penalty_weight
-        self.metrics["D_loss"] = {
-            "file_name": "d_loss.png",
-            "label": "Discriminator Loss",
-            "values": [],
-        }
+        # self.metrics["D_loss"] = {
+        #     "file_name": "d_loss.png",
+        #     "label": "Discriminator Loss",
+        #     "values": [],
+        # }
 
     def build_generator(self) -> WGANGenerator:
         """
@@ -277,49 +273,3 @@ class WGAN(DCGAN):
         loss_fake.backward()
         self.generator_optimizer.step()
         return loss_fake.detach().cpu().numpy().tolist()
-
-    def _gradient_penalty(
-        self,
-        real_batch: Dict[str, torch.Tensor],
-        fake_batch: Dict[str, torch.Tensor],
-        **kwargs,
-    ) -> torch.Tensor:
-        batch_size = real_batch["images"].shape[0]
-
-        random_avg_weights = torch.rand((batch_size, 1, 1, 1)).to(
-            real_batch["images"].device
-        )
-        random_avg = random_avg_weights * real_batch["images"] + (
-            (1 - random_avg_weights) * fake_batch["images"]
-        )
-        random_avg.requires_grad_(True)
-
-        pred = self.discriminator(
-            images=random_avg, year=real_batch["year"], **kwargs
-        )
-        grad = torch.autograd.grad(
-            outputs=pred,
-            inputs=random_avg,
-            grad_outputs=torch.ones_like(pred),
-            create_graph=True,
-            retain_graph=True,
-            only_inputs=True,
-        )[0]
-        grad = grad.view(grad.shape[0], -1)
-        return (
-            self._gradient_penalty_weight
-            * ((grad.norm(p=2, dim=1) - 1) ** 2).mean()
-        )
-
-    def _print_output(self):
-        g_loss = np.round(
-            np.mean(self.metrics["G_loss"]["values"]), decimals=3
-        )
-        d_loss = np.round(
-            np.mean(self.metrics["D_loss"]["values"]), decimals=3
-        )
-        logger.info(
-            f"Images shown {self.images_shown}:"
-            + f" Generator Loss: {g_loss} -"
-            + f" Discriminator Loss: {d_loss}"
-        )

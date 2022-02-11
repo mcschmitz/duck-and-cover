@@ -3,10 +3,9 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from torch import nn
-
-from networks.gan import GAN
 from networks.utils import clip_channels, plot_metric
+from tasks.covergantask import CoverGANTask
+from torch import nn
 from utils import logger
 from utils.image_operations import generate_images
 
@@ -49,7 +48,7 @@ class DCDiscrimininator(nn.Module):
             cur_img_size /= 2
 
         final_linear_input_dim = int(
-            self.conv2d_layers[-1].out_channels * cur_img_size**2
+            self.conv2d_layers[-1].out_channels * cur_img_size ** 2
         )
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.xavier_uniform_(self.final_linear.weight)
@@ -161,14 +160,12 @@ class DCGenerator(nn.Module):
         return nn.Tanh()(x)
 
 
-class DCGAN(GAN):
+class DCGAN(CoverGANTask):
     def __init__(
         self,
         img_height: int,
         img_width: int,
         channels: int = 3,
-        latent_size: int = 128,
-        use_gpu: bool = False,
         **kwargs,
     ):
         """
@@ -186,36 +183,35 @@ class DCGAN(GAN):
                 image
             use_gpu: Flag to use the GPU for training
         """
-        super(DCGAN, self).__init__(
-            use_gpu=use_gpu,
-            img_width=img_width,
-            img_height=img_height,
-            channels=channels,
-            latent_size=latent_size,
-            **kwargs,
-        )
-        self.metrics["D_accuracy"] = {
-            "file_name": "d_acc.png",
-            "label": "Discriminator Accuracy",
-            "values": [],
-        }
-        self.metrics["G_loss"] = {
-            "file_name": "g_loss.png",
-            "label": "Generator Loss",
-            "values": [],
-        }
+        self.channels = channels
+        # discriminator = self.build_discriminator(img_shape)
+        # generator = self.build_generator(latent_size, img_shape)
+        # super(DCGAN, self).__init__(
+        #     discriminator=discriminator,
+        #     generator=generator
+        # )
+        # self.metrics["D_accuracy"] = {
+        #     "file_name": "d_acc.png",
+        #     "label": "Discriminator Accuracy",
+        #     "values": [],
+        # }
+        # self.metrics["G_loss"] = {
+        #     "file_name": "g_loss.png",
+        #     "label": "Generator Loss",
+        #     "values": [],
+        # }
 
-    def build_generator(self, **kwargs) -> DCGenerator:
+    def build_generator(self, latent_size, img_shape) -> DCGenerator:
         """
         Builds the class specific generator.
         """
-        return DCGenerator(self.latent_size, self.img_shape, self.use_gpu)
+        return DCGenerator(latent_size, img_shape)
 
-    def build_discriminator(self, **kwargs) -> DCDiscrimininator:
+    def build_discriminator(self, img_shape) -> DCDiscrimininator:
         """
         Builds the class specific discriminator.
         """
-        return DCDiscrimininator(self.img_shape, self.use_gpu)
+        return DCDiscrimininator(img_shape)
 
     def train_on_batch(self, real_images: torch.Tensor, **kwargs):
         """

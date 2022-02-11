@@ -1,24 +1,20 @@
 import copy
 import os
-from abc import ABC, abstractmethod
-from collections import defaultdict
+from abc import abstractmethod
 
 import joblib
-import numpy as np
+import pytorch_lightning as pl
 import torch
+from torch import nn
 from torch.optim import Adam
-
 from utils import logger
 
 
-class GAN(ABC):
+class CoverGANTask(pl.LightningModule):
     def __init__(
         self,
-        img_height: int,
-        img_width: int,
-        channels: int = 3,
-        latent_size: int = 128,
-        use_gpu: bool = False,
+        generator: nn.Module,
+        discriminator: nn.Module,
         **kwargs,
     ):
         """
@@ -32,41 +28,21 @@ class GAN(ABC):
                 image
             use_gpu: Flag to use the GPU for training and prediction
         """
-        self.discriminator = None
-        self.generator = None
-        self.discriminator_optimizer = None
-        self.generator_optimizer = None
-        self.images_shown = 0
-        self.generator_loss = []
-        self.metrics = defaultdict(dict)
-        self.use_gpu = torch.cuda.is_available() and use_gpu
+        super(CoverGANTask, self).__init__()
+        self.discriminator = discriminator
+        self.generator = generator
 
-        self.img_height = np.int(img_height)
-        self.img_width = np.int(img_width)
-        self.channels = channels
-
-        self.img_shape = (self.channels, self.img_height, self.img_width)
-        self.latent_size = latent_size
-        self.discriminator = self.build_discriminator(**kwargs)
-        self.generator = self.build_generator(**kwargs)
-        if self.use_gpu:
-            self.discriminator.cuda()
-            self.generator.cuda()
-
-    def set_optimizers(self, discriminator_optimizer, generator_optimizer):
+    def configure_optimizers(self):
         """
         Assign both the discriminator and the generator optimizer.
-
-        Args:
-            discriminator_optimizer: PyTorch discriminator optimizer
-            generator_optimizer: PyTorch generator optimizer
         """
-        self.discriminator_optimizer = Adam(
-            params=self.discriminator.parameters(), **discriminator_optimizer
+        discriminator_optimizer = Adam(
+            params=self.discriminator.parameters(), lr=0.001, betas=(0.0, 0.99)
         )
-        self.generator_optimizer = Adam(
-            self.generator.parameters(), **generator_optimizer
+        generator_optimizer = Adam(
+            self.generator.parameters(), lr=0.001, betas=(0.0, 0.99)
         )
+        return generator_optimizer, discriminator_optimizer
 
     @abstractmethod
     def build_generator(self, **kwargs):
@@ -91,21 +67,6 @@ class GAN(ABC):
         """
         Abstract method to train the discriminator on a batch of data.
         """
-
-    def fuse_disc_and_gen(self, optimizer):
-        """
-        Combines discriminator and generator to one model.
-
-        Args:
-            optimizer: Optimizer  to use to train the combined model
-        """
-        for discriminator_layer in self.discriminator.layers:
-            discriminator_layer.trainable = False
-        self.discriminator.trainable = False
-        for generator_layer in self.generator.layers:
-            generator_layer.trainable = True
-        self.generator.trainable = True
-        self._build_combined_model(optimizer)
 
     def save(self, path: str):
         """
@@ -169,3 +130,14 @@ class GAN(ABC):
             discriminator_cktp["discriminator_optimizer"]
         )
         return gan
+
+    def on_fit_start(self):
+        """
+        This method gets executed before a Trainer trains this model.
+
+        It tells the W&B logger to watch the model in order to check the
+        gradients report the gradients if W&B is online.
+        """
+        if hasattr(self, "logger"):
+            if isinstance(self.logger, pl.loggers.WandbLogger):
+                self.logger.watch(self)

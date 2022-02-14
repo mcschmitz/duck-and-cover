@@ -94,6 +94,8 @@ class GenreAutoencoder(pl.LightningModule):
 
         Args:
             x: Bert-like batch encoding
+            masked_x: Masked input sequences
+            masked_labels: Input sequences without masking
 
         Returns:
             Genre embedding
@@ -124,7 +126,7 @@ class GenreAutoencoder(pl.LightningModule):
             ]
             optimizer_grouped_parameters.extend(params)
         optimizer = AdamW(
-            params=optimizer_grouped_parameters, lr=1e-6, betas=(0, 0.99)
+            params=optimizer_grouped_parameters, lr=1e-4, betas=(0, 0.99)
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
@@ -197,6 +199,20 @@ class GenreAutoencoder(pl.LightningModule):
         Args:
             x: List of validation_step outputs
         """
+        metrics = self._calculate_metrics(x)
+        self.log_dict(
+            {
+                "val/pos_loss": metrics["pos_loss"],
+                "val/neg_loss": metrics["neg_loss"],
+                "val/accuracy": metrics["accuracy"],
+                "val/exact-match-ratio": metrics["em_ratio"],
+                "val/hamming-loss": metrics["h_loss"],
+                "val/recall": metrics["recall"],
+                "val/precision": metrics["precision"],
+            }
+        )
+
+    def _calculate_metrics(self, x) -> Dict:
         prediction = torch.cat([xi["pred"].cpu() for xi in x])
         true = torch.cat([xi["true"].cpu() for xi in x])
         pos_loss = self.pos_loss(prediction, true)
@@ -205,18 +221,58 @@ class GenreAutoencoder(pl.LightningModule):
         correct = true == class_prediction
         accuracy = correct.numpy().mean()
         em_ratio = np.mean(correct.numpy().all(1)).tolist()
-        h_loss = hamming_loss(true.cpu(), class_prediction)
-        recall = recall_score(true, class_prediction, average="micro")
-        precision = precision_score(true, class_prediction, average="micro")
+        try:
+            h_loss = hamming_loss(true.cpu(), class_prediction)
+        except ValueError:
+            h_loss = 0
+        try:
+            recall = recall_score(true, class_prediction, average="micro")
+        except ValueError:
+            recall = 0
+        try:
+            precision = precision_score(
+                true, class_prediction, average="micro"
+            )
+        except ValueError:
+            precision = 0
+        return {
+            "accuracy": accuracy,
+            "em_ratio": em_ratio,
+            "h_loss": h_loss,
+            "neg_loss": neg_loss,
+            "pos_loss": pos_loss,
+            "precision": precision,
+            "recall": recall,
+        }
+
+    def test_step(self, batch: Tuple, batch_idx) -> Dict:
+        """
+        Takes a batch from the test generator and predicts it.
+
+        Args:
+            batch: Batch. A Tuple of data and labels
+            batch_idx: Batch index
+        """
+        return self.validation_step(batch, batch_idx)
+
+    def test_epoch_end(self, x: List[Dict]):
+        """
+        Takes the predictions from the validation steps and calculates the
+        validation metrics on it.
+
+        Args:
+            x: List of validation_step outputs
+        """
+        metrics = self._calculate_metrics(x)
         self.log_dict(
             {
-                "val/pos_loss": pos_loss,
-                "val/neg_loss": neg_loss,
-                "val/accuracy": accuracy,
-                "val/exact-match-ratio": em_ratio,
-                "val/hamming-loss": h_loss,
-                "val/recall": recall,
-                "val/precision": precision,
+                "test/pos_loss": metrics["pos_loss"],
+                "test/neg_loss": metrics["neg_loss"],
+                "test/accuracy": metrics["accuracy"],
+                "test/exact-match-ratio": metrics["em_ratio"],
+                "test/hamming-loss": metrics["h_loss"],
+                "test/recall": metrics["recall"],
+                "test/precision": metrics["precision"],
             }
         )
 

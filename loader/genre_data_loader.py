@@ -1,17 +1,17 @@
 from typing import Tuple
 
-from tqdm import tqdm
-
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.preprocessing import MultiLabelBinarizer
+from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
     BatchEncoding,
     BertTokenizer,
     DataCollatorForWholeWordMask,
 )
+
 from utils import logger
 
 
@@ -55,6 +55,12 @@ class GenreDataLoader:
         )
         self.val_generator = GenreDatasetGenerator(
             data=self.val_set,
+            batch_size=256,
+            tokenizer=self.tokenizer,
+            binarizer=self.label_binarizer,
+        )
+        self.test_generator = GenreDatasetGenerator(
+            data=self.test_set,
             batch_size=256,
             tokenizer=self.tokenizer,
             binarizer=self.label_binarizer,

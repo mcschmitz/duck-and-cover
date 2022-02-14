@@ -113,71 +113,95 @@ class GenreAutoencoder(pl.LightningModule):
         """
         Assign both the discriminator and the generator optimizer.
         """
-        encoders = (self.encoder, self.decoder)
-        optimizer_grouped_parameters = []
-        for encoder in encoders:
+        optimizers = []
+        schedulers = []
+        for module, lr in zip((self.encoder, self.decoder), (1e-6, 1e-4)):
             params = [
                 {
                     "params": [
-                        p for p in encoder.parameters() if p.requires_grad
+                        p for p in module.parameters() if p.requires_grad
                     ],
                     "weight_decay": 0,
                 },
             ]
-            optimizer_grouped_parameters.extend(params)
-        optimizer = AdamW(
-            params=optimizer_grouped_parameters, lr=1e-4, betas=(0, 0.99)
-        )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=int(self.trainer.max_steps * 0.1),
-            num_training_steps=self.trainer.max_steps,
-        )
-        return [optimizer], [scheduler]
+            opt = AdamW(params=params, lr=lr, betas=(0, 0.99))
+            scheduler = get_linear_schedule_with_warmup(
+                opt,
+                num_warmup_steps=int(self.trainer.max_steps * 0.1),
+                num_training_steps=self.trainer.max_steps,
+            )
+            optimizers.append(opt)
+            schedulers.append(scheduler)
+        return optimizers, schedulers
 
-    def training_step(self, batch: BatchEncoding):
+    def training_step(
+        self, batch: BatchEncoding, _batch_idx: int, optimizer_idx: int
+    ):
         """
         Trains the AE on the given batch.
 
         Args:
             batch: Tokenized genre sequence
+            optimizer_idx: Which of the optimizers to use for batch optimization
 
         Returns:
             Scalar loss of this batch
         """
-        sch = self.lr_schedulers()
+        sch = self.lr_schedulers()[optimizer_idx]
         sch.step()
         x, masked_x, masked_labels, labels = batch
         decoding, mlm_output = self(x, masked_x, masked_labels)
-        pos_loss = self.pos_loss(decoding, labels)
-        neg_loss = self.neg_loss(decoding, labels)
-        mlm_loss = mlm_output.loss
-        total_loss = pos_loss + neg_loss + mlm_loss
+        if optimizer_idx == 0:
+            mlm_loss = mlm_output.loss
+            self.log(
+                "train/mlm_loss",
+                mlm_loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+            return mlm_loss
+        elif optimizer_idx == 1:
+            pos_loss = self.pos_loss(decoding, labels)
+            neg_loss = self.neg_loss(decoding, labels)
+            self.log(
+                "train/pos_loss",
+                pos_loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+            self.log(
+                "train/neg_loss",
+                neg_loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+            return pos_loss + neg_loss
+
+    def on_train_batch_end(self, outputs, batch, _batch_idx, unused=0):
+        """
+        Calculates the total loss as sum of all optimizer losses.
+
+        Args:
+            outputs: List of outputs of training_step
+            batch: Batch that was used
+            _batch_idx: Batch index
+            unused: Deprecated PT Lightning argument
+        """
+        total_loss = sum(o.get("loss", 0) for o in outputs)
         self.log(
-            "train/pos_loss",
-            pos_loss,
+            "train/total_loss",
+            total_loss,
             on_step=True,
             on_epoch=True,
             prog_bar=True,
             logger=True,
         )
-        self.log(
-            "train/neg_loss",
-            neg_loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
-        self.log(
-            "train/mlm_loss",
-            mlm_loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
-        return total_loss
 
     def validation_step(self, batch: Tuple, _batch_idx) -> Dict:
         """

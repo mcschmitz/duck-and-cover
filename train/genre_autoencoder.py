@@ -2,11 +2,10 @@ import os
 from pathlib import Path
 
 import pytorch_lightning as pl
-from transformers import BertConfig, BertForMaskedLM, BertModel
-
 from config import config
 from loader import GenreDataLoader
 from networks import GenreAutoencoder, GenreDecoder
+from transformers import BertConfig, BertForMaskedLM, BertModel
 
 bert_config_name = "prajjwal1/bert-mini"
 
@@ -28,8 +27,10 @@ data_loader = GenreDataLoader(
 num_labels = data_loader.get_number_of_classes()
 vocab_size = len(data_loader.tokenizer.get_vocab())
 
-encoder = BertForMaskedLM(bert_config)
-encoder.bert = BertModel(bert_config, add_pooling_layer=True)
+encoder = BertForMaskedLM.from_pretrained(bert_config_name)
+encoder.bert = BertModel.from_pretrained(
+    bert_config_name, add_pooling_layer=True
+)
 decoder = GenreDecoder(
     input_dim=bert_config.hidden_size, num_labels=num_labels
 )

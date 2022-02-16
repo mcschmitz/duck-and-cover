@@ -3,7 +3,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from sklearn.metrics import hamming_loss, precision_score, recall_score
+from sklearn.metrics import precision_score, recall_score
 from torch import nn
 from torch.optim import AdamW
 from transformers import BatchEncoding
@@ -151,8 +151,11 @@ class GenreAutoencoder(pl.LightningModule):
         sch.step()
         x, masked_x, masked_labels, labels = batch
         decoding, mlm_output = self(x, masked_x, masked_labels)
-        if optimizer_idx == 0:
-            mlm_loss = mlm_output.loss
+        mlm_loss = mlm_output.loss
+        pos_loss = self.pos_loss(decoding, labels)
+        neg_loss = self.neg_loss(decoding, labels)
+        total_loss = mlm_loss + pos_loss + neg_loss
+        if optimizer_idx == 1:
             self.log(
                 "train/mlm_loss",
                 mlm_loss,
@@ -161,10 +164,6 @@ class GenreAutoencoder(pl.LightningModule):
                 prog_bar=True,
                 logger=True,
             )
-            return mlm_loss
-        elif optimizer_idx == 1:
-            pos_loss = self.pos_loss(decoding, labels)
-            neg_loss = self.neg_loss(decoding, labels)
             self.log(
                 "train/pos_loss",
                 pos_loss,
@@ -181,27 +180,15 @@ class GenreAutoencoder(pl.LightningModule):
                 prog_bar=True,
                 logger=True,
             )
-            return pos_loss + neg_loss
-
-    def on_train_batch_end(self, outputs, batch, _batch_idx, unused=0):
-        """
-        Calculates the total loss as sum of all optimizer losses.
-
-        Args:
-            outputs: List of outputs of training_step
-            batch: Batch that was used
-            _batch_idx: Batch index
-            unused: Deprecated PT Lightning argument
-        """
-        total_loss = sum(o.get("loss", 0) for o in outputs)
-        self.log(
-            "train/total_loss",
-            total_loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
+            self.log(
+                "train/total_loss",
+                total_loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+        return total_loss
 
     def validation_step(self, batch: Tuple, _batch_idx) -> Dict:
         """
@@ -230,7 +217,6 @@ class GenreAutoencoder(pl.LightningModule):
                 "val/neg_loss": metrics["neg_loss"],
                 "val/accuracy": metrics["accuracy"],
                 "val/exact-match-ratio": metrics["em_ratio"],
-                "val/hamming-loss": metrics["h_loss"],
                 "val/recall": metrics["recall"],
                 "val/precision": metrics["precision"],
             }
@@ -246,10 +232,6 @@ class GenreAutoencoder(pl.LightningModule):
         accuracy = correct.numpy().mean()
         em_ratio = np.mean(correct.numpy().all(1)).tolist()
         try:
-            h_loss = hamming_loss(true.cpu(), class_prediction)
-        except ValueError:
-            h_loss = 0
-        try:
             recall = recall_score(true, class_prediction, average="micro")
         except ValueError:
             recall = 0
@@ -262,7 +244,6 @@ class GenreAutoencoder(pl.LightningModule):
         return {
             "accuracy": accuracy,
             "em_ratio": em_ratio,
-            "h_loss": h_loss,
             "neg_loss": neg_loss,
             "pos_loss": pos_loss,
             "precision": precision,
@@ -294,7 +275,6 @@ class GenreAutoencoder(pl.LightningModule):
                 "test/neg_loss": metrics["neg_loss"],
                 "test/accuracy": metrics["accuracy"],
                 "test/exact-match-ratio": metrics["em_ratio"],
-                "test/hamming-loss": metrics["h_loss"],
                 "test/recall": metrics["recall"],
                 "test/precision": metrics["precision"],
             }

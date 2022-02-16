@@ -2,10 +2,11 @@ import os
 from pathlib import Path
 
 import pytorch_lightning as pl
+from transformers import BertConfig, BertForMaskedLM, BertModel
+
 from config import config
 from loader import GenreDataLoader
 from networks import GenreAutoencoder, GenreDecoder
-from transformers import BertConfig, BertForMaskedLM, BertModel
 
 bert_config_name = "prajjwal1/bert-mini"
 
@@ -27,10 +28,8 @@ data_loader = GenreDataLoader(
 num_labels = data_loader.get_number_of_classes()
 vocab_size = len(data_loader.tokenizer.get_vocab())
 
-encoder = BertForMaskedLM.from_pretrained(bert_config_name)
-encoder.bert = BertModel.from_pretrained(
-    bert_config_name, add_pooling_layer=True
-)
+encoder = BertForMaskedLM(bert_config)
+encoder.bert = BertModel(bert_config, add_pooling_layer=True)
 decoder = GenreDecoder(
     input_dim=bert_config.hidden_size, num_labels=num_labels
 )
@@ -39,11 +38,12 @@ autoencoder = GenreAutoencoder(encoder, decoder)
 logger = pl.loggers.WandbLogger(
     project="duck-and-cover", entity="mcschmitz", tags=["genre-autoencoder"]
 )
+total_number_of_validations = TRAIN_STEPS / len(data_loader.train_generator)
 callbacks = [
     pl.callbacks.EarlyStopping(
         monitor="val/accuracy",
         mode="max",
-        patience=int(TRAIN_STEPS * 0.1),
+        patience=int(total_number_of_validations * 0.1),
         verbose=True,
     ),
     pl.callbacks.ModelCheckpoint(
@@ -56,8 +56,8 @@ callbacks = [
         every_n_epochs=1,
         save_on_train_epoch_end=False,
     ),
+    pl.callbacks.LearningRateMonitor(logging_interval="step"),
 ]
-
 trainer = pl.Trainer(
     gpus=-1,
     max_steps=TRAIN_STEPS,
@@ -65,6 +65,7 @@ trainer = pl.Trainer(
     val_check_interval=1.0,
     enable_progress_bar=False,
     weights_save_path=model_dump_path,
+    callbacks=callbacks,
 )
 trainer.fit(
     autoencoder,

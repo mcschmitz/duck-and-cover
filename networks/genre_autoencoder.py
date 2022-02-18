@@ -7,7 +7,6 @@ from sklearn.metrics import precision_score, recall_score
 from torch import nn
 from torch.optim import AdamW
 from transformers import BatchEncoding
-from transformers.optimization import get_linear_schedule_with_warmup
 
 
 class PosLoss(nn.Module):
@@ -114,8 +113,7 @@ class GenreAutoencoder(pl.LightningModule):
         Assign both the discriminator and the generator optimizer.
         """
         optimizers = []
-        schedulers = []
-        for module, lr in zip((self.encoder, self.decoder), (1e-6, 1e-4)):
+        for module, lr in zip((self.encoder, self.decoder), (1e-4, 1e-4)):
             params = [
                 {
                     "params": [
@@ -125,14 +123,8 @@ class GenreAutoencoder(pl.LightningModule):
                 },
             ]
             opt = AdamW(params=params, lr=lr, betas=(0, 0.99))
-            scheduler = get_linear_schedule_with_warmup(
-                opt,
-                num_warmup_steps=int(self.trainer.max_steps * 0.1),
-                num_training_steps=self.trainer.max_steps,
-            )
             optimizers.append(opt)
-            schedulers.append(scheduler)
-        return optimizers, schedulers
+        return optimizers
 
     def training_step(
         self, batch: BatchEncoding, _batch_idx: int, optimizer_idx: int
@@ -147,15 +139,10 @@ class GenreAutoencoder(pl.LightningModule):
         Returns:
             Scalar loss of this batch
         """
-        sch = self.lr_schedulers()[optimizer_idx]
-        sch.step()
         x, masked_x, masked_labels, labels = batch
         decoding, mlm_output = self(x, masked_x, masked_labels)
-        mlm_loss = mlm_output.loss
-        pos_loss = self.pos_loss(decoding, labels)
-        neg_loss = self.neg_loss(decoding, labels)
-        total_loss = mlm_loss + pos_loss + neg_loss
-        if optimizer_idx == 1:
+        if optimizer_idx == 0:
+            mlm_loss = mlm_output.loss
             self.log(
                 "train/mlm_loss",
                 mlm_loss,
@@ -164,31 +151,37 @@ class GenreAutoencoder(pl.LightningModule):
                 prog_bar=True,
                 logger=True,
             )
-            self.log(
-                "train/pos_loss",
-                pos_loss,
-                on_step=True,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            self.log(
-                "train/neg_loss",
-                neg_loss,
-                on_step=True,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            self.log(
-                "train/total_loss",
-                total_loss,
-                on_step=True,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-        return total_loss
+            return mlm_loss
+        pos_loss = self.pos_loss(decoding, labels)
+        neg_loss = self.neg_loss(decoding, labels)
+        self.log(
+            "train/pos_loss",
+            pos_loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            "train/neg_loss",
+            neg_loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        return pos_loss + neg_loss
+
+    def on_train_batch_end(self, outputs, batch, batch_idx: int, unused = 0):
+        total_loss = sum(o.get("loss") for o in outputs)
+        self.log(
+            "train/total_loss",
+            total_loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
 
     def validation_step(self, batch: Tuple, _batch_idx) -> Dict:
         """

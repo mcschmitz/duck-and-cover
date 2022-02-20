@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import pytorch_lightning as pl
+import randomname
 from transformers import BertConfig, BertForMaskedLM, BertModel
 
 from config import config
@@ -17,7 +18,8 @@ lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 
 TRAIN_STEPS = int(1e6)
 
-model_dump_path = os.path.join(lp_path, "model")
+run_name = randomname.get_name()
+model_dump_path = os.path.join(lp_path, "model", run_name)
 Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 
 data_loader = GenreDataLoader(
@@ -34,9 +36,11 @@ decoder = GenreDecoder(
     input_dim=bert_config.hidden_size, num_labels=num_labels
 )
 autoencoder = GenreAutoencoder(encoder, decoder)
-
 logger = pl.loggers.WandbLogger(
-    project="duck-and-cover", entity="mcschmitz", tags=["genre-autoencoder"]
+    project="duck-and-cover",
+    entity="mcschmitz",
+    tags=["genre-autoencoder"],
+    name=run_name,
 )
 total_number_of_validations = TRAIN_STEPS / len(data_loader.train_generator)
 callbacks = [

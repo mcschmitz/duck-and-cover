@@ -7,6 +7,7 @@ from sklearn.metrics import precision_score, recall_score
 from torch import nn
 from torch.optim import AdamW
 from transformers import BatchEncoding
+from transformers.optimization import get_linear_schedule_with_warmup
 
 
 class PosLoss(nn.Module):
@@ -81,13 +82,14 @@ class GenreAutoencoder(pl.LightningModule):
 
         self.pos_loss = PosLoss()
         self.neg_loss = NegLoss()
+        self.bce_loss = nn.BCELoss()
 
     def forward(
         self,
         x: BatchEncoding = None,
         masked_x: BatchEncoding = None,
         masked_labels: BatchEncoding = None,
-    ) -> Tuple:
+    ) -> Tuple[torch.Tensor]:
         """
         Runs a forward pass for a concatenated list of genre strings.
 
@@ -108,11 +110,12 @@ class GenreAutoencoder(pl.LightningModule):
             mlm_outputs = self.encoder(**masked_x, labels=masked_labels)
         return decoding, mlm_outputs
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Tuple[List[AdamW], List]:
         """
         Assign both the discriminator and the generator optimizer.
         """
         optimizers = []
+        schedulers = []
         for module, lr in zip((self.encoder, self.decoder), (1e-4, 1e-4)):
             params = [
                 {
@@ -124,11 +127,18 @@ class GenreAutoencoder(pl.LightningModule):
             ]
             opt = AdamW(params=params, lr=lr, betas=(0, 0.99))
             optimizers.append(opt)
-        return optimizers
+            schedulers.append(
+                get_linear_schedule_with_warmup(
+                    opt,
+                    num_warmup_steps=int(self.trainer.max_steps * 0.1),
+                    num_training_steps=self.trainer.max_steps,
+                )
+            )
+        return optimizers, schedulers
 
     def training_step(
         self, batch: BatchEncoding, _batch_idx: int, optimizer_idx: int
-    ):
+    ) -> torch.Tensor:
         """
         Trains the AE on the given batch.
 
@@ -139,6 +149,8 @@ class GenreAutoencoder(pl.LightningModule):
         Returns:
             Scalar loss of this batch
         """
+        sch = self.lr_schedulers()[optimizer_idx]
+        sch.step()
         x, masked_x, masked_labels, labels = batch
         decoding, mlm_output = self(x, masked_x, masked_labels)
         if optimizer_idx == 0:
@@ -154,6 +166,7 @@ class GenreAutoencoder(pl.LightningModule):
             return mlm_loss
         pos_loss = self.pos_loss(decoding, labels)
         neg_loss = self.neg_loss(decoding, labels)
+        bce_loss = self.bce_loss(decoding, labels)
         self.log(
             "train/pos_loss",
             pos_loss,
@@ -170,9 +183,23 @@ class GenreAutoencoder(pl.LightningModule):
             prog_bar=True,
             logger=True,
         )
-        return pos_loss + neg_loss
+        self.log(
+            "train/bce_loss",
+            neg_loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        return bce_loss
 
-    def on_train_batch_end(self, outputs, batch, batch_idx: int, unused = 0):
+    def on_train_batch_end(self, outputs, **kwargs):
+        """
+        After training on a batch sums up the losses to log the total loss.
+
+        Args:
+            outputs: Return objects of the `training_step` method
+        """
         total_loss = sum(o.get("loss") for o in outputs)
         self.log(
             "train/total_loss",
@@ -208,6 +235,7 @@ class GenreAutoencoder(pl.LightningModule):
             {
                 "val/pos_loss": metrics["pos_loss"],
                 "val/neg_loss": metrics["neg_loss"],
+                "val/bce_loss": metrics["bce_loss"],
                 "val/accuracy": metrics["accuracy"],
                 "val/exact-match-ratio": metrics["em_ratio"],
                 "val/recall": metrics["recall"],
@@ -220,6 +248,7 @@ class GenreAutoencoder(pl.LightningModule):
         true = torch.cat([xi["true"].cpu() for xi in x])
         pos_loss = self.pos_loss(prediction, true)
         neg_loss = self.neg_loss(prediction, true)
+        bce_loss = self.bce_loss(prediction, true)
         class_prediction = prediction.round()
         correct = true == class_prediction
         accuracy = correct.numpy().mean()
@@ -239,6 +268,7 @@ class GenreAutoencoder(pl.LightningModule):
             "em_ratio": em_ratio,
             "neg_loss": neg_loss,
             "pos_loss": pos_loss,
+            "bce_loss": bce_loss,
             "precision": precision,
             "recall": recall,
         }
@@ -266,6 +296,7 @@ class GenreAutoencoder(pl.LightningModule):
             {
                 "test/pos_loss": metrics["pos_loss"],
                 "test/neg_loss": metrics["neg_loss"],
+                "test/bce_loss": metrics["bce_loss"],
                 "test/accuracy": metrics["accuracy"],
                 "test/exact-match-ratio": metrics["em_ratio"],
                 "test/recall": metrics["recall"],

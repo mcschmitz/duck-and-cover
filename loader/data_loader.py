@@ -6,12 +6,10 @@ import torch
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import StandardScaler
-from tensorflow.keras.utils import Sequence
-
 from utils import logger
 
 
-class DataLoader(Sequence):
+class DataLoader:
     def __init__(
         self,
         meta_data_path: str,

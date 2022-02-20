@@ -49,7 +49,7 @@ class DCDiscrimininator(nn.Module):
             cur_img_size /= 2
 
         final_linear_input_dim = int(
-            self.conv2d_layers[-1].out_channels * cur_img_size ** 2
+            self.conv2d_layers[-1].out_channels * cur_img_size**2
         )
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.xavier_uniform_(self.final_linear.weight)

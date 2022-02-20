@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from matplotlib.animation import ArtistAnimation
-from tensorflow.python.keras.preprocessing.image import array_to_img
 
 
 def plot_final_gif(path: str):

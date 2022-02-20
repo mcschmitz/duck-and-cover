@@ -37,4 +37,4 @@ def gradient_penalty(gradients, weight):
 
 
 def drift_loss(y_true, y_pred):
-    return K.mean(y_pred ** 2)
+    return K.mean(y_pred**2)

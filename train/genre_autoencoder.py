@@ -16,7 +16,7 @@ bert_config = BertConfig.from_pretrained(bert_config_name)
 PATH = f"genre_autoencoder-{bert_config.hidden_size}"
 lp_path = os.path.join(config.get("learning_progress_path"), PATH)
 
-TRAIN_STEPS = int(1e6)
+TRAIN_STEPS = int(1e5)
 
 run_name = randomname.get_name()
 model_dump_path = os.path.join(lp_path, "model", run_name)
@@ -30,8 +30,10 @@ data_loader = GenreDataLoader(
 num_labels = data_loader.get_number_of_classes()
 vocab_size = len(data_loader.tokenizer.get_vocab())
 
-encoder = BertForMaskedLM(bert_config)
-encoder.bert = BertModel(bert_config, add_pooling_layer=True)
+encoder = BertForMaskedLM.from_pretrained(bert_config_name)
+encoder.bert = BertModel.from_pretrained(
+    bert_config_name, add_pooling_layer=True
+)
 decoder = GenreDecoder(
     input_dim=bert_config.hidden_size, num_labels=num_labels
 )
@@ -44,12 +46,6 @@ logger = pl.loggers.WandbLogger(
 )
 total_number_of_validations = TRAIN_STEPS / len(data_loader.train_generator)
 callbacks = [
-    pl.callbacks.EarlyStopping(
-        monitor="val/accuracy",
-        mode="max",
-        patience=int(total_number_of_validations * 0.1),
-        verbose=True,
-    ),
     pl.callbacks.ModelCheckpoint(
         monitor="val/accuracy",
         dirpath=model_dump_path,

@@ -114,56 +114,42 @@ class GenreAutoencoder(pl.LightningModule):
         """
         Assign both the discriminator and the generator optimizer.
         """
-        optimizers = []
-        schedulers = []
-        for module, lr in zip((self.encoder, self.decoder), (1e-4, 1e-4)):
-            params = [
-                {
-                    "params": [
-                        p for p in module.parameters() if p.requires_grad
-                    ],
-                    "weight_decay": 0,
-                },
-            ]
-            opt = AdamW(params=params, lr=lr, betas=(0, 0.99))
-            optimizers.append(opt)
-            schedulers.append(
-                get_linear_schedule_with_warmup(
-                    opt,
-                    num_warmup_steps=int(self.trainer.max_steps * 0.1),
-                    num_training_steps=self.trainer.max_steps,
-                )
+        params = []
+        for module in (self.encoder, self.decoder):
+            params.extend(
+                [
+                    {
+                        "params": [
+                            p for p in module.parameters() if p.requires_grad
+                        ],
+                        "weight_decay": 0,
+                    },
+                ]
             )
-        return optimizers, schedulers
+        opt = AdamW(params=params, lr=1e-4, betas=(0, 0.99))
+        scheduler = get_linear_schedule_with_warmup(
+            opt,
+            num_warmup_steps=int(self.trainer.max_steps * 0.1),
+            num_training_steps=self.trainer.max_steps,
+        )
+        return [opt], [scheduler]
 
     def training_step(
-        self, batch: BatchEncoding, _batch_idx: int, optimizer_idx: int
+        self, batch: BatchEncoding, _batch_idx: int
     ) -> torch.Tensor:
         """
         Trains the AE on the given batch.
 
         Args:
             batch: Tokenized genre sequence
-            optimizer_idx: Which of the optimizers to use for batch optimization
 
         Returns:
             Scalar loss of this batch
         """
-        sch = self.lr_schedulers()[optimizer_idx]
+        sch = self.lr_schedulers()
         sch.step()
-        x, masked_x, masked_labels, labels = batch
-        decoding, mlm_output = self(x, masked_x, masked_labels)
-        if optimizer_idx == 0:
-            mlm_loss = mlm_output.loss
-            self.log(
-                "train/mlm_loss",
-                mlm_loss,
-                on_step=True,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            return mlm_loss
+        x, _masked_x, _masked_labels, labels = batch
+        decoding, _mlm_output = self(x)
         pos_loss = self.pos_loss(decoding, labels)
         neg_loss = self.neg_loss(decoding, labels)
         bce_loss = self.bce_loss(decoding, labels)
@@ -192,23 +178,6 @@ class GenreAutoencoder(pl.LightningModule):
             logger=True,
         )
         return bce_loss
-
-    def on_train_batch_end(self, outputs, **kwargs):
-        """
-        After training on a batch sums up the losses to log the total loss.
-
-        Args:
-            outputs: Return objects of the `training_step` method
-        """
-        total_loss = sum(o.get("loss") for o in outputs)
-        self.log(
-            "train/total_loss",
-            total_loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-        )
 
     def validation_step(self, batch: Tuple, _batch_idx) -> Dict:
         """

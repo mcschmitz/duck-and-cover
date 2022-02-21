@@ -31,7 +31,8 @@ image_ratio = config.get("image_ratio")
 BATCH_SIZE = [16, 16, 16, 16, 16, 16, 14]
 LATENT_SIZE = 512
 PATH = f"{prefix}-{LATENT_SIZE}"
-TRAIN_STEPS = int(1e6)
+IMAGES_TO_SHOW_PER_PHASE = 8 * int(1e5)
+steps_per_batch_size = [IMAGES_TO_SHOW_PER_PHASE // bs for bs in BATCH_SIZE]
 N_BLOCKS = 7
 IMAGE_SIZES = 2 ** np.arange(2, N_BLOCKS + 2)
 
@@ -59,7 +60,7 @@ discriminator = pro_gan.build_discriminator()
 pro_gan_task = ProGANTask(
     generator=generator, discriminator=discriminator, block=starting_from_block
 )
-eval_rate = TRAIN_STEPS // 32
+eval_rate = steps_per_batch_size[starting_from_block] // 32
 callbacks = [
     GenerateImages(
         every_n_train_steps=eval_rate,
@@ -69,6 +70,7 @@ callbacks = [
     pl.callbacks.ModelCheckpoint(
         monitor="train/images_shown",
         dirpath=model_dump_path,
+        filename="model_ckpt",
         mode="max",
         verbose=True,
         save_last=True,
@@ -78,7 +80,7 @@ callbacks = [
     ),
 ]
 trainer = pl.Trainer(
-    max_steps=TRAIN_STEPS,
+    max_steps=steps_per_batch_size[starting_from_block],
     enable_checkpointing=True,
     logger=logger,
     callbacks=callbacks,
@@ -104,7 +106,7 @@ for block in range(pro_gan_task.block, N_BLOCKS):
     pro_gan_task.train(
         data_loader=data_loader,
         block=block,
-        global_steps=TRAIN_STEPS,
+        global_steps=IMAGES_TO_SHOW_PER_PHASE,
         batch_size=batch_size,
         path=lp_path,
         write_model_to=model_dump_path,

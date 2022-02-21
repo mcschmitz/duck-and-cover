@@ -1,9 +1,10 @@
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import torch
-from tasks.wgan import WGANTask
 from torch import nn
+
+from tasks.wgan import WGANTask
 from utils import logger
 
 
@@ -25,6 +26,7 @@ class ProGANTask(WGANTask):
         self.fade_in_images_shown = 0
         self.alpha = 1
         self.automatic_optimization = False
+        self._alphas = None
 
     def get_phase(self):
         batch_size = (
@@ -43,22 +45,23 @@ class ProGANTask(WGANTask):
             self.trainer._data_connector._train_dataloader_source.dataloader().batch_size
         )
         self._alphas = np.linspace(0, 1, self.trainer.global_step).tolist()
+        img_resolution = 2 ** (self.block + 2)
         if self.get_phase() == "fade_in":
-            logger.info(
-                f"Phase: Fade in for resolution {2 ** (self.block + 2)}"
-            )
+            logger.info(f"Phase: Fade in for resolution {img_resolution}")
             for _ in range(self.fade_in_images_shown // batch_size):
                 self._alphas.pop(0)
             self.alpha = self._alphas.pop(0)
         else:
-            logger.info(
-                f"Phase: Burn in for resolution {2 ** (self.block + 2)}"
-            )
-
-    def configure_callbacks(self):
-        pass
+            logger.info(f"Phase: Burn in for resolution {img_resolution}")
 
     def training_step(self, batch):
+        """
+        Trains the ProGAN on a single batch of data. Obtains the phase (`burn-
+        in` or `phade-in`) and trains the GAN accordingly.
+
+        Args:
+            batch: Batch to train on
+        """
         phase = self.get_phase()
         if phase == "fade_in":
             self.alpha = self._alphas.pop(0)
@@ -71,72 +74,6 @@ class ProGANTask(WGANTask):
             "train/images_shown",
             self.fade_in_images_shown + self.burn_in_images_shown,
         )
-
-    def train2(
-        self,
-        data_loader,
-        block: int,
-        global_steps: int,
-        batch_size: int,
-    ):
-        """
-        Trains the Progressive growing GAN.
-
-        Args:
-            data_loader: Data Loader used for training
-            block: Block to train
-            global_steps: Absolute number of training steps
-            batch_size: Batch size for training
-
-        Keyword Args:
-            path: Path to which model training graphs will be written
-            write_model_to: Path that can be passed to write the model to during
-                training
-            grad_acc_steps: Gradient accumulation steps. Ideally a factor of the
-                batch size. Otherwise not the entire batch will be used for
-                training
-        """
-        for step in range(phase_images_shown // batch_size, steps):
-            if step % (steps // 32) == 0:
-                self._print_output()
-
-                for s in range(25):
-                    img_path = os.path.join(
-                        path, f"{s}_fixed_step_gif{self.images_shown}.png"
-                    )
-                    generate_images(
-                        self.generator,
-                        img_path,
-                        target_size=(256, 256),
-                        seed=s,
-                        n_imgs=1,
-                        block=block,
-                        alpha=alpha,
-                        use_gpu=self.use_gpu,
-                        release_year_scaler=self.release_year_scaler,
-                    )
-
-                for _k, v in self.metrics.items():
-                    plot_metric(
-                        path,
-                        steps=self.images_shown,
-                        metric=v.get("values"),
-                        y_label=v.get("label"),
-                        file_name=v.get("file_name"),
-                    )
-                if model_dump_path:
-                    self.save(model_dump_path)
-        self.save(model_dump_path)
-        if phase == "fade_in":
-            self.train(
-                data_loader=data_loader,
-                block=block,
-                global_steps=global_steps,
-                batch_size=batch_size,
-                minibatch_reps=1,
-                path=path,
-                write_model_to=model_dump_path,
-            )
 
     def train_discriminator(
         self, batch: Dict[str, torch.Tensor], noise: torch.Tensor
@@ -186,7 +123,15 @@ class ProGANTask(WGANTask):
 
     def train_generator(
         self, batch: Dict[str, torch.Tensor], noise: torch.Tensor
-    ):
+    ) -> List:
+        """
+        Trains the generator on a single batch of data and returns the
+        Generator loss.
+
+        Args:
+            batch: Batch of real data to train on
+            noise: Randomly generated noise
+        """
         year = batch.get("year")
         if year:
             noise = torch.cat((noise, year), 1)

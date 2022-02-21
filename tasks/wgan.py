@@ -2,8 +2,9 @@ from typing import Dict
 
 import numpy as np
 import torch
-from tasks.covergantask import CoverGANTask
 from torch import nn
+
+from tasks.covergantask import CoverGANTask
 
 
 class WGANTask(CoverGANTask):
@@ -56,10 +57,7 @@ class WGANTask(CoverGANTask):
             std=1,
             size=(len(batch["images"]), self.discriminator.latent_size),
         )
-        self.log(
-            "train/generator_loss",
-            self.train_generator(batch, noise, **kwargs),
-        )
+        self.log("train/generator_loss", self.train_generator(batch, noise))
 
     def _gradient_penalty(
         self,

@@ -3,11 +3,11 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from torch import nn
+
 from networks.utils import clip_channels, plot_metric
 from tasks.covergantask import CoverGANTask
-from torch import nn
 from utils import logger
-from utils.image_operations import generate_images
 
 
 class DCDiscrimininator(nn.Module):

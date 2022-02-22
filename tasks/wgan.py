@@ -12,6 +12,7 @@ class WGANTask(CoverGANTask):
         self,
         generator: nn.Module,
         discriminator: nn.Module,
+        name: str,
         n_critic: int = 5,
         gradient_penalty_weight: float = 10.0,
     ):
@@ -28,7 +29,7 @@ class WGANTask(CoverGANTask):
                 W-GAN
         """
         super(WGANTask, self).__init__(
-            generator=generator, discriminator=discriminator
+            generator=generator, discriminator=discriminator, name=name
         )
         self.n_critic = n_critic
         self.gradient_penalty_weight = gradient_penalty_weight

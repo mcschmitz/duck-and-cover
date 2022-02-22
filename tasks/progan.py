@@ -13,17 +13,22 @@ class ProGANTask(WGANTask):
         self,
         generator: nn.Module,
         discriminator: nn.Module,
+        name: str,
         release_year_scaler=None,
         block: int = 0,
         n_critic: int = 1,
     ):
         super(ProGANTask, self).__init__(
-            generator=generator, discriminator=discriminator, n_critic=n_critic
+            generator=generator,
+            discriminator=discriminator,
+            n_critic=n_critic,
+            name=name,
         )
         self.release_year_scaler = release_year_scaler
         self.block = block
         self.burn_in_images_shown = 0
         self.fade_in_images_shown = 0
+        self.phase_steps = 0
         self.alpha = 1
         self.automatic_optimization = False
         self._alphas = None
@@ -41,10 +46,12 @@ class ProGANTask(WGANTask):
         return "fade_in"
 
     def on_fit_start(self):
+        super(ProGANTask, self).on_fit_start()
         batch_size = (
             self.trainer._data_connector._train_dataloader_source.dataloader().batch_size
         )
-        self._alphas = np.linspace(0, 1, self.trainer.global_step).tolist()
+        if not self._alphas:
+            self._alphas = np.linspace(0, 1, self.trainer.global_step).tolist()
         img_resolution = 2 ** (self.block + 2)
         if self.get_phase() == "fade_in":
             logger.info(f"Phase: Fade in for resolution {img_resolution}")
@@ -74,6 +81,7 @@ class ProGANTask(WGANTask):
             "train/images_shown",
             self.fade_in_images_shown + self.burn_in_images_shown,
         )
+        self.phase_steps += 1
 
     def train_discriminator(
         self, batch: Dict[str, torch.Tensor], noise: torch.Tensor
@@ -93,6 +101,7 @@ class ProGANTask(WGANTask):
             noise = torch.cat((noise, year), 1)
         _, discriminator_optimizer = self.optimizers()
         discriminator_optimizer.zero_grad()
+        noise = noise.to(batch["images"].device)
         with torch.no_grad():
             fake_images = self.generator(
                 noise, block=self.block, alpha=self.alpha
@@ -137,6 +146,7 @@ class ProGANTask(WGANTask):
             noise = torch.cat((noise, year), 1)
         generator_optimizer, _ = self.optimizers()
         generator_optimizer.zero_grad()
+        noise = noise.to(batch["images"].device)
         generated_images = self.generator(
             noise, block=self.block, alpha=self.alpha
         )
@@ -150,3 +160,25 @@ class ProGANTask(WGANTask):
         self.manual_backward(loss_fake)
         generator_optimizer.step()
         return loss_fake.detach().cpu().numpy().tolist()
+
+    def on_save_checkpoint(self, checkpoint):
+        checkpoint["release_year_scaler"] = self.release_year_scaler
+        checkpoint["block"] = self.block
+        checkpoint["burn_in_images_shown"] = self.burn_in_images_shown
+        checkpoint["fade_in_images_shown"] = self.fade_in_images_shown
+        checkpoint["alpha"] = self.alpha
+        checkpoint["_alphas"] = self._alphas
+        checkpoint["phase_steps"] = self.phase_steps
+        checkpoint["wandb_run_id"] = self.wandb_run_id
+        checkpoint["wandb_run_name"] = self.wandb_run_name
+
+    def on_load_checkpoint(self, checkpoint):
+        self.release_year_scaler = checkpoint["release_year_scaler"]
+        self.block = checkpoint["block"]
+        self.burn_in_images_shown = checkpoint["burn_in_images_shown"]
+        self.fade_in_images_shown = checkpoint["fade_in_images_shown"]
+        self.alpha = checkpoint["alpha"]
+        self._alphas = checkpoint["_alphas"]
+        self.phase_steps = checkpoint["phase_steps"]
+        self.wandb_run_id = checkpoint["wandb_run_id"]
+        self.wandb_run_name = checkpoint["wandb_run_name"]

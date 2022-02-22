@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 import torch
 from torch import nn
 from torch.optim import Adam
+
 from utils import logger
 
 
@@ -15,6 +16,7 @@ class CoverGANTask(pl.LightningModule):
         self,
         generator: nn.Module,
         discriminator: nn.Module,
+        name: str,
         **kwargs,
     ):
         """
@@ -31,6 +33,9 @@ class CoverGANTask(pl.LightningModule):
         super(CoverGANTask, self).__init__()
         self.discriminator = discriminator
         self.generator = generator
+
+        self.wandb_run_id = None
+        self.wandb_run_name = name
 
     def configure_optimizers(self):
         """
@@ -141,3 +146,5 @@ class CoverGANTask(pl.LightningModule):
         if hasattr(self, "logger"):
             if isinstance(self.logger, pl.loggers.WandbLogger):
                 self.logger.watch(self)
+                self.wandb_run_id = self.logger.experiment.id
+                self.wandb_run_name = self.logger.experiment.name

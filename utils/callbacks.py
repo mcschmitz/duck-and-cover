@@ -3,9 +3,9 @@ from typing import Tuple
 
 import numpy as np
 import pytorch_lightning as pl
+import tensorflow as tf
 import torch
 from matplotlib import pyplot as plt
-from PIL import Image
 from pytorch_lightning.callbacks import Callback
 
 
@@ -14,7 +14,6 @@ class GenerateImages(Callback):
         self,
         every_n_train_steps: int,
         output_dir: str,
-        n_imgs: int = 10,
         target_size: Tuple = (64, 64),
         **kwargs,
     ):
@@ -33,7 +32,6 @@ class GenerateImages(Callback):
             **kwargs: Additional keyword arguments
         """
         self.every_n_train_steps = every_n_train_steps
-        self.n_imgs = n_imgs
         self.target_size = target_size
         self.release_year_scaler = kwargs.get("release_year_scaler", None)
         self.output_dir = output_dir
@@ -68,7 +66,7 @@ class GenerateImages(Callback):
             trainer: PTLightning Trainer
             pl_module: The CoverGANTask
         """
-        self.generate_images(pl_module.generator, trainer)
+        self.generate_images(pl_module, trainer)
 
     def generate_images(self, task: pl.LightningModule, trainer: pl.Trainer):
         """
@@ -104,42 +102,22 @@ class GenerateImages(Callback):
             scaled_year = self.release_year_scaler.transform(year)
             scaled_year_vec = np.repeat(scaled_year, 10).reshape(-1, 1)
             latent_size -= 1
-        idx = 1
-        figsize = (np.array(self.target_size) * [10, self.n_imgs]).astype(
-            int
-        ) / 300
-        fig = plt.figure(figsize=figsize, dpi=300)
-        for _ in range(self.n_imgs):
-            x0 = np.random.normal(size=latent_size)
-            x1 = np.random.normal(size=latent_size)
-            x = np.linspace(x0, x1, 10)
-            if self.release_year_scaler:
-                x = np.hstack([x, scaled_year_vec])
-            x = torch.Tensor(x)
-            generated_images = (
-                task.generator(x, block=task.block, alpha=task.alpha)
-                .detach()
-                .cpu()
-                .numpy()
+        x0 = np.random.normal(size=latent_size)
+        x1 = np.random.normal(size=latent_size)
+        x = np.linspace(x0, x1, 10)
+        if self.release_year_scaler:
+            x = np.hstack([x, scaled_year_vec])
+        x = torch.Tensor(x)
+        x = x.to(task.device)
+        fig = self.create_figure(task, x)
+        if self.release_year_scaler:
+            fig.axes[0].text(
+                2,
+                15,
+                f"Release year: {year[0][0]}",
+                color="black",
+                fontsize=4,
             )
-            for img in generated_images:
-                img = Image.fromarray(np.uint8(img * 255))
-                img = img.resize(size=self.target_size)
-                plt.subplot(self.n_imgs, 10, idx)
-                plt.axis("off")
-                plt.imshow(img)
-                idx += 1
-                plt.subplots_adjust(
-                    left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1
-                )
-            if self.release_year_scaler:
-                fig.axes[0].text(
-                    2,
-                    15,
-                    f"Release year: {year[0][0]}",
-                    color="black",
-                    fontsize=4,
-                )
         images_shown = trainer.logged_metrics["train/images_shown"]
         images_shown = str(int(images_shown))
         if trainer.logger:
@@ -149,3 +127,32 @@ class GenerateImages(Callback):
         img_path = os.path.join(self.output_dir, f"{caption}.png")
         plt.savefig(img_path)
         plt.close()
+
+    def create_figure(
+        self, task: pl.LightningModule, x: torch.Tensor
+    ) -> plt.Figure:
+        """
+        Creates a matplotlib figure of generated album covers.
+
+        Args:
+            task: The CoverGANTask that contains the generator that should be
+                used to generate the images from the latent vectors
+            x: Latent vectors
+        """
+        idx = 1
+        figsize = (np.array(self.target_size) * [10, 1]).astype(int) / 300
+        fig = plt.figure(figsize=figsize, dpi=300)
+        output = task.generator(x, block=task.block, alpha=task.alpha)
+        generated_images = output.detach().cpu().numpy()
+        generated_images = np.moveaxis(generated_images, 1, -1)
+        for img in generated_images:
+            img = tf.keras.utils.array_to_img(img, scale=True)
+            img = img.resize(size=self.target_size)
+            plt.subplot(1, 10, idx)
+            plt.axis("off")
+            plt.imshow(img)
+            idx += 1
+            plt.subplots_adjust(
+                left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1
+            )
+        return fig

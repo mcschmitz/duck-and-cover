@@ -112,7 +112,7 @@ class GenreAutoencoder(pl.LightningModule):
 
     def configure_optimizers(self) -> Tuple[List[AdamW], List]:
         """
-        Assign both the discriminator and the generator optimizer.
+        Sets up the optimizer and the learning rate scheduler.
         """
         params = []
         for module in (self.encoder, self.decoder):

@@ -8,10 +8,9 @@ from urllib.error import ContentTooShortError, HTTPError
 import numpy as np
 import pandas as pd
 import spotipy
+from dotenv import load_dotenv
 from spotipy import util as util
 from tqdm import tqdm
-
-from credentials import get_client_id, get_client_secret
 
 
 class SpotifyInfoCollector:
@@ -357,7 +356,7 @@ class SpotifyInfoCollector:
         Returns:
             the album data frame
         """
-        if size not in [64, 300]:
+        if size not in {64, 300}:
             raise ValueError("size has to be either 64 oor 300.")
         size = str(size)
         container = np.repeat(None, len(self.cover_frame))
@@ -373,16 +372,16 @@ class SpotifyInfoCollector:
         return self.cover_frame
 
 
-ARTISTS_FILE = "data/artist_ids.json"
-GENRES_PATH = "data/genres.txt"
+ARTISTS_FILE = "../data/artist_ids.json"
+GENRES_PATH = "../data/genres.txt"
 REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
 REMAINING_ARTISTS = "tmp/remaining_artists.json"
-ALBUM_DATA_PATH = "data/album_data_frame.json"
+ALBUM_DATA_PATH = "../data/album_data_frame.json"
 
 if __name__ == "__main__":
-
-    client_id = get_client_id()
-    client_secret = get_client_secret()
+    load_dotenv()
+    client_id = os.getenv("SPOTIPY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
     token = util.oauth2.SpotifyClientCredentials(
         client_id, client_secret
     ).get_access_token()
@@ -391,9 +390,8 @@ if __name__ == "__main__":
     )
 
     if os.path.isfile(REMAINING_GENRES_PATH):
-        genres_to_process = [
-            line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)
-        ]
+        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
+            genres_to_process = [line.rstrip("\n") for line in file]
         with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
             artists_to_process = json.load(file)
             file.close()
@@ -404,7 +402,8 @@ if __name__ == "__main__":
                 artist_genres_map=artists_to_process,
             )
     else:
-        genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
+        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
+            genres_to_process = [line.rstrip("\n") for line in file]
     artists_to_process = artist_info_collector.get_top_artists_for_genre(
         genres=genres_to_process,
         result_path=ARTISTS_FILE,
@@ -436,10 +435,10 @@ if __name__ == "__main__":
     album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
     artist_info_collector.cover_frame = album_data
     artist_info_collector.collect_album_cover(
-        target_dir="data/covers300", size=300
+        target_dir="../data/covers300", size=300
     )
     artist_info_collector.collect_album_cover(
-        target_dir="data/covers64", size=64
+        target_dir="../data/covers64", size=64
     )
 
     album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
@@ -449,10 +448,10 @@ if __name__ == "__main__":
         spotify_secret=client_secret,
         cover_frame=album_data,
     )
-    for size in [64, 300]:
+    for size in (64, 300):
         artist_info_collector.cover_frame = (
             artist_info_collector.add_file_path_to_frame(
-                target_dir="data/all_covers{}".format(size), size=size
+                target_dir=f"data/all_covers{size}"
             )
         )
     artist_info_collector.cover_frame.to_json(

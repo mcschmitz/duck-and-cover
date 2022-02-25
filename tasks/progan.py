@@ -29,35 +29,24 @@ class ProGANTask(WGANTask):
         self.burn_in_images_shown = 0
         self.fade_in_images_shown = 0
         self.phase_steps = 0
+        self.phase = "burn_in"
         self.alpha = 1
         self.automatic_optimization = False
         self._alphas = None
 
-    def get_phase(self):
-        batch_size = (
-            self.trainer._data_connector._train_dataloader_source.dataloader().batch_size
-        )
-        fade_images_shown = self.fade_in_images_shown
-        if (
-            self.block == 0
-            or (fade_images_shown // batch_size) == self.trainer.steps
-        ):
-            return "burn_in"
-        return "fade_in"
-
     def on_fit_start(self):
+        """
+        Gets the current image size and initializes the alpha weights for the
+        fade in phase.
+        """
         super(ProGANTask, self).on_fit_start()
-        batch_size = (
-            self.trainer._data_connector._train_dataloader_source.dataloader().batch_size
-        )
-        if not self._alphas:
-            self._alphas = np.linspace(0, 1, self.trainer.global_step).tolist()
         img_resolution = 2 ** (self.block + 2)
-        if self.get_phase() == "fade_in":
+        if self.phase == "fade_in":
+            if not self._alphas:
+                self._alphas = np.linspace(
+                    0, 1, self.trainer.max_steps
+                ).tolist()
             logger.info(f"Phase: Fade in for resolution {img_resolution}")
-            for _ in range(self.fade_in_images_shown // batch_size):
-                self._alphas.pop(0)
-            self.alpha = self._alphas.pop(0)
         else:
             logger.info(f"Phase: Burn in for resolution {img_resolution}")
 
@@ -69,13 +58,12 @@ class ProGANTask(WGANTask):
         Args:
             batch: Batch to train on
         """
-        phase = self.get_phase()
-        if phase == "fade_in":
+        if self.phase == "fade_in":
             self.alpha = self._alphas.pop(0)
         self.train_on_batch(batch)
-        if phase == "fade_in":
+        if self.phase == "fade_in":
             self.fade_in_images_shown += len(batch.get("images"))
-        elif phase == "burn_in":
+        elif self.phase == "burn_in":
             self.burn_in_images_shown += len(batch.get("images"))
         self.log(
             "train/images_shown",
@@ -162,23 +150,48 @@ class ProGANTask(WGANTask):
         return loss_fake.detach().cpu().numpy().tolist()
 
     def on_save_checkpoint(self, checkpoint):
+        """
+        Writes additional attributes to the checkpoint.
+
+        Args:
+            checkpoint: PT Lightning Checkpoint
+        """
+        super(ProGANTask, self).on_save_checkpoint(checkpoint)
         checkpoint["release_year_scaler"] = self.release_year_scaler
         checkpoint["block"] = self.block
+        checkpoint["phase"] = self.phase
         checkpoint["burn_in_images_shown"] = self.burn_in_images_shown
         checkpoint["fade_in_images_shown"] = self.fade_in_images_shown
         checkpoint["alpha"] = self.alpha
         checkpoint["_alphas"] = self._alphas
         checkpoint["phase_steps"] = self.phase_steps
-        checkpoint["wandb_run_id"] = self.wandb_run_id
-        checkpoint["wandb_run_name"] = self.wandb_run_name
 
     def on_load_checkpoint(self, checkpoint):
+        """
+        Loads all the additional attributes from the checkpoint.
+
+        Args:
+            checkpoint: PT Lightning Checkpoint
+        """
+        super(ProGANTask, self).on_load_checkpoint(checkpoint)
         self.release_year_scaler = checkpoint["release_year_scaler"]
         self.block = checkpoint["block"]
+        self.phase = checkpoint["phase"]
         self.burn_in_images_shown = checkpoint["burn_in_images_shown"]
         self.fade_in_images_shown = checkpoint["fade_in_images_shown"]
         self.alpha = checkpoint["alpha"]
         self._alphas = checkpoint["_alphas"]
         self.phase_steps = checkpoint["phase_steps"]
-        self.wandb_run_id = checkpoint["wandb_run_id"]
-        self.wandb_run_name = checkpoint["wandb_run_name"]
+
+    def on_fit_end(self):
+        """
+        After the fit of one phase switches to the next block or the burn-in
+        phase and resets the phrase steps attribute.
+        """
+        super(ProGANTask, self).on_fit_end()
+        if self.phase == "burn_in":
+            self.phase = "fade_in"
+            self.block += 1
+        elif self.phase == "fade_in":
+            self.phase = "burn_in"
+        self.phase_steps = 0

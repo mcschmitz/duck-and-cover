@@ -8,13 +8,20 @@ from matplotlib.animation import ArtistAnimation
 
 
 def plot_final_gif(path: str):
+    """
+    Plots a series of gifs out of all files in a directory that follow a
+    certain naming convention.
+
+    Args:
+        path: Path to the directory
+    """
     gif_size = (256 * 10, 256)
     for s in range(25):
         images = []
         labels = []
         for root, _dirs, files in os.walk(path):
             for file in files:
-                if file.startswith(f"{s}_fixed_step_gif"):
+                if file.startswith(f"{s}_step"):
                     images.append(imageio.imread(os.path.join(root, file)))
                     labels.append(int(re.findall("\d+", file)[1]))
         order = np.argsort(labels)

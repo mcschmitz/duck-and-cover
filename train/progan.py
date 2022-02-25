@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytorch_lightning as pl
+import randomname
 
 from config import config
 from loader import DataLoader
@@ -24,13 +25,13 @@ image_height = max(IMAGE_SIZES) * IMAGE_RATIO[1]
 BATCH_SIZE = [16, 16, 16, 16, 16, 16, 14]
 IMAGES_TO_SHOW_PER_PHASE = 8 * int(1e5)
 steps_per_batch_size = [IMAGES_TO_SHOW_PER_PHASE // bs for bs in BATCH_SIZE]
-warm_start = True
+warm_start = False
 
 # Experiment Config
 prefix_list = ["progan"]
 if ADD_RELEASE_YEAR:
     prefix_list += ["release-year"]
-run_name = "azure-sting"  # randomname.get_name()
+run_name = randomname.get_name()
 prefix = "-".join(prefix_list)
 experiment_path = f"{prefix}-{LATENT_SIZE}"
 lp_path = os.path.join(
@@ -79,7 +80,7 @@ if __name__ == "__main__":
             generator=generator,
             discriminator=discriminator,
             name=run_name,
-            checkpoint_path=os.path.join(model_dump_path, "model_ckpt.ckpt"),
+            checkpoint_path=os.path.join(model_dump_path, "last.ckpt"),
         )
     logger = pl.loggers.WandbLogger(
         project="duck-and-cover",
@@ -88,8 +89,8 @@ if __name__ == "__main__":
         name=pro_gan_task.wandb_run_name,
         id=pro_gan_task.wandb_run_id,
     )
-
-    for block in range(pro_gan_task.block, N_BLOCKS):
+    while pro_gan_task.block <= N_BLOCKS - 1:
+        block = pro_gan_task.block
         image_size = IMAGE_SIZES[block]
         data_loader = DataLoader(
             image_size=image_size,
@@ -110,16 +111,4 @@ if __name__ == "__main__":
             enable_progress_bar=False,
         )
         trainer.fit(pro_gan_task, train_dataloader=data_loader)
-
-        batch_size = BATCH_SIZE[block]
-        pro_gan_task.train(
-            data_loader=data_loader,
-            block=block,
-            global_steps=IMAGES_TO_SHOW_PER_PHASE,
-            batch_size=batch_size,
-            path=lp_path,
-            write_model_to=model_dump_path,
-        )
-        gan.save(model_dump_path)
-
     plot_final_gif(path=lp_path)

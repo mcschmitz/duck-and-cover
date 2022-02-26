@@ -1,0 +1,5 @@
+ARTISTS_FILE = "./data/artist_ids.json"
+GENRES_PATH = "./data/genres.txt"
+REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
+REMAINING_ARTISTS = "tmp/remaining_artists.json"
+ALBUM_DATA_PATH = "./data/album_data_frame.json"

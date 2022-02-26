@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from sklearn.preprocessing import MultiLabelBinarizer
 from spotipy.oauth2 import SpotifyClientCredentials
 
-from data_collection import ALBUM_DATA_PATH
+from data_collection import ALBUM_DATA_PATH, TEST_DATA_PATH
 
 meta_df = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
 label_binarizer = MultiLabelBinarizer()
@@ -57,6 +57,4 @@ if __name__ == "__main__":
     for album_id in album_ids:
         album_infos.append(get_album_info(album_id))
     album_infos = pd.DataFrame(album_infos)
-    album_infos.to_json(
-        "./data/test_data_meta.json", lines=True, orient="records"
-    )
+    album_infos.to_json(TEST_DATA_PATH, lines=True, orient="records")

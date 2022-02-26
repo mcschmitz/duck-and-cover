@@ -107,6 +107,7 @@ data/*
 !data/album_data_frame.json.dvc
 !/data/genres.txt
 !/data/test_album_ids.txt
+!/data/test_data_meta.json
 tmp
 learning_progress/*
 

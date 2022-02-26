@@ -8,7 +8,7 @@ from urllib.error import ContentTooShortError, HTTPError
 import numpy as np
 import pandas as pd
 import spotipy
-from spotipy import util as util
+from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
 ARTISTS_FILE = "./data/artist_ids.json"
@@ -17,14 +17,12 @@ REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
 REMAINING_ARTISTS = "tmp/remaining_artists.json"
 ALBUM_DATA_PATH = "./data/album_data_frame.json"
 TEST_DATA_PATH = "./data/test_data_meta.json"
+TEST_DATA_ALBUM_IDS = "./data/test_album_ids.txt"
 
 
 class SpotifyInfoCollector:
     def __init__(
         self,
-        spotify_token: str,
-        spotify_id: str,
-        spotify_secret: str,
         cover_frame: pd.DataFrame = None,
         artist_genres_map: dict = None,
     ):
@@ -32,18 +30,10 @@ class SpotifyInfoCollector:
         Collector that gathers information about artists via the spotify API.
 
         Args:
-            spotify_token: Spotify API Token. Automatically generated if not provided
-            spotify_id: Spotify API client ID
-            spotify_secret: Spotify API Client secret
             artist_genres_map: Already collected artist IDs and genres
             cover_frame: Dataframe of already collected album information
         """
-        self.client_id = spotify_id
-        self.client_secret = spotify_secret
         self.artist_genres = artist_genres_map if artist_genres_map else dict()
-        self.token = (
-            spotify_token if spotify_token else self.create_new_token()
-        )
         self.create_spotify_session()
         self.remaining_genres = list()
         self.remaining_artists = list()
@@ -65,21 +55,12 @@ class SpotifyInfoCollector:
                 ],
             )
 
-    def create_new_token(self):
-        """
-        Generates a new token for the Spotify API from the class object client
-        id and client secret.
-        """
-        return util.oauth2.SpotifyClientCredentials(
-            self.client_id, self.client_secret
-        ).get_access_token()
-
     def create_spotify_session(self):
         """
         Generates a new Spotify session object based on the provided token and
         returns it.
         """
-        return spotipy.Spotify(self.token)
+        return spotipy.Spotify(SpotifyClientCredentials())
 
     def get_top_artists_for_genre(
         self,
@@ -109,7 +90,6 @@ class SpotifyInfoCollector:
                     'genre:"{}"'.format(genre), type="artist", limit=50
                 )
             except spotipy.client.SpotifyException:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
                 result = self.spotify_session.search(
                     'genre:"{}"'.format(genre), type="artist", limit=50
@@ -118,7 +98,6 @@ class SpotifyInfoCollector:
             self.get_artist_ids_from_search(result, genre)
 
             if idx % 100 == 0:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
 
             if idx % save_on == 0 and result_path is not None:
@@ -183,7 +162,6 @@ class SpotifyInfoCollector:
                         ]
                     )
                 except spotipy.client.SpotifyException:
-                    self.token = self.create_new_token()
                     self.spotify_session = self.create_spotify_session()
                     related_artists = (
                         self.spotify_session.artist_related_artists(artist_id)[
@@ -226,7 +204,6 @@ class SpotifyInfoCollector:
                     artist_id, artists[artist_id]["genre"]
                 )
             except spotipy.client.SpotifyException:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
                 artist_albums = self.get_artist_album_data(
                     artist_id, artists[artist_id]["genre"]
@@ -240,7 +217,6 @@ class SpotifyInfoCollector:
             self.remaining_artists.pop(artist_id)
 
             if idx % 100 == 0:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
 
             if idx % save_on == 0 and result_path is not None:

@@ -4,7 +4,12 @@ from dotenv import load_dotenv
 from sklearn.preprocessing import MultiLabelBinarizer
 from spotipy.oauth2 import SpotifyClientCredentials
 
-from data_collection import ALBUM_DATA_PATH, TEST_DATA_PATH
+from data_collection import (
+    ALBUM_DATA_PATH,
+    GENRES_PATH,
+    TEST_DATA_ALBUM_IDS,
+    TEST_DATA_PATH,
+)
 
 meta_df = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
 label_binarizer = MultiLabelBinarizer()
@@ -50,11 +55,20 @@ def get_album_info(album_id: str):
 
 
 if __name__ == "__main__":
-    with open("./data/test_album_ids.txt", "r", encoding="utf-8") as file:
-        album_ids = [line.rstrip("\n") for line in file]
+    with open(TEST_DATA_ALBUM_IDS, "r", encoding="utf-8") as test_file:
+        album_ids = [line.rstrip("\n") for line in test_file]
 
     album_infos = []
     for album_id in album_ids:
         album_infos.append(get_album_info(album_id))
     album_infos = pd.DataFrame(album_infos)
     album_infos.to_json(TEST_DATA_PATH, lines=True, orient="records")
+    missing_genres = album_infos["missing_genres"].values
+    missing_genres = {g for missing_set in missing_genres for g in missing_set}
+    with open(GENRES_PATH, "r", encoding="utf-8") as genres_file:
+        all_genres = [line.rstrip("\n") for line in genres_file]
+    all_genres.extend(missing_genres)
+    with open(GENRES_PATH, "w", encoding="utf-8") as genres_file:
+        for f in all_genres:
+            genres_file.write("%s\n" % f)
+        genres_file.close()

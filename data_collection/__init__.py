@@ -8,16 +8,20 @@ from urllib.error import ContentTooShortError, HTTPError
 import numpy as np
 import pandas as pd
 import spotipy
+from dotenv import load_dotenv
 from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
 ARTISTS_FILE = "./data/artist_ids.json"
 GENRES_PATH = "./data/genres.txt"
-REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
-REMAINING_ARTISTS = "tmp/remaining_artists.json"
+REMAINING_GENRES_PATH = "./data/remaining_genres.txt"
+REMAINING_ARTISTS = "./data/remaining_artists.json"
 ALBUM_DATA_PATH = "./data/album_data_frame.json"
 TEST_DATA_PATH = "./data/test_data_meta.json"
 TEST_DATA_ALBUM_IDS = "./data/test_album_ids.txt"
+
+
+load_dotenv()
 
 
 class SpotifyInfoCollector:
@@ -34,7 +38,6 @@ class SpotifyInfoCollector:
             cover_frame: Dataframe of already collected album information
         """
         self.artist_genres = artist_genres_map if artist_genres_map else dict()
-        self.create_spotify_session()
         self.remaining_genres = list()
         self.remaining_artists = list()
         self.spotify_session = self.create_spotify_session()
@@ -60,7 +63,7 @@ class SpotifyInfoCollector:
         Generates a new Spotify session object based on the provided token and
         returns it.
         """
-        return spotipy.Spotify(SpotifyClientCredentials())
+        return spotipy.Spotify(auth_manager=SpotifyClientCredentials())
 
     def get_top_artists_for_genre(
         self,
@@ -83,7 +86,6 @@ class SpotifyInfoCollector:
             Dict of artist IDs and their genres
         """
         self.remaining_genres = genres
-
         for idx, genre in tqdm(enumerate(genres)):
             try:
                 result = self.spotify_session.search(
@@ -94,17 +96,11 @@ class SpotifyInfoCollector:
                 result = self.spotify_session.search(
                     'genre:"{}"'.format(genre), type="artist", limit=50
                 )
-
             self.get_artist_ids_from_search(result, genre)
-
-            if idx % 100 == 0:
-                self.spotify_session = self.create_spotify_session()
-
             if idx % save_on == 0 and result_path is not None:
                 self.write_to_json(self.artist_genres, result_path)
                 self.remaining_genres = genres[idx:]
                 self.write_to_txt(self.remaining_genres, remaining_path)
-
         self.write_to_json(self.artist_genres, result_path)
         os.remove(remaining_path)
         return self.artist_genres
@@ -288,8 +284,7 @@ class SpotifyInfoCollector:
                             }
                             result.append(album_summary)
             return result
-        else:
-            return []
+        return []
 
     def collect_album_cover(self, target_dir: str, size: int = 64):
         """
@@ -303,10 +298,10 @@ class SpotifyInfoCollector:
             target_dir: root directory where to save the files
             size: integer giving the size of the images. Should be either 300 or 64.
         """
-        if size not in [64, 300]:
+        if size not in {64, 300}:
             raise ValueError("size has to be either 64 oor 300.")
         url_col = "album_cover_url300" if size == 300 else "album_cover_url64"
-        for idx, album in tqdm(self.cover_frame.iterrows()):
+        for _idx, album in tqdm(self.cover_frame.iterrows()):
             url = album[url_col]
             if url == "":
                 continue
@@ -322,7 +317,7 @@ class SpotifyInfoCollector:
                 except ContentTooShortError:
                     urllib.request.urlretrieve(url, file_path)
                 except HTTPError:
-                    continue
+                    pass
 
     def add_file_path_to_frame(self, target_dir: str, size: int = 64):
         """

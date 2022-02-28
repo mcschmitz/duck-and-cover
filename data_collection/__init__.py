@@ -8,18 +8,25 @@ from urllib.error import ContentTooShortError, HTTPError
 import numpy as np
 import pandas as pd
 import spotipy
-from spotipy import util as util
+from dotenv import load_dotenv
+from spotipy.oauth2 import SpotifyClientCredentials
 from tqdm import tqdm
 
-from credentials import get_client_id, get_client_secret
+ARTISTS_FILE = "./data/artist_ids.json"
+GENRES_PATH = "./data/genres.txt"
+REMAINING_GENRES_PATH = "./data/remaining_genres.txt"
+REMAINING_ARTISTS = "./data/remaining_artists.json"
+ALBUM_DATA_PATH = "./data/album_data_frame.json"
+TEST_DATA_PATH = "./data/test_data_meta.json"
+TEST_DATA_ALBUM_IDS = "./data/test_album_ids.txt"
+
+
+load_dotenv()
 
 
 class SpotifyInfoCollector:
     def __init__(
         self,
-        spotify_token: str,
-        spotify_id: str,
-        spotify_secret: str,
         cover_frame: pd.DataFrame = None,
         artist_genres_map: dict = None,
     ):
@@ -27,19 +34,10 @@ class SpotifyInfoCollector:
         Collector that gathers information about artists via the spotify API.
 
         Args:
-            spotify_token: Spotify API Token. Automatically generated if not provided
-            spotify_id: Spotify API client ID
-            spotify_secret: Spotify API Client secret
             artist_genres_map: Already collected artist IDs and genres
             cover_frame: Dataframe of already collected album information
         """
-        self.client_id = spotify_id
-        self.client_secret = spotify_secret
         self.artist_genres = artist_genres_map if artist_genres_map else dict()
-        self.token = (
-            spotify_token if spotify_token else self.create_new_token()
-        )
-        self.create_spotify_session()
         self.remaining_genres = list()
         self.remaining_artists = list()
         self.spotify_session = self.create_spotify_session()
@@ -60,21 +58,12 @@ class SpotifyInfoCollector:
                 ],
             )
 
-    def create_new_token(self):
-        """
-        Generates a new token for the Spotify API from the class object client
-        id and client secret.
-        """
-        return util.oauth2.SpotifyClientCredentials(
-            self.client_id, self.client_secret
-        ).get_access_token()
-
     def create_spotify_session(self):
         """
         Generates a new Spotify session object based on the provided token and
         returns it.
         """
-        return spotipy.Spotify(self.token)
+        return spotipy.Spotify(auth_manager=SpotifyClientCredentials())
 
     def get_top_artists_for_genre(
         self,
@@ -97,30 +86,21 @@ class SpotifyInfoCollector:
             Dict of artist IDs and their genres
         """
         self.remaining_genres = genres
-
         for idx, genre in tqdm(enumerate(genres)):
             try:
                 result = self.spotify_session.search(
                     'genre:"{}"'.format(genre), type="artist", limit=50
                 )
             except spotipy.client.SpotifyException:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
                 result = self.spotify_session.search(
                     'genre:"{}"'.format(genre), type="artist", limit=50
                 )
-
             self.get_artist_ids_from_search(result, genre)
-
-            if idx % 100 == 0:
-                self.token = self.create_new_token()
-                self.spotify_session = self.create_spotify_session()
-
             if idx % save_on == 0 and result_path is not None:
                 self.write_to_json(self.artist_genres, result_path)
                 self.remaining_genres = genres[idx:]
                 self.write_to_txt(self.remaining_genres, remaining_path)
-
         self.write_to_json(self.artist_genres, result_path)
         os.remove(remaining_path)
         return self.artist_genres
@@ -178,7 +158,6 @@ class SpotifyInfoCollector:
                         ]
                     )
                 except spotipy.client.SpotifyException:
-                    self.token = self.create_new_token()
                     self.spotify_session = self.create_spotify_session()
                     related_artists = (
                         self.spotify_session.artist_related_artists(artist_id)[
@@ -221,7 +200,6 @@ class SpotifyInfoCollector:
                     artist_id, artists[artist_id]["genre"]
                 )
             except spotipy.client.SpotifyException:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
                 artist_albums = self.get_artist_album_data(
                     artist_id, artists[artist_id]["genre"]
@@ -235,7 +213,6 @@ class SpotifyInfoCollector:
             self.remaining_artists.pop(artist_id)
 
             if idx % 100 == 0:
-                self.token = self.create_new_token()
                 self.spotify_session = self.create_spotify_session()
 
             if idx % save_on == 0 and result_path is not None:
@@ -307,8 +284,7 @@ class SpotifyInfoCollector:
                             }
                             result.append(album_summary)
             return result
-        else:
-            return []
+        return []
 
     def collect_album_cover(self, target_dir: str, size: int = 64):
         """
@@ -322,10 +298,10 @@ class SpotifyInfoCollector:
             target_dir: root directory where to save the files
             size: integer giving the size of the images. Should be either 300 or 64.
         """
-        if size not in [64, 300]:
+        if size not in {64, 300}:
             raise ValueError("size has to be either 64 oor 300.")
         url_col = "album_cover_url300" if size == 300 else "album_cover_url64"
-        for idx, album in tqdm(self.cover_frame.iterrows()):
+        for _idx, album in tqdm(self.cover_frame.iterrows()):
             url = album[url_col]
             if url == "":
                 continue
@@ -341,7 +317,7 @@ class SpotifyInfoCollector:
                 except ContentTooShortError:
                     urllib.request.urlretrieve(url, file_path)
                 except HTTPError:
-                    continue
+                    pass
 
     def add_file_path_to_frame(self, target_dir: str, size: int = 64):
         """
@@ -357,7 +333,7 @@ class SpotifyInfoCollector:
         Returns:
             the album data frame
         """
-        if size not in [64, 300]:
+        if size not in {64, 300}:
             raise ValueError("size has to be either 64 oor 300.")
         size = str(size)
         container = np.repeat(None, len(self.cover_frame))
@@ -371,90 +347,3 @@ class SpotifyInfoCollector:
                     container[idx] = file_path
         self.cover_frame["file_path_" + size] = container
         return self.cover_frame
-
-
-ARTISTS_FILE = "data/artist_ids.json"
-GENRES_PATH = "data/genres.txt"
-REMAINING_GENRES_PATH = "tmp/remaining_genres.txt"
-REMAINING_ARTISTS = "tmp/remaining_artists.json"
-ALBUM_DATA_PATH = "data/album_data_frame.json"
-
-if __name__ == "__main__":
-
-    client_id = get_client_id()
-    client_secret = get_client_secret()
-    token = util.oauth2.SpotifyClientCredentials(
-        client_id, client_secret
-    ).get_access_token()
-    artist_info_collector = SpotifyInfoCollector(
-        token, spotify_id=client_id, spotify_secret=client_secret
-    )
-
-    if os.path.isfile(REMAINING_GENRES_PATH):
-        genres_to_process = [
-            line.rstrip("\n") for line in open(REMAINING_GENRES_PATH)
-        ]
-        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
-            artists_to_process = json.load(file)
-            file.close()
-            artist_info_collector = SpotifyInfoCollector(
-                spotify_token=token,
-                spotify_id=client_id,
-                spotify_secret=client_secret,
-                artist_genres_map=artists_to_process,
-            )
-    else:
-        genres_to_process = [line.rstrip("\n") for line in open(GENRES_PATH)]
-    artists_to_process = artist_info_collector.get_top_artists_for_genre(
-        genres=genres_to_process,
-        result_path=ARTISTS_FILE,
-        remaining_path=REMAINING_GENRES_PATH,
-        save_on=100,
-    )
-
-    if os.path.isfile(REMAINING_ARTISTS):
-        with open(REMAINING_ARTISTS, "r", encoding="utf-8") as file:
-            artists_to_process = json.load(file)
-            file.close()
-        album_data = pd.read_json(
-            ALBUM_DATA_PATH, orient="records", lines=True
-        )
-        artist_info_collector = SpotifyInfoCollector(
-            token,
-            spotify_id=client_id,
-            spotify_secret=client_secret,
-            cover_frame=album_data,
-        )
-    else:
-        with open(ARTISTS_FILE, "r", encoding="utf-8") as file:
-            artists_to_process = json.load(file)
-            file.close()
-    artist_info_collector.build_cover_data_frame(
-        artists_to_process, 1000, ALBUM_DATA_PATH, REMAINING_ARTISTS
-    )
-
-    album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
-    artist_info_collector.cover_frame = album_data
-    artist_info_collector.collect_album_cover(
-        target_dir="data/covers300", size=300
-    )
-    artist_info_collector.collect_album_cover(
-        target_dir="data/covers64", size=64
-    )
-
-    album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
-    artist_info_collector = SpotifyInfoCollector(
-        token,
-        spotify_id=client_id,
-        spotify_secret=client_secret,
-        cover_frame=album_data,
-    )
-    for size in [64, 300]:
-        artist_info_collector.cover_frame = (
-            artist_info_collector.add_file_path_to_frame(
-                target_dir="data/all_covers{}".format(size), size=size
-            )
-        )
-    artist_info_collector.cover_frame.to_json(
-        ALBUM_DATA_PATH, lines=True, orient="records"
-    )

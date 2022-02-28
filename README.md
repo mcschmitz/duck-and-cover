@@ -20,7 +20,7 @@ Data gathering consists of two steps:
    client secret. Read more on how to get your Spotify client ID and
    secret
    [here](https://developer.spotify.com/documentation/general/guides/app-settings/).
-2. Run the [data collection script](collect_artist_data.py) which
+2. Run the [data collection script](data_collection/collect_artist_data.py) which
    iteratively collects the top 50 artists for each of the genres listed
    in [this file](data/genres.txt) and their related artists whereby
    duplicated artists are removed. After this step the script builds a
@@ -72,10 +72,9 @@ Deep Convolutional GAN and on the Wassertrein GAN.
 </div>
 
 ### Next Steps:
-1. Migrate ProGAN training to PTLightning
-2. Pick 25 Albums that exist, but are not in the dataset in order to test and integrate them into the training process
-3. Train ProGan + Genre
-4. Integrate Artist Name
-5. Integrate Album Name
-6. Migrate W-GAN to PTLightning
-7. Migrate DCGAN to PTLightning
+1. Pick 25 Albums that exist, but are not in the dataset in order to test and integrate them into the training process
+2. Train ProGan + Genre
+3. Integrate Artist Name
+4. Integrate Album Name
+5. Migrate W-GAN to PTLightning
+6. Migrate DCGAN to PTLightning

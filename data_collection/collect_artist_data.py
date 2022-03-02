@@ -44,17 +44,13 @@ if __name__ == "__main__":
 
     album_data = pd.read_json(ALBUM_DATA_PATH, orient="records", lines=True)
     artist_info_collector.cover_frame = album_data
-    artist_info_collector.collect_album_cover(
-        target_dir="./data/covers300", size=300
-    )
-    artist_info_collector.collect_album_cover(
-        target_dir="./data/covers64", size=64
-    )
-
     for size in (64, 300):
+        artist_info_collector.collect_album_cover(
+            target_dir=f"./data/covers{size}", size=size
+        )
         artist_info_collector.cover_frame = (
             artist_info_collector.add_file_path_to_frame(
-                target_dir=f"data/all_covers{size}"
+                target_dir=f"./data/covers{size}", size=size
             )
         )
     artist_info_collector.cover_frame.to_json(

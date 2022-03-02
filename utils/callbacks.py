@@ -3,7 +3,6 @@ from typing import Tuple
 
 import numpy as np
 import pytorch_lightning as pl
-import tensorflow as tf
 import torch
 from matplotlib import pyplot as plt
 from pytorch_lightning.callbacks import Callback
@@ -21,13 +20,12 @@ class GenerateImages(Callback):
         Generates a list of images by predicting with the given generator.
 
         Feeds normal distributed random numbers into the generator to generate
-        `n_imgs`, tiles the image, rescales it and saves the output to a PNG
+        images, tiles the image, rescales it and saves the output to a PNG
         file. If the trainer has a W&B logger also logs the images to W&B.
 
         Args:
             every_n_train_steps: How often the logger should run
             output_dir: Where to save the results
-            n_imgs: Number of images to generate
             target_size: Target size of the image in pixels
             **kwargs: Additional keyword arguments
         """
@@ -146,7 +144,7 @@ class GenerateImages(Callback):
         generated_images = output.detach().cpu().numpy()
         generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:
-            img = tf.keras.utils.array_to_img(img, scale=True)
+            img = array_to_img(img, scale=True)
             img = img.resize(size=self.target_size)
             plt.subplot(1, 10, idx)
             plt.axis("off")
@@ -156,3 +154,77 @@ class GenerateImages(Callback):
                 left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1
             )
         return fig
+
+
+def array_to_img(x, data_format=None, scale=True, dtype=None):
+    """
+    Converts a 3D Numpy array to a PIL Image instance.
+
+    Usage:
+    ```python
+    from PIL import Image
+    img = np.random.random(size=(100, 100, 3))
+    pil_img = tf.keras.preprocessing.image.array_to_img(img)
+    ```
+    Args:
+        x: Input data, in any form that can be converted to a Numpy array.
+        data_format: Image data format, can be either "channels_first" or
+          "channels_last". Defaults to `None`, in which case the global setting
+          `tf.keras.backend.image_data_format()` is used (unless you changed it,
+          it defaults to "channels_last").
+        scale: Whether to rescale the image such that minimum and maximum values
+          are 0 and 255 respectively. Defaults to `True`.
+        dtype: Dtype to use. Default to `None`, in which case the global setting
+          `tf.keras.backend.floatx()` is used (unless you changed it, it defaults
+          to "float32")
+    Returns:
+        A PIL Image instance.
+    Raises:
+        ImportError: if PIL is not available.
+        ValueError: if invalid `x` or `data_format` is passed.
+    """
+
+    if data_format is None:
+        data_format = backend.image_data_format()
+    if dtype is None:
+        dtype = backend.floatx()
+    if pil_image is None:
+        raise ImportError(
+            "Could not import PIL.Image. "
+            "The use of `array_to_img` requires PIL."
+        )
+    x = np.asarray(x, dtype=dtype)
+    if x.ndim != 3:
+        raise ValueError(
+            "Expected image array to have rank 3 (single image). "
+            f"Got array with shape: {x.shape}"
+        )
+
+    if data_format not in {"channels_first", "channels_last"}:
+        raise ValueError(f"Invalid data_format: {data_format}")
+
+    # Original Numpy array x has format (height, width, channel)
+    # or (channel, height, width)
+    # but target PIL image has format (width, height, channel)
+    if data_format == "channels_first":
+        x = x.transpose(1, 2, 0)
+    if scale:
+        x = x - np.min(x)
+        x_max = np.max(x)
+        if x_max != 0:
+            x /= x_max
+        x *= 255
+    if x.shape[2] == 4:
+        # RGBA
+        return pil_image.fromarray(x.astype("uint8"), "RGBA")
+    elif x.shape[2] == 3:
+        # RGB
+        return pil_image.fromarray(x.astype("uint8"), "RGB")
+    elif x.shape[2] == 1:
+        # grayscale
+        if np.max(x) > 255:
+            # 32-bit signed integer grayscale image. PIL mode "I"
+            return pil_image.fromarray(x[:, :, 0].astype("int32"), "I")
+        return pil_image.fromarray(x[:, :, 0].astype("uint8"), "L")
+    else:
+        raise ValueError(f"Unsupported channel number: {x.shape[2]}")

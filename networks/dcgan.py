@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from networks.utils import clip_channels, plot_metric
+from networks.utils import clip_channels
 from tasks.covergantask import CoverGANTask
 from utils import logger
 
@@ -48,7 +48,7 @@ class DCDiscrimininator(nn.Module):
             cur_img_size /= 2
 
         final_linear_input_dim = int(
-            self.conv2d_layers[-1].out_channels * cur_img_size ** 2
+            self.conv2d_layers[-1].out_channels * cur_img_size**2
         )
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.xavier_uniform_(self.final_linear.weight)

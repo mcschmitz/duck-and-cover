@@ -20,13 +20,12 @@ class GenerateImages(Callback):
         Generates a list of images by predicting with the given generator.
 
         Feeds normal distributed random numbers into the generator to generate
-        `n_imgs`, tiles the image, rescales it and saves the output to a PNG
+        images, tiles the image, rescales it and saves the output to a PNG
         file. If the trainer has a W&B logger also logs the images to W&B.
 
         Args:
             every_n_train_steps: How often the logger should run
             output_dir: Where to save the results
-            n_imgs: Number of images to generate
             target_size: Target size of the image in pixels
             **kwargs: Additional keyword arguments
         """

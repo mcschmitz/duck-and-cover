@@ -3,9 +3,16 @@ black==22.1.0
 boto3==1.20.24
 docformatter==1.4
 dvc==2.9.5
+matplotlib==3.5.1
+pandas==1.4.1
 pipdeptree==2.2.1
 python-dotenv==0.19.2
+pytorch-lightning==1.5.10
+randomname==0.1.5
 s3fs==2022.2.0
+scikit-image==0.19.2
+scikit-learn==1.0.2
 spotipy==2.19.0
+transformers==4.16.2
+wandb==0.12.10
 wemake-python-styleguide==0.16.0
-wheel==0.37.1

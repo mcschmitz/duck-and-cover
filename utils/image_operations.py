@@ -15,15 +15,21 @@ def plot_final_gif(path: str):
     Args:
         path: Path to the directory
     """
+    regexp = re.compile(r"step \d+")
     gif_size = (256 * 10, 256)
     for s in range(25):
+        album = None
         images = []
         labels = []
         for root, _dirs, files in os.walk(path):
             for file in files:
-                if file.startswith(f"{s}_step"):
+                match = regexp.search(file)
+                if match:
+                    match = match[0]
                     images.append(imageio.imread(os.path.join(root, file)))
-                    labels.append(int(re.findall("\d+", file)[1]))
+                    labels.append(int(re.findall("\d+", match)[0]))
+                    if not album:
+                        album = file.split("]")[0] + "]"
         order = np.argsort(labels)
         images = [images[i] for i in order]
         labels = [labels[i] for i in order]

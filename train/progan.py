@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
-import randomname
 
 from config import config
 from loader import DataLoader
@@ -25,13 +25,13 @@ image_height = max(IMAGE_SIZES) * IMAGE_RATIO[1]
 BATCH_SIZE = [16, 16, 16, 16, 16, 16, 14]
 IMAGES_TO_SHOW_PER_PHASE = 8 * int(1e5)
 steps_per_batch_size = [IMAGES_TO_SHOW_PER_PHASE // bs for bs in BATCH_SIZE]
-warm_start = False
+warm_start = True
 
 # Experiment Config
 prefix_list = ["progan"]
 if ADD_RELEASE_YEAR:
     prefix_list += ["release-year"]
-run_name = randomname.get_name()
+run_name = "product-bag"  # randomname.get_name()
 prefix = "-".join(prefix_list)
 experiment_path = f"{prefix}-{LATENT_SIZE}"
 lp_path = os.path.join(
@@ -42,6 +42,9 @@ model_dump_path = os.path.join(lp_path, "model")
 Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 
 if __name__ == "__main__":
+    test_data_meta = pd.read_json(
+        "./data/test_data_meta.json", orient="records", lines=True
+    )
     pro_gan = ProGAN(
         img_width=image_width,
         img_height=image_height,
@@ -61,6 +64,7 @@ if __name__ == "__main__":
             every_n_train_steps=eval_rate,
             target_size=(256, 256),
             output_dir=lp_path,
+            data=test_data_meta,
         ),
         pl.callbacks.ModelCheckpoint(
             monitor="train/images_shown",

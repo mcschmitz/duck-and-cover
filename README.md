@@ -72,9 +72,8 @@ Deep Convolutional GAN and on the Wassertrein GAN.
 </div>
 
 ### Next Steps:
-1. Pick 25 Albums that exist, but are not in the dataset in order to test and integrate them into the training process
-2. Train ProGan + Genre
-3. Integrate Artist Name
-4. Integrate Album Name
-5. Migrate W-GAN to PTLightning
-6. Migrate DCGAN to PTLightning
+1. Train ProGan + Genre
+2. Integrate Artist Name
+3. Integrate Album Name
+4. Migrate W-GAN to PTLightning
+5. Migrate DCGAN to PTLightning

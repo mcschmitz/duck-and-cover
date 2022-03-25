@@ -13,7 +13,7 @@ from utils import GenerateImages
 from utils.image_operations import plot_final_gif
 
 # Model Configs
-ADD_RELEASE_YEAR = False
+ADD_RELEASE_YEAR = True
 LATENT_SIZE = 512
 IMAGE_RATIO = config.get("image_ratio")
 N_BLOCKS = 7
@@ -31,7 +31,7 @@ warm_start = True
 prefix_list = ["progan"]
 if ADD_RELEASE_YEAR:
     prefix_list += ["release-year"]
-run_name = "product-bag"  # randomname.get_name()
+run_name = "accepting-printer"  # randomname.get_name()
 prefix = "-".join(prefix_list)
 experiment_path = f"{prefix}-{LATENT_SIZE}"
 lp_path = os.path.join(
@@ -50,34 +50,14 @@ if __name__ == "__main__":
         img_height=image_height,
         latent_size=LATENT_SIZE,
         n_blocks=N_BLOCKS,
-        add_year_information=ADD_RELEASE_YEAR,
     )
-    generator = pro_gan.build_generator()
+    generator = pro_gan.build_generator(add_release_year=ADD_RELEASE_YEAR)
     discriminator = pro_gan.build_discriminator()
 
     pro_gan_task = ProGANTask(
         generator=generator, discriminator=discriminator, name=run_name
     )
     eval_rate = steps_per_batch_size[0] // 32
-    callbacks = [
-        GenerateImages(
-            every_n_train_steps=eval_rate,
-            target_size=(256, 256),
-            output_dir=lp_path,
-            data=test_data_meta,
-        ),
-        pl.callbacks.ModelCheckpoint(
-            monitor="train/images_shown",
-            dirpath=model_dump_path,
-            filename="model_ckpt",
-            mode="max",
-            verbose=True,
-            save_last=True,
-            every_n_train_steps=eval_rate,
-            every_n_epochs=0,
-            save_on_train_epoch_end=False,
-        ),
-    ]
 
     if warm_start:
         pro_gan_task = pro_gan_task.load_from_checkpoint(
@@ -99,12 +79,30 @@ if __name__ == "__main__":
         data_loader = DataLoader(
             image_size=image_size,
             batch_size=BATCH_SIZE[block],
-            return_release_year=ADD_RELEASE_YEAR,
+            add_release_year=ADD_RELEASE_YEAR,
             meta_data_path="data/album_data_frame.json",
         )
-        if ADD_RELEASE_YEAR:
-            pro_gan_task.release_year_scaler = data_loader.release_year_scaler
-
+        callbacks = [
+            GenerateImages(
+                every_n_train_steps=eval_rate,
+                target_size=(256, 256),
+                output_dir=lp_path,
+                data=test_data_meta,
+                add_release_year=ADD_RELEASE_YEAR,
+                release_year_scaler=data_loader.release_year_scaler,
+            ),
+            pl.callbacks.ModelCheckpoint(
+                monitor="train/images_shown",
+                dirpath=model_dump_path,
+                filename="model_ckpt",
+                mode="max",
+                verbose=True,
+                save_last=True,
+                every_n_train_steps=eval_rate,
+                every_n_epochs=0,
+                save_on_train_epoch_end=False,
+            ),
+        ]
         max_steps = steps_per_batch_size[block] - pro_gan_task.phase_steps
         trainer = pl.Trainer(
             gpus=-1,

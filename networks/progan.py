@@ -1,6 +1,8 @@
 from typing import Any, Dict
 
 import torch
+from torch import nn
+
 from networks.utils import calc_channels_at_stage
 from networks.utils.layers import (
     MinibatchStdDev,
@@ -10,7 +12,6 @@ from networks.utils.layers import (
     ScaledDense,
 )
 from networks.wgan import WGAN
-from torch import nn
 
 
 class ProGANDiscriminatorFinalBlock(nn.Module):
@@ -185,7 +186,8 @@ class ProGANDiscriminator(nn.Module):
         Forward pass of the ProGAN discriminator.
 
         Args:
-            x: Input tensor
+            images: Input tensor of images
+            year: Standaize Input tensor of the release year
             block: Output block
             alpha: Weight for average with the next block
         """
@@ -314,7 +316,7 @@ class ProGANGenerator(nn.Module):
         n_blocks: int = 10,
         n_channels: int = 3,
         latent_size: int = 512,
-        add_year_information: bool = False,
+        add_release_year: bool = False,
     ):
         """
         Generator Model of the ProGAN network.
@@ -323,10 +325,11 @@ class ProGANGenerator(nn.Module):
             n_blocks: Depth of the network
             n_channels: Number of output channels (default = 3 for RGB)
             latent_size: Latent space dimensions
+            add_release_year: Boolean indicating whether to add release year
         """
         super().__init__()
-        self.add_year_information = add_year_information
-        if add_year_information:
+        self.add_year_information = add_release_year
+        if add_release_year:
             latent_size += 1
 
         self.n_blocks = n_blocks
@@ -440,6 +443,8 @@ class ProGAN(WGAN):
             channels: Number of image channels. Normally either 1 or 3.
             latent_size: Size of the latent vector that is used to generate the
                 image
+            n_blocks: Number of blocks the final ProGAN should haven. Final
+                outputsize will be 2**(`n_blocks` + 1)
         """
         self.n_blocks = n_blocks
         self.latent_size = latent_size
@@ -450,7 +455,6 @@ class ProGAN(WGAN):
             latent_size=latent_size,
             **kwargs,
         )
-        self.add_year_information = kwargs.get("add_year_information", False)
         self.release_year_scaler = None
 
     def build_discriminator(self, **kwargs) -> ProGANDiscriminator:
@@ -468,11 +472,14 @@ class ProGAN(WGAN):
         """
         Builds the ProGAN Generator.
         """
+        add_release_year = kwargs.get(
+            "add_release_year",
+        )
         return ProGANGenerator(
             n_blocks=self.n_blocks,
             n_channels=self.channels,
             latent_size=self.latent_size,
-            add_year_information=kwargs.get("add_year_information", False),
+            add_release_year=add_release_year,
         )
 
     def load(self, path):

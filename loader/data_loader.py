@@ -6,6 +6,7 @@ import torch
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import StandardScaler
+
 from utils import logger
 
 
@@ -15,7 +16,7 @@ class DataLoader:
         meta_data_path: str,
         image_size: int = 256,
         batch_size: int = 32,
-        return_release_year: bool = False,
+        add_release_year: bool = False,
     ):
         """
         Image loader that takes a path and crawls the directory and
@@ -26,7 +27,7 @@ class DataLoader:
                 about the training data.
             image_size: output size of the images
             batch_size: Size of one Batch
-            return_release_year: Flag to return release year information
+            add_release_year: Flag to return release year information
         """
         self._iterator_i = 0
         self.image_size = image_size
@@ -44,8 +45,8 @@ class DataLoader:
         )
         self.files = self.files.to_list()
 
-        self.return_release_year = return_release_year
-        if self.return_release_year:
+        self.add_release_year = add_release_year
+        if self.add_release_year:
             self.meta_df = self.meta_df.dropna(subset=["album_release"])
             self.release_year_scaler = StandardScaler().fit(
                 self.meta_df["album_release"].values.reshape(-1, 1)
@@ -62,7 +63,7 @@ class DataLoader:
         batch_x = np.zeros(
             (self.batch_size, 3, self.image_size, self.image_size)
         )
-        year_x = [] if self.return_release_year else None
+        year_x = [] if self.add_release_year else None
         batch_idx = self._get_batch_idx()
         for i, b_idx in enumerate(batch_idx):
             file_path = self.files[b_idx]
@@ -73,7 +74,7 @@ class DataLoader:
             img = np.moveaxis(img, -1, 0)
             img = resize(img, (3, self.image_size, self.image_size))
             batch_x[i] = img
-            if self.return_release_year:
+            if self.add_release_year:
                 year = np.array(self.meta_df["album_release"][b_idx]).reshape(
                     -1, 1
                 )
@@ -81,7 +82,7 @@ class DataLoader:
                 year_x.append(year.flatten())
         self._iterator_i = batch_idx[-1]
         images = torch.Tensor(batch_x)
-        year = torch.Tensor(year_x) if year_x else None
+        year = torch.Tensor(np.array(year_x)) if year_x else None
         return {"images": images, "year": year}
 
     def _get_batch_idx(self):

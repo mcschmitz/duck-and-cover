@@ -14,7 +14,6 @@ class ProGANTask(WGANTask):
         generator: nn.Module,
         discriminator: nn.Module,
         name: str,
-        release_year_scaler=None,
         block: int = 0,
         n_critic: int = 1,
     ):
@@ -24,7 +23,6 @@ class ProGANTask(WGANTask):
             n_critic=n_critic,
             name=name,
         )
-        self.release_year_scaler = release_year_scaler
         self.block = block
         self.burn_in_images_shown = 0
         self.fade_in_images_shown = 0
@@ -85,7 +83,8 @@ class ProGANTask(WGANTask):
             the losses for this training iteration
         """
         year = batch.get("year")
-        if year:
+        if year is not None:
+            year = year.to(noise.device)
             noise = torch.cat((noise, year), 1)
         _, discriminator_optimizer = self.optimizers()
         discriminator_optimizer.zero_grad()
@@ -113,7 +112,7 @@ class ProGANTask(WGANTask):
             batch, fake_batch, block=self.block, alpha=self.alpha
         )
         loss += gp
-        loss += 0.001 * torch.mean(real_pred ** 2)
+        loss += 0.001 * torch.mean(real_pred**2)
         self.manual_backward(loss)
         discriminator_optimizer.step()
         return loss
@@ -130,7 +129,8 @@ class ProGANTask(WGANTask):
             noise: Randomly generated noise
         """
         year = batch.get("year")
-        if year:
+        if year is not None:
+            year = year.to(noise.device)
             noise = torch.cat((noise, year), 1)
         generator_optimizer, _ = self.optimizers()
         generator_optimizer.zero_grad()
@@ -157,7 +157,6 @@ class ProGANTask(WGANTask):
             checkpoint: PT Lightning Checkpoint
         """
         super(ProGANTask, self).on_save_checkpoint(checkpoint)
-        checkpoint["release_year_scaler"] = self.release_year_scaler
         checkpoint["block"] = self.block
         checkpoint["phase"] = self.phase
         checkpoint["burn_in_images_shown"] = self.burn_in_images_shown
@@ -174,7 +173,6 @@ class ProGANTask(WGANTask):
             checkpoint: PT Lightning Checkpoint
         """
         super(ProGANTask, self).on_load_checkpoint(checkpoint)
-        self.release_year_scaler = checkpoint["release_year_scaler"]
         self.block = checkpoint["block"]
         self.phase = checkpoint["phase"]
         self.burn_in_images_shown = checkpoint["burn_in_images_shown"]

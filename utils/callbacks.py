@@ -2,6 +2,7 @@ import os
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 from matplotlib import pyplot as plt
@@ -12,10 +13,12 @@ from pytorch_lightning.callbacks import Callback
 class GenerateImages(Callback):
     def __init__(
         self,
+        data: pd.DataFrame,
         every_n_train_steps: int,
         output_dir: str,
         target_size: Tuple = (64, 64),
-        **kwargs,
+        add_release_year: bool = False,
+        release_year_scaler=None,
     ):
         """
         Generates a list of images by predicting with the given generator.
@@ -28,13 +31,13 @@ class GenerateImages(Callback):
             every_n_train_steps: How often the logger should run
             output_dir: Where to save the results
             target_size: Target size of the image in pixels
-            **kwargs: Additional keyword arguments
         """
         self.every_n_train_steps = every_n_train_steps
         self.target_size = target_size
-        self.release_year_scaler = kwargs.get("release_year_scaler", None)
+        self.add_release_year = add_release_year
         self.output_dir = output_dir
-        self.data = kwargs.get("data", None)
+        self.data = data
+        self.release_year_scaler = release_year_scaler
 
     def on_train_batch_end(
         self,
@@ -97,15 +100,15 @@ class GenerateImages(Callback):
         np.random.seed(s)
         task.generator.eval()
         latent_size = task.generator.latent_size
-        if self.release_year_scaler:
-            year = np.random.randint(1925, 2025, 1).reshape(-1, 1)
+        if self.release_year_scaler and self.add_release_year:
+            year = np.array(self.data.loc[s, "album_release"]).reshape(-1, 1)
             scaled_year = self.release_year_scaler.transform(year)
             scaled_year_vec = np.repeat(scaled_year, 10).reshape(-1, 1)
             latent_size -= 1
         x0 = np.random.normal(size=latent_size)
         x1 = np.random.normal(size=latent_size)
         x = np.linspace(x0, x1, 10)
-        if self.release_year_scaler:
+        if self.release_year_scaler and self.add_release_year:
             x = np.hstack([x, scaled_year_vec])
         x = torch.Tensor(x)
         x = x.to(task.device)

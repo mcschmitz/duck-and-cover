@@ -2,10 +2,12 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from networks.dcgan import DCGAN, DCDiscrimininator, DCGenerator
+from torch import nn
+
+from networks.dcgan import DCGAN
+from networks.modules.dcgan import DCDiscrimininator, DCGenerator
 from networks.utils import clip_channels
 from networks.utils.layers import MinibatchStdDev
-from torch import nn
 
 
 class WGANDiscriminator(DCDiscrimininator):

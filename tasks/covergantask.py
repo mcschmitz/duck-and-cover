@@ -1,6 +1,5 @@
 import copy
 import os
-from abc import abstractmethod
 
 import joblib
 import pytorch_lightning as pl
@@ -8,34 +7,31 @@ import torch
 from torch import nn
 from torch.optim import Adam
 
+from config import GANTrainConfig
 from utils import logger
 
 
 class CoverGANTask(pl.LightningModule):
     def __init__(
         self,
+        config: GANTrainConfig,
         generator: nn.Module,
         discriminator: nn.Module,
-        name: str,
-        **kwargs,
     ):
         """
-        Abstract GAN Class.
+        Task to train a GAN.
 
         Args:
-            img_height: height of the image. Should be a power of 2
-            img_width: width of the image. Should be a power of 2
-            channels: Number of image channels. Normally either 1 or 3.
-            latent_size: Size of the latent vector that is used to generate the
-                image
-            use_gpu: Flag to use the GPU for training and prediction
+            config: Training configuration object.
+            generator: PyTorch module that generates images.
+            discriminator: PyTorch module that discriminates between real and
+                generated images.
         """
         super(CoverGANTask, self).__init__()
         self.discriminator = discriminator
         self.generator = generator
-
+        self.config = config
         self.wandb_run_id = None
-        self.wandb_run_name = name
 
     def configure_optimizers(self):
         """
@@ -48,30 +44,6 @@ class CoverGANTask(pl.LightningModule):
             self.generator.parameters(), lr=0.001, betas=(0.0, 0.99)
         )
         return generator_optimizer, discriminator_optimizer
-
-    @abstractmethod
-    def build_generator(self, **kwargs):
-        """
-        Builds the class specific generator.
-        """
-
-    @abstractmethod
-    def build_discriminator(self, **kwargs):
-        """
-        Builds the class specific discriminator.
-        """
-
-    @abstractmethod
-    def train_on_batch(self, *args):
-        """
-        Abstract method to train the combined model on a batch of data.
-        """
-
-    @abstractmethod
-    def train_discriminator(self, *args):
-        """
-        Abstract method to train the discriminator on a batch of data.
-        """
 
     def save(self, path: str):
         """
@@ -150,12 +122,3 @@ class CoverGANTask(pl.LightningModule):
                 except ValueError:
                     logger.info("The model is already on the watchlist")
                 self.wandb_run_id = self.logger.experiment.id
-                self.wandb_run_name = self.logger.experiment.name
-
-    def on_save_checkpoint(self, checkpoint):
-        checkpoint["wandb_run_id"] = self.wandb_run_id
-        checkpoint["wandb_run_name"] = self.wandb_run_name
-
-    def on_load_checkpoint(self, checkpoint):
-        self.wandb_run_id = checkpoint["wandb_run_id"]
-        self.wandb_run_name = checkpoint["wandb_run_name"]

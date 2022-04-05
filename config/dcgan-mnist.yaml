@@ -1,0 +1,16 @@
+# Experiment
+experiment_name: dcgan-mnist
+unique_experiment_name: dcgan-mnist_another-normal
+
+# Data
+dataloader: MNISTDataloader
+
+# Model
+channels: 1
+image_size: 28
+latent_size: 512
+
+# Training
+batch_size: 64
+train_steps: 2000000
+warm_start: False

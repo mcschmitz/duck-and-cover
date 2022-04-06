@@ -47,7 +47,7 @@ if __name__ == "__main__":
     )
     trainer.fit(
         dcgan_task,
-        train_dataloader=data_generators.get("train"),
+        train_dataloaders=data_generators.get("train"),
         val_dataloaders=data_generators.get("val"),
     )
     plot_final_gif(path=config.learning_progress_path)

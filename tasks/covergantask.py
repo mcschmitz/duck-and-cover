@@ -32,16 +32,18 @@ class CoverGANTask(pl.LightningModule):
         self.generator = generator
         self.config = config
         self.wandb_run_id = None
+        self.images_shown = 0
+        self.automatic_optimization = False
 
     def configure_optimizers(self):
         """
         Assign both the discriminator and the generator optimizer.
         """
         discriminator_optimizer = Adam(
-            params=self.discriminator.parameters(), lr=0.001, betas=(0.0, 0.99)
+            params=self.discriminator.parameters(), lr=self.config.disc_lr, betas=self.config.disc_betas
         )
         generator_optimizer = Adam(
-            self.generator.parameters(), lr=0.001, betas=(0.0, 0.99)
+            self.generator.parameters(), lr=self.config.gen_lr, betas=self.config.gen_betas
         )
         return generator_optimizer, discriminator_optimizer
 

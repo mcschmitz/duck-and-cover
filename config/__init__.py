@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 
 import randomname
 import yaml
@@ -49,7 +49,10 @@ class GANTrainConfig(GANConfig):
     train_steps: int
     batch_size: Union[int, List[int]]
     minibatch_size: int = 4
-    lr: Optional[float] = 1e-4
+    gen_lr: float
+    gen_betas: Tuple[float, float]
+    disc_lr: float
+    disc_betas: Tuple[float, float]
     precision: int = 32
     learning_progress_path: Optional[str]
     warm_start: Optional[bool] = False

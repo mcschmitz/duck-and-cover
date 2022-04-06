@@ -7,7 +7,7 @@ from networks.utils import clip_channels
 
 
 class DCDiscrimininator(nn.Module):
-    def __init__(self, img_shape: Tuple[int, int, int], use_gpu: bool = False):
+    def __init__(self, img_shape: Tuple[int, int, int]):
         """
         Builds the DCGAN discriminator.
 
@@ -18,10 +18,8 @@ class DCDiscrimininator(nn.Module):
 
         Args:
             img_shape: Shape of the input image
-            use_gpu: Flag to train on GPU
         """
         super(DCDiscrimininator, self).__init__()
-        self.use_gpu = use_gpu
         self.img_shape = img_shape
         n_filters = clip_channels(16)
         self.init_conv2d = nn.Conv2d(
@@ -56,8 +54,6 @@ class DCDiscrimininator(nn.Module):
         Args:
             x: Tensor to pass through the model
         """
-        if self.use_gpu:
-            x = x.cuda()
         x = self.init_conv2d(x)
         x = nn.LeakyReLU(negative_slope=0.3)(x)
         x = nn.Dropout(0.3)(x)
@@ -76,7 +72,6 @@ class DCGenerator(nn.Module):
         self,
         latent_size: int,
         img_shape: Tuple[int, int, int],
-        use_gpu: bool = False,
     ):
         """
         Builds the DCGAN generator.
@@ -90,10 +85,8 @@ class DCGenerator(nn.Module):
         Args:
             latent_size: Dimensions of the latent vector
             img_shape: Shape of the input image
-            use_gpu: Flag to train on GPU
         """
         super(DCGenerator, self).__init__()
-        self.use_gpu = use_gpu
         self.img_shape = img_shape
         self.latent_size = latent_size
         n_filters = clip_channels(self.latent_size)
@@ -136,8 +129,6 @@ class DCGenerator(nn.Module):
         Args:
             x: Input Tensor
         """
-        if self.use_gpu:
-            x = x.cuda()
         x = self.initial_linear(x)
         x = self.init_batch_norm(x)
         x = nn.LeakyReLU(negative_slope=0.3)(x)

@@ -29,6 +29,7 @@ class DCGanTask(CoverGANTask):
         super().__init__(
             config=config, generator=generator, discriminator=discriminator
         )
+        self.loss = nn.BCELoss()
 
     def configure_callbacks(self) -> List[pl.Callback]:
         cbs = [
@@ -55,63 +56,48 @@ class DCGanTask(CoverGANTask):
         return cbs
 
     def training_step(self, batch):
-        """
-        Trains the ProGAN on a single batch of data. Obtains the phase (`burn-
-        in` or `phade-in`) and trains the GAN accordingly.
-
-        Args:
-            batch: Batch to train on
-        """
         self.train_on_batch(batch)
-        self.log(
-            "train/images_shown",
-            len(batch["images"]),
-        )
+        self.images_shown += len(batch["images"])
+        self.log("train/images_shown", self.images_shown)
 
-    def train_on_batch(self, real_images: Tensor, **kwargs):
+    def train_on_batch(self, batch: Tensor, **kwargs):
         """
         Runs a single gradient update on a batch of data.
-
-        Args:
-            real_images: numpy array of real input images used for training
         """
         noise = torch.normal(
-            mean=0, std=1, size=(len(real_images), self.latent_size)
+            mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)
         )
-        self.metrics["D_accuracy"]["values"].append(
-            self.train_discriminator(real_images, noise)
-        )
-        self.metrics["G_loss"]["values"].append(self.train_generator(noise))
+        noise = noise.to(self.device)
+        acc = self.train_discriminator(batch, noise)
+        self.log("train/discriminator_accuracy", acc)
+        loss = self.train_generator(noise)
+        self.log("train_generator/loss", loss)
 
     def train_discriminator(
-        self, real_images: torch.Tensor, noise: torch.Tensor
+        self, batch: torch.Tensor, noise: torch.Tensor
     ) -> float:
         """
         Runs a single gradient update for the discriminator.
 
         Args:
-            real_images: Array of real images
             noise: Random noise input Tensor
         """
-        self.discriminator.train()
-        self.discriminator_optimizer.zero_grad()
+        _, discriminator_optimizer = self.optimizers()
+        discriminator_optimizer.zero_grad()
         with torch.no_grad():
-            generated_images = self.generator(noise)
-        fake = torch.ones((len(generated_images), 1))
-        real = torch.zeros((len(real_images), 1))
-        if self.use_gpu:
-            fake = fake.cuda()
-            real = real.cuda()
-        fake_pred = self.discriminator(generated_images)
-        real_pred = self.discriminator(real_images)
-        loss_fake = nn.BCELoss()(fake_pred, fake)
-        loss_real = nn.BCELoss()(real_pred, real)
+            fake_images = self.generator(noise)
+        fake = torch.ones((len(fake_images), 1)).to(self.device)
+        real = torch.zeros((len(batch["images"]), 1)).to(self.device)
+        fake_pred = self.discriminator(fake_images)
+        real_pred = self.discriminator(batch["images"])
+        loss_fake = self.loss(fake_pred, fake)
+        loss_real = self.loss(real_pred, real)
         loss = (loss_fake + loss_real) / 2
-        loss.backward()
-        self.discriminator_optimizer.step()
+        self.manual_backward(loss)
+        discriminator_optimizer.step()
         correct_fake = torch.sum(torch.round(fake_pred) == fake).cpu().numpy()
         correct_real = torch.sum(torch.round(real_pred) == real).cpu().numpy()
-        return (correct_real + correct_fake) / (len(generated_images) * 2)
+        return (correct_real + correct_fake) / (len(fake_images) * 2)
 
     def train_generator(self, noise: torch.Tensor) -> float:
         """
@@ -120,14 +106,12 @@ class DCGanTask(CoverGANTask):
         Args:
             noise: Random noise input Tensor
         """
-        self.generator.train()
-        self.generator_optimizer.zero_grad()
-        fake = torch.ones((len(noise), 1))
-        if self.use_gpu:
-            fake = fake.cuda()
+        generator_optimizer, _ = self.optimizers()
+        generator_optimizer.zero_grad()
         generated_images = self.generator(noise)
+        fake = torch.ones((len(noise), 1)).to(self.device)
         fake_pred = self.discriminator(generated_images)
-        loss_fake = nn.BCELoss()(fake_pred, fake)
-        loss_fake.backward()
-        self.generator_optimizer.step()
+        loss_fake = self.loss(fake_pred, fake)
+        self.manual_backward(loss_fake)
+        generator_optimizer.step()
         return loss_fake.detach().cpu().numpy().tolist()

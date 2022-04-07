@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import randomname
 import yaml
@@ -15,6 +15,7 @@ class GANConfig(BaseModel, extra=Extra.forbid):
     image_size: Optional[int] = 256
     channels: int = 3
     latent_size: int
+    add_release_year: bool = False
 
     # Tracking
     use_wandb: bool = False
@@ -58,6 +59,7 @@ class GANTrainConfig(GANConfig):
     warm_start: Optional[bool] = False
     eval_rate: Optional[int]
     wandb_tags: Optional[List[str]]
+    test_data_path: Optional[str] = None
 
     @validator("learning_progress_path", always=True)
     def default_unique_experiment_name(cls, v, values):  # noqa: D102, N805

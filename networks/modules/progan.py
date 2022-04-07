@@ -3,7 +3,6 @@ from typing import Any, Dict
 import torch
 from torch import nn
 
-from networks.modules.conditional_progan import GenreEncoder
 from networks.utils import calc_channels_at_stage
 from networks.utils.layers import (
     MinibatchStdDev,
@@ -319,7 +318,6 @@ class ProGANGenerator(nn.Module):
         n_channels: int = 3,
         latent_size: int = 512,
         add_year_information: bool = False,
-        genre_transformer: GenreEncoder = None,
     ):
         """
         Generator Model of the ProGAN network.

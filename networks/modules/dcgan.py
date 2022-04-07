@@ -61,10 +61,8 @@ class DCDiscrimininator(nn.Module):
             x = conv2d_layer(x)
             x = nn.LeakyReLU(negative_slope=0.3)(x)
             x = nn.Dropout(0.3)(x)
-
         x = nn.Flatten()(x)
-        x = self.final_linear(x)
-        return nn.Sigmoid()(x)
+        return self.final_linear(x)
 
 
 class DCGenerator(nn.Module):

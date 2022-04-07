@@ -8,17 +8,17 @@ dataloader: MNISTDataloader
 # Model
 channels: 1
 image_size: 32
-latent_size: 512
+latent_size: 64
 
 # Training
 batch_size: 64
-train_steps: 2000000
+train_steps: 1000000
 warm_start: False
 gen_lr: 0.0001
 gen_betas:
   - 0.5
   - 0.999
-disc_lr: 0.000004
+disc_lr: 0.0001
 disc_betas:
   - 0.5
   - 0.999

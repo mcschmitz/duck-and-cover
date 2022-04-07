@@ -28,7 +28,9 @@ if __name__ == "__main__":
         dcgan_task.load_from_checkpoint(
             generator=generator,
             discriminator=discriminator,
-            checkpoint_path=os.path.join(model_dump_path, "last.ckpt"),
+            checkpoint_path=os.path.join(
+                config.learning_progress_path, "last.ckpt"
+            ),
         )
 
     logger = pl.loggers.WandbLogger(
@@ -42,8 +44,8 @@ if __name__ == "__main__":
         gpus=-1,
         max_steps=config.train_steps,
         enable_checkpointing=True,
-        # logger=logger,
-        enable_progress_bar=True,
+        logger=logger,
+        enable_progress_bar=False,
     )
     trainer.fit(
         dcgan_task,

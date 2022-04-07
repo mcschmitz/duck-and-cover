@@ -19,7 +19,7 @@ class MNISTTrainGenerator:
             image_size: Image size.
             channels: Number of channels.
         """
-        self.data = [i for i in data]
+        self.data = list(data)
         self.batch_size = batch_size
         self.image_size = image_size
         self.channels = channels
@@ -42,6 +42,7 @@ class MNISTTrainGenerator:
             img = img.reshape(1, img.shape[0], img.shape[1])
             img = resize(img, (1, self.image_size, self.image_size))
             batch_x[i] = img
+        batch_x = (batch_x + 1) / 2
         self._iterator_i = batch_idx[-1]
         images = torch.Tensor(batch_x)
         return {"images": images}

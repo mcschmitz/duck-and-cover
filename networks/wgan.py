@@ -195,11 +195,6 @@ class WGAN(DCGAN):
             use_gpu=use_gpu,
             **kwargs,
         )
-        # self.metrics["D_loss"] = {
-        #     "file_name": "d_loss.png",
-        #     "label": "Discriminator Loss",
-        #     "values": [],
-        # }
 
     def build_generator(self) -> WGANGenerator:
         """

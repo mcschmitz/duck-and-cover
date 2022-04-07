@@ -9,13 +9,15 @@ from matplotlib import pyplot as plt
 from PIL import Image
 from pytorch_lightning.callbacks import Callback
 
+from networks.modules.progan import ProGANGenerator
+
 
 class GenerateImages(Callback):
     def __init__(
         self,
-        data: pd.DataFrame,
         every_n_train_steps: int,
         output_dir: str,
+        data: pd.DataFrame = None,
         target_size: Tuple = (64, 64),
         add_release_year: bool = False,
         release_year_scaler=None,
@@ -123,11 +125,14 @@ class GenerateImages(Callback):
             )
         images_shown = trainer.logged_metrics["train/images_shown"]
         images_shown = str(int(images_shown))
-        year = str(self.data.loc[s, "album_release"])
-        artist_name = str(self.data.loc[s, "artist_name"])
-        album_name = str(self.data.loc[s, "album_name"])
-        genre = ", ".join(eval(str(self.data.loc[s, "artist_genre"])))
-        caption = f"{artist_name} - {album_name} ({genre}) [{year}]"
+        if self.data:
+            year = str(self.data.loc[s, "album_release"])
+            artist_name = str(self.data.loc[s, "artist_name"])
+            album_name = str(self.data.loc[s, "album_name"])
+            genre = ", ".join(eval(str(self.data.loc[s, "artist_genre"])))
+            caption = f"{artist_name} - {album_name} ({genre}) [{year}]"
+        else:
+            caption = f"Seed {s}"
         if trainer.logger:
             trainer.logger.log_image(
                 key=caption, images=[fig], caption=[caption]
@@ -151,10 +156,15 @@ class GenerateImages(Callback):
         idx = 1
         figsize = (np.array(self.target_size) * [10, 1]).astype(int) / 300
         fig = plt.figure(figsize=figsize, dpi=300)
-        output = task.generator(x, block=task.block, alpha=task.alpha)
+        if isinstance(task.generator, ProGANGenerator):
+            output = task.generator(x, block=task.block, alpha=task.alpha)
+        else:
+            output = task.generator(x)
         generated_images = output.detach().cpu().numpy()
         generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:
+            if img.shape[-1] == 1:
+                img = np.tile(img, (1, 1, 3))
             img = array_to_img(img, scale=True)
             img = img.resize(size=self.target_size)
             plt.subplot(1, 10, idx)

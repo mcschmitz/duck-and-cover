@@ -2,10 +2,12 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from networks.dcgan import DCGAN, DCDiscrimininator, DCGenerator
+from torch import nn
+
+from networks.dcgan import DCGAN
+from networks.modules.dcgan import DCDiscrimininator, DCGenerator
 from networks.utils import clip_channels
 from networks.utils.layers import MinibatchStdDev
-from torch import nn
 
 
 class WGANDiscriminator(DCDiscrimininator):
@@ -193,11 +195,6 @@ class WGAN(DCGAN):
             use_gpu=use_gpu,
             **kwargs,
         )
-        # self.metrics["D_loss"] = {
-        #     "file_name": "d_loss.png",
-        #     "label": "Discriminator Loss",
-        #     "values": [],
-        # }
 
     def build_generator(self) -> WGANGenerator:
         """

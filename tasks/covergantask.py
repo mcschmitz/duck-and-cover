@@ -1,140 +1,84 @@
-import copy
-import os
-from abc import abstractmethod
+from pathlib import Path
+from typing import Dict, List
 
-import joblib
 import pytorch_lightning as pl
-import torch
 from torch import nn
 from torch.optim import Adam
 
+from config import GANTrainConfig
 from utils import logger
+from utils.callbacks import GenerateImages
 
 
 class CoverGANTask(pl.LightningModule):
     def __init__(
         self,
+        config: GANTrainConfig,
         generator: nn.Module,
         discriminator: nn.Module,
-        name: str,
-        **kwargs,
     ):
         """
-        Abstract GAN Class.
+        Task to train a GAN.
 
         Args:
-            img_height: height of the image. Should be a power of 2
-            img_width: width of the image. Should be a power of 2
-            channels: Number of image channels. Normally either 1 or 3.
-            latent_size: Size of the latent vector that is used to generate the
-                image
-            use_gpu: Flag to use the GPU for training and prediction
+            config: Training configuration object.
+            generator: PyTorch module that generates images.
+            discriminator: PyTorch module that discriminates between real and
+                generated images.
         """
         super(CoverGANTask, self).__init__()
         self.discriminator = discriminator
         self.generator = generator
-
+        self.config = config
         self.wandb_run_id = None
-        self.wandb_run_name = name
+        self.images_shown = 0
+        self.automatic_optimization = False
+        self.wandb_run_name = None
 
     def configure_optimizers(self):
         """
         Assign both the discriminator and the generator optimizer.
         """
         discriminator_optimizer = Adam(
-            params=self.discriminator.parameters(), lr=0.001, betas=(0.0, 0.99)
+            params=self.discriminator.parameters(),
+            lr=self.config.disc_lr,
+            betas=self.config.disc_betas,
         )
         generator_optimizer = Adam(
-            self.generator.parameters(), lr=0.001, betas=(0.0, 0.99)
+            self.generator.parameters(),
+            lr=self.config.gen_lr,
+            betas=self.config.gen_betas,
         )
         return generator_optimizer, discriminator_optimizer
 
-    @abstractmethod
-    def build_generator(self, **kwargs):
+    def configure_callbacks(self) -> List[pl.Callback]:
         """
-        Builds the class specific generator.
-        """
+        Creates the callbacks for the training.
 
-    @abstractmethod
-    def build_discriminator(self, **kwargs):
+        Will add a ModelCheckpoint Callback to save the model at every n
+        steps (n has to be defined in the config that is passed during
+        model initialization) and a GenerateImages callback to generate
+        images at every n steps.
         """
-        Builds the class specific discriminator.
-        """
-
-    @abstractmethod
-    def train_on_batch(self, *args):
-        """
-        Abstract method to train the combined model on a batch of data.
-        """
-
-    @abstractmethod
-    def train_discriminator(self, *args):
-        """
-        Abstract method to train the discriminator on a batch of data.
-        """
-
-    def save(self, path: str):
-        """
-        Saves the weights of the Cover GAN.
-
-        Writes the weights of the GAN object to the given path. The combined
-        model weights, the discriminator weights and the generator weights
-        will be written separately to the given directory
-
-        Args:
-            path: The directory to which the weights should be written.
-        """
-        torch.save(
-            {
-                "generator_state_dict": self.generator.state_dict(),
-                "generator_optimizer": self.generator_optimizer.state_dict(),
-            },
-            os.path.join(path, "generator.pkl"),
-        )
-        torch.save(
-            {
-                "discriminator_state_dict": self.discriminator.state_dict(),
-                "discriminator_optimizer": self.discriminator_optimizer.state_dict(),
-            },
-            os.path.join(path, "discriminator.pkl"),
-        )
-
-        gan = copy.copy(self)
-        gan.discriminator = None
-        gan.generator = None
-        gan.generator_optimizer = None
-        gan.discriminator_optimizer = None
-        joblib.dump(gan, os.path.join(path, "GAN.pkl"))
-
-    def load(self, path):
-        """
-        Load the weights and the attributes of the GAN.
-
-        Loads the weights and the pickle object written in the save method.
-
-        Args:
-            path: The directory from which the weights and the GAN should be
-                read.
-        """
-        logger.info(f"Loading weights & optimizer from {path}")
-        generator_cktp = torch.load(os.path.join(path, "generator.pkl"))
-        discriminator_cktp = torch.load(
-            os.path.join(path, "discriminator.pkl")
-        )
-        gan = joblib.load(os.path.join(path, "GAN.pkl"))
-        self.images_shown = gan.images_shown
-        self.metrics = gan.metrics
-        self.generator.load_state_dict(generator_cktp["generator_state_dict"])
-        self.generator_optimizer.load_state_dict(
-            generator_cktp["generator_optimizer"]
-        )
-        self.discriminator.load_state_dict(
-            discriminator_cktp["discriminator_state_dict"]
-        )
-        self.discriminator_optimizer.load_state_dict(
-            discriminator_cktp["discriminator_optimizer"]
-        )
-        return gan
+        return [
+            pl.callbacks.ModelCheckpoint(
+                monitor="train/images_shown",
+                dirpath=self.config.learning_progress_path,
+                filename="model_ckpt",
+                mode="max",
+                verbose=True,
+                save_last=True,
+                every_n_train_steps=self.config.eval_rate,
+                every_n_epochs=0,
+                save_on_train_epoch_end=False,
+            ),
+            GenerateImages(
+                data=self.config.test_data_path,
+                add_release_year=self.config.add_release_year,
+                every_n_train_steps=self.config.eval_rate,
+                output_dir=self.config.learning_progress_path,
+            ),
+        ]
 
     def on_fit_start(self):
         """
@@ -143,6 +87,9 @@ class CoverGANTask(pl.LightningModule):
         It tells the W&B logger to watch the model in order to check the
         gradients report the gradients if W&B is online.
         """
+        Path(self.config.learning_progress_path).mkdir(
+            parents=True, exist_ok=True
+        )
         if hasattr(self, "logger"):
             if isinstance(self.logger, pl.loggers.WandbLogger):
                 try:
@@ -152,10 +99,22 @@ class CoverGANTask(pl.LightningModule):
                 self.wandb_run_id = self.logger.experiment.id
                 self.wandb_run_name = self.logger.experiment.name
 
-    def on_save_checkpoint(self, checkpoint):
+    def on_save_checkpoint(self, checkpoint: Dict):
+        """
+        Adds the W&B run id and run name to the checkpoint.
+
+        Args:
+            checkpoint: The checkpoint that is saved.
+        """
         checkpoint["wandb_run_id"] = self.wandb_run_id
         checkpoint["wandb_run_name"] = self.wandb_run_name
 
-    def on_load_checkpoint(self, checkpoint):
+    def on_load_checkpoint(self, checkpoint: Dict):
+        """
+        Sets the W&B run id and run name from the loaded checkpoint.
+
+        Args:
+            checkpoint: Loaded checkpoint.
+        """
         self.wandb_run_id = checkpoint["wandb_run_id"]
         self.wandb_run_name = checkpoint["wandb_run_name"]

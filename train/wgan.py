@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from config import config
-from loader import DataLoader
+from loader import SpotifyDataloader
 from networks import WGAN
 from utils.image_operations import plot_final_gif
 
@@ -26,7 +26,7 @@ Path(lp_path).mkdir(parents=True, exist_ok=True)
 model_dump_path = os.path.join(lp_path, "model")
 Path(model_dump_path).mkdir(parents=True, exist_ok=True)
 
-data_loader = DataLoader(
+data_loader = SpotifyDataloader(
     image_path=COVERS_PATH,
     batch_size=BATCH_SIZE,
     image_size=IMAGE_SIZE,

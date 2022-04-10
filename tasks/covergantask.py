@@ -30,10 +30,10 @@ class CoverGANTask(pl.LightningModule):
         self.discriminator = discriminator
         self.generator = generator
         self.config = config
-        self.wandb_run_id = None
         self.images_shown = 0
-        self.automatic_optimization = False
+        self.wandb_run_id = None
         self.wandb_run_name = None
+        self.automatic_optimization = False
 
     def configure_optimizers(self):
         """
@@ -73,7 +73,7 @@ class CoverGANTask(pl.LightningModule):
                 save_on_train_epoch_end=False,
             ),
             GenerateImages(
-                data=self.config.test_data_path,
+                meta_data_path=self.config.test_meta_data_path,
                 add_release_year=self.config.add_release_year,
                 every_n_train_steps=self.config.eval_rate,
                 output_dir=self.config.learning_progress_path,
@@ -108,6 +108,7 @@ class CoverGANTask(pl.LightningModule):
         """
         checkpoint["wandb_run_id"] = self.wandb_run_id
         checkpoint["wandb_run_name"] = self.wandb_run_name
+        checkpoint["images_shown"] = self.images_shown
 
     def on_load_checkpoint(self, checkpoint: Dict):
         """
@@ -118,3 +119,4 @@ class CoverGANTask(pl.LightningModule):
         """
         self.wandb_run_id = checkpoint["wandb_run_id"]
         self.wandb_run_name = checkpoint["wandb_run_name"]
+        self.images_shown = checkpoint["images_shown"]

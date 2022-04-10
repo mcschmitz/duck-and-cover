@@ -25,7 +25,8 @@ if __name__ == "__main__":
         config=config, generator=generator, discriminator=discriminator
     )
     if config.warm_start:
-        dcgan_task.load_from_checkpoint(
+        dcgan_task = dcgan_task.load_from_checkpoint(
+            config=config,
             generator=generator,
             discriminator=discriminator,
             checkpoint_path=os.path.join(
@@ -46,6 +47,7 @@ if __name__ == "__main__":
         enable_checkpointing=True,
         logger=logger,
         enable_progress_bar=False,
+        precision=config.precision,
     )
     trainer.fit(
         dcgan_task,

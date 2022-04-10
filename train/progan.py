@@ -6,7 +6,7 @@ import pandas as pd
 import pytorch_lightning as pl
 
 from config import config
-from loader import DataLoader
+from loader import SpotifyDataloader
 from networks import ProGAN
 from tasks.progan import ProGANTask
 from utils import GenerateImages
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     while pro_gan_task.block <= N_BLOCKS - 1:
         block = pro_gan_task.block
         image_size = IMAGE_SIZES[block]
-        data_loader = DataLoader(
+        data_loader = SpotifyDataloader(
             image_size=image_size,
             batch_size=BATCH_SIZE[block],
             add_release_year=ADD_RELEASE_YEAR,
@@ -87,7 +87,7 @@ if __name__ == "__main__":
                 every_n_train_steps=eval_rate,
                 target_size=(256, 256),
                 output_dir=lp_path,
-                data=test_data_meta,
+                meta_data_path=test_data_meta,
                 add_release_year=ADD_RELEASE_YEAR,
                 release_year_scaler=data_loader.release_year_scaler,
             ),

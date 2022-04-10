@@ -67,9 +67,6 @@ class MNISTDataloader:
         self.config = config
         self.dataset = load_dataset("mnist")
 
-    def __len__(self):
-        return len(self.dataset["train"]) // self.config.batch_size
-
     def get_data_generators(self) -> Dict:
         """
         Returns the training and validation data generator.

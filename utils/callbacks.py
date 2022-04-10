@@ -17,7 +17,7 @@ class GenerateImages(Callback):
         self,
         every_n_train_steps: int,
         output_dir: str,
-        data: pd.DataFrame = None,
+        meta_data_path: pd.DataFrame = None,
         target_size: Tuple = (64, 64),
         add_release_year: bool = False,
         release_year_scaler=None,
@@ -38,7 +38,12 @@ class GenerateImages(Callback):
         self.target_size = target_size
         self.add_release_year = add_release_year
         self.output_dir = output_dir
-        self.data = data
+        if meta_data_path:
+            self.data = pd.read_json(
+                meta_data_path, orient="records", lines=True
+            )
+        else:
+            self.data = None
         self.release_year_scaler = release_year_scaler
 
     def on_train_batch_end(
@@ -125,7 +130,7 @@ class GenerateImages(Callback):
             )
         images_shown = trainer.logged_metrics["train/images_shown"]
         images_shown = str(int(images_shown))
-        if self.data:
+        if self.data is not None:
             year = str(self.data.loc[s, "album_release"])
             artist_name = str(self.data.loc[s, "artist_name"])
             album_name = str(self.data.loc[s, "album_name"])
@@ -156,10 +161,11 @@ class GenerateImages(Callback):
         idx = 1
         figsize = (np.array(self.target_size) * [10, 1]).astype(int) / 300
         fig = plt.figure(figsize=figsize, dpi=300)
-        if isinstance(task.generator, ProGANGenerator):
-            output = task.generator(x, block=task.block, alpha=task.alpha)
-        else:
-            output = task.generator(x)
+        with torch.no_grad():
+            if isinstance(task.generator, ProGANGenerator):
+                output = task.generator(x, block=task.block, alpha=task.alpha)
+            else:
+                output = task.generator(x)
         generated_images = output.detach().cpu().numpy()
         generated_images = np.moveaxis(generated_images, 1, -1)
         for img in generated_images:

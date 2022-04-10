@@ -10,7 +10,7 @@ from loader import SpotifyDataloader
 from networks import ProGAN
 from tasks.progan import ProGANTask
 from utils import GenerateImages
-from utils.image_operations import plot_final_gif
+from utils.image_operations import create_final_gif
 
 # Model Configs
 ADD_RELEASE_YEAR = True
@@ -113,4 +113,4 @@ if __name__ == "__main__":
             enable_progress_bar=False,
         )
         trainer.fit(pro_gan_task, train_dataloader=data_loader)
-    plot_final_gif(path=lp_path)
+    create_final_gif(path=lp_path)

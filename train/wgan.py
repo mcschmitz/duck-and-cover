@@ -4,7 +4,7 @@ from pathlib import Path
 from config import config
 from loader import SpotifyDataloader
 from networks import WGAN
-from utils.image_operations import plot_final_gif
+from utils.image_operations import create_final_gif
 
 IMAGE_SIZE = config.get("image_size")
 COVERS_PATH = os.path.join(
@@ -60,4 +60,4 @@ gan.train(
     write_model_to=model_dump_path,
 )
 
-plot_final_gif(path=lp_path)
+create_final_gif(path=lp_path)

@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from config import GANTrainConfig
 from networks import DCGAN
 from tasks import DCGanTask
-from utils.image_operations import plot_final_gif
+from utils.image_operations import create_final_gif
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_file", type=str)
@@ -54,4 +54,4 @@ if __name__ == "__main__":
         train_dataloaders=data_generators.get("train"),
         val_dataloaders=data_generators.get("val"),
     )
-    plot_final_gif(path=config.learning_progress_path)
+    create_final_gif(path=config.learning_progress_path)

@@ -9,7 +9,7 @@ from matplotlib.animation import ArtistAnimation
 GIF_SIZE = (256 * 10, 256)
 
 
-def plot_final_gif(path: str):
+def create_final_gif(path: str):
     """
     Plots a series of gifs out of all files in a directory that follow a
     certain naming convention.
@@ -19,7 +19,7 @@ def plot_final_gif(path: str):
     """
     img_array_names = set()
     regexp = re.compile(r"step \d+")
-    for root, _dirs, files in os.walk(path):
+    for _root, _dirs, files in os.walk(path):
         for file in files:
             match = regexp.search(file)
             if match:
@@ -30,7 +30,7 @@ def plot_final_gif(path: str):
         for root, _dirs, files in os.walk(path):
             for file in files:
                 match = regexp.search(file)
-                if match and file.startswith(name):
+                if match and file.startswith(name + " ("):
                     match = match[0]
                     images.append(imageio.imread(os.path.join(root, file)))
                     labels.append(int(re.findall("\d+", match)[0]))

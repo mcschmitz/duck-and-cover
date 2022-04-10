@@ -45,6 +45,7 @@ class GANConfig(BaseModel, extra=Extra.forbid):
 class GANTrainConfig(GANConfig):
     # Data
     dataloader: str
+    meta_data_path: Optional[str]
 
     # Training:
     train_steps: int
@@ -59,10 +60,18 @@ class GANTrainConfig(GANConfig):
     warm_start: Optional[bool] = False
     eval_rate: Optional[int]
     wandb_tags: Optional[List[str]]
-    test_data_path: Optional[str] = None
+    test_meta_data_path: Optional[str] = None
+
+    @validator("meta_data_path", always=True)
+    def meta_data_path_validator(cls, v, values):  # noqa: D102, N805
+        if values["dataloader"] == "SpotifyDataloader" and not v:
+            raise ValueError(
+                "meta_data_path has to be set for SpotifyDataloader"
+            )
+        return v
 
     @validator("learning_progress_path", always=True)
-    def default_unique_experiment_name(cls, v, values):  # noqa: D102, N805
+    def default_learning_progress_path(cls, v, values):  # noqa: D102, N805
         return v or os.path.join(
             "learning_progress", values["unique_experiment_name"]
         )
@@ -84,22 +93,12 @@ class GANTrainConfig(GANConfig):
         """
         Return the dataloader class based on the dataloader definition.
         """
-        from loader import DataLoader, MNISTDataloader
+        from loader import MNISTDataloader, SpotifyDataloader
 
         if self.dataloader == "MNISTDataloader":
             return MNISTDataloader(self)
-        elif self.dataloader == "DataLoader":
-            return DataLoader(self)
+        elif self.dataloader == "SpotifyDataloader":
+            return SpotifyDataloader(self)
         raise ValueError(
             "dataloader has to be either MNISTDataloader or DataLoader"
         )
-
-
-class GANEvalConfig(GANConfig, extra=Extra.ignore):
-    # Model
-    huggingface_model: bool = False
-    pooling: str = "cls"
-    model_weights: Optional[str]
-
-    # Evaluation
-    public_ds: Optional[List[str]]

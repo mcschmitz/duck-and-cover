@@ -1,6 +1,6 @@
 # Experiment
 experiment_name: dcgan-mnist
-unique_experiment_name: dcgan-mnist_another-normal
+unique_experiment_name: dcgan-mnist_greasy-graph
 
 # Data
 dataloader: MNISTDataloader
@@ -12,13 +12,14 @@ latent_size: 64
 
 # Training
 batch_size: 64
-train_steps: 1000000
+train_steps: 200000
+eval_rate: 1666
 warm_start: False
-gen_lr: 0.0001
+gen_lr: 0.0002
 gen_betas:
   - 0.5
   - 0.999
-disc_lr: 0.0001
+disc_lr: 0.0002
 disc_betas:
   - 0.5
   - 0.999

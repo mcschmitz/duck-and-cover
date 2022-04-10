@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from config import GANTrainConfig
 from networks import DCGAN
 from tasks import DCGanTask
-from utils.image_operations import plot_final_gif
+from utils.image_operations import create_final_gif
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_file", type=str)
@@ -25,7 +25,8 @@ if __name__ == "__main__":
         config=config, generator=generator, discriminator=discriminator
     )
     if config.warm_start:
-        dcgan_task.load_from_checkpoint(
+        dcgan_task = dcgan_task.load_from_checkpoint(
+            config=config,
             generator=generator,
             discriminator=discriminator,
             checkpoint_path=os.path.join(
@@ -46,10 +47,11 @@ if __name__ == "__main__":
         enable_checkpointing=True,
         logger=logger,
         enable_progress_bar=False,
+        precision=config.precision,
     )
     trainer.fit(
         dcgan_task,
         train_dataloaders=data_generators.get("train"),
         val_dataloaders=data_generators.get("val"),
     )
-    plot_final_gif(path=config.learning_progress_path)
+    create_final_gif(path=config.learning_progress_path)

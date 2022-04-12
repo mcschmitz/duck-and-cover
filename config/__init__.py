@@ -61,6 +61,8 @@ class GANTrainConfig(GANConfig):
     eval_rate: Optional[int]
     wandb_tags: Optional[List[str]]
     test_meta_data_path: Optional[str] = None
+    n_critic: Optional[int] = 5
+    gradient_penalty_weight: Optional[float] = 10.0
 
     @validator("meta_data_path", always=True)
     def meta_data_path_validator(cls, v, values):  # noqa: D102, N805

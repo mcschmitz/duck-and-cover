@@ -33,24 +33,24 @@ class DCGanTask(CoverGANTask):
         self.loss = nn.BCEWithLogitsLoss()
         self.sigmoid = nn.Sigmoid()
 
-    def training_step(self, batch):
+    def training_step(self, batch, batch_idx):
         """
         Trains the GAN on the given batch.
 
         Args:
             batch: Batch to train on
+            batch_idx: Incremental batch index
         """
-        self.train_on_batch(batch)
+        self.train_on_batch(batch, batch_idx)
         self.images_shown += len(batch["images"])
         self.log("train/images_shown", self.images_shown)
 
-    def train_on_batch(self, batch: Tensor, **kwargs):
+    def train_on_batch(self, batch: Tensor):
         """
         Runs a single gradient update on a batch of data.
 
         Args:
             batch: Batch of data to train on
-            kwargs: Additional arguments to pass to the training functions
         """
         noise = torch.normal(
             mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)

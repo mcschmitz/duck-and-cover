@@ -1,6 +1,7 @@
 import os
 from typing import Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import randomname
 import yaml
 from pydantic import BaseModel, Extra, validator
@@ -16,6 +17,7 @@ class GANConfig(BaseModel, extra=Extra.forbid):
     channels: int = 3
     latent_size: int
     add_release_year: bool = False
+    n_blocks: Optional[int] = None
 
     # Tracking
     use_wandb: bool = False
@@ -41,6 +43,10 @@ class GANConfig(BaseModel, extra=Extra.forbid):
     def default_unique_experiment_name(cls, v, values):  # noqa: D102, N805
         return v or values["experiment_name"] + "_" + randomname.get_name()
 
+    @validator("n_blocks", always=True)
+    def default_n_blocks(cls, v, values):  # noqa: D102, N805
+        return int(np.log2(values["image_size"]) - 1)
+
 
 class GANTrainConfig(GANConfig):
     # Data
@@ -48,9 +54,7 @@ class GANTrainConfig(GANConfig):
     meta_data_path: Optional[str]
 
     # Training:
-    train_steps: int
     batch_size: Union[int, List[int]]
-    minibatch_size: int = 4
     gen_lr: float
     gen_betas: Tuple[float, float]
     disc_lr: float
@@ -58,11 +62,12 @@ class GANTrainConfig(GANConfig):
     precision: int = 32
     learning_progress_path: Optional[str]
     warm_start: Optional[bool] = False
-    eval_rate: Optional[int]
     wandb_tags: Optional[List[str]]
     test_meta_data_path: Optional[str] = None
-    n_critic: Optional[int] = 5
+    n_critic: Optional[int] = 1
     gradient_penalty_weight: Optional[float] = 10.0
+    train_steps: int
+    eval_rate: Optional[int]
 
     @validator("meta_data_path", always=True)
     def meta_data_path_validator(cls, v, values):  # noqa: D102, N805
@@ -81,6 +86,18 @@ class GANTrainConfig(GANConfig):
     @validator("eval_rate", always=True)
     def default_eval_rate(cls, v, values):  # noqa: D102, N805
         return v or values["train_steps"] // 32
+
+    @validator("train_steps", always=True)
+    def default_train_steps(cls, v, values):  # noqa: D102, N805
+        """
+        Increments the step size as discriminator step and generator step are
+        seen as one step each.
+
+        Args:
+            v: Number of steps.
+            values: Values of the config.
+        """
+        return int(v * (1 + 1 / values["n_critic"]))
 
     @validator("wandb_tags", always=True)
     def default_wandb_tags(cls, v, values):  # noqa: D102, N805

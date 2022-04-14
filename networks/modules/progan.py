@@ -18,7 +18,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        add_year_information: bool = False,
+        add_release_year: bool = False,
     ):
         """
         Final block for the Discriminator.
@@ -26,12 +26,12 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         Args:
             in_channels: Number of input channels
             out_channels: Number of output channels
-            add_year_information: Flag to add the year information of the cover
+            add_release_year: Flag to add the year information of the cover
         """
         super(ProGANDiscriminatorFinalBlock, self).__init__()
         final_block_in_channels = in_channels + 1
-        self.add_year_information = add_year_information
-        if self.add_year_information:
+        self.add_release_year = add_release_year
+        if self.add_release_year:
             final_block_in_channels += 1
 
         self.conv_1 = ScaledConv2d(
@@ -62,7 +62,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             year: Input tensor containing the release year of the images
         """
         x = MinibatchStdDev()(images)
-        if self.add_year_information:
+        if self.add_release_year:
             o = torch.ones_like(x[:, 0, :, :])
             year_channel = torch.stack([oi * yi for oi, yi in zip(o, year)])
             year_channel = year_channel.reshape(-1, 1, x.shape[2], x.shape[3])
@@ -123,8 +123,7 @@ class ProGANDiscriminator(nn.Module):
         n_blocks: int = 7,
         n_channels: int = 3,
         latent_size: int = 512,
-        add_year_information: bool = False,
-        genre_transformer=None,
+        add_release_year: bool = False,
     ):
         """
         Builds the ProGAN discriminator.
@@ -133,15 +132,14 @@ class ProGANDiscriminator(nn.Module):
             n_blocks: Number of blocks.
             n_channels: Number of input channels
             latent_size: Latent size of the corresponding generator
-            add_year_information: Flag to take year information into
+            add_release_year: Flag to take year information into
                 consideration during discrimination
 
         References:
             - Progressive Growing of GANs for Improved Quality, Stability, and Variation: https://arxiv.org/abs/1710.10196
         """
         super().__init__()
-        self.add_year_information = add_year_information
-        self.genre_transformer = genre_transformer
+        self.add_release_year = add_release_year
         self.n_blocks = n_blocks
         self.num_channels = n_channels
         self.latent_size = latent_size
@@ -159,7 +157,7 @@ class ProGANDiscriminator(nn.Module):
             ProGANDiscriminatorFinalBlock(
                 calc_channels_at_stage(0),
                 latent_size,
-                add_year_information=add_year_information,
+                add_release_year=add_release_year,
             )
         )
         self.from_rgb = nn.ModuleList(
@@ -188,7 +186,7 @@ class ProGANDiscriminator(nn.Module):
 
         Args:
             images: Input tensor of images
-            year: Input tensor containing the release year of the images
+            year: Standaize Input tensor of the release year
             block: Output block
             alpha: Weight for average with the next block
         """
@@ -199,11 +197,11 @@ class ProGANDiscriminator(nn.Module):
         if block == 0:
             x = self.from_rgb[0](images)
         else:
-            x = self.from_rgb[block - 1](
+            residual = self.from_rgb[block - 1](
                 nn.functional.avg_pool2d(images, kernel_size=2, stride=2)
             )
             straight = self.layers[block - 1](self.from_rgb[block](images))
-            x = (alpha * straight) + ((1 - alpha) * x)
+            x = (alpha * straight) + ((1 - alpha) * residual)
 
             for layer_block in reversed(self.layers[: block - 1]):
                 x = layer_block(x)
@@ -317,7 +315,7 @@ class ProGANGenerator(nn.Module):
         n_blocks: int = 10,
         n_channels: int = 3,
         latent_size: int = 512,
-        add_year_information: bool = False,
+        add_release_year: bool = False,
     ):
         """
         Generator Model of the ProGAN network.
@@ -326,12 +324,11 @@ class ProGANGenerator(nn.Module):
             n_blocks: Depth of the network
             n_channels: Number of output channels (default = 3 for RGB)
             latent_size: Latent space dimensions
-            add_year_information: Flag to add the year information of the cover
+            add_release_year: Boolean indicating whether to add release year
         """
         super().__init__()
-        self.add_year_information = add_year_information
-        self.genre_transformer = genre_transformer
-        if add_year_information:
+        self.add_release_year = add_release_year
+        if add_release_year:
             latent_size += 1
 
         self.n_blocks = n_blocks
@@ -402,6 +399,9 @@ class ProGANGenerator(nn.Module):
         return (alpha * straight) + ((1 - alpha) * residual)
 
     def get_save_info(self) -> Dict[str, Any]:
+        """
+        Collects info about the Generator when saving it.
+        """
         return {
             "conf": {
                 "depth": self.n_blocks,

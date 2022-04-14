@@ -67,15 +67,19 @@ class MNISTDataloader:
         self.config = config
         self.dataset = load_dataset("mnist")
 
-    def get_data_generators(self) -> Dict:
+    def get_data_generators(self, image_size: int = None) -> Dict:
         """
         Returns the training and validation data generator.
+
+        Args:
+            image_size: Size of the images to be returned by the generator.
         """
+        image_size = image_size or self.config.image_size
         return {
             "train": MNISTTrainGenerator(
                 data=self.dataset["train"],
                 batch_size=self.config.batch_size,
-                image_size=self.config.image_size,
+                image_size=image_size,
                 channels=1,
             )
         }

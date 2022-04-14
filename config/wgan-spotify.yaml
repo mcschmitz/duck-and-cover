@@ -24,4 +24,5 @@ disc_lr: 0.0002
 disc_betas:
   - 0.5
   - 0.999
+n_critic: 5
 test_meta_data_path: data/test_data_meta.json

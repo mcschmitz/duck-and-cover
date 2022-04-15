@@ -1,5 +1,6 @@
 # Experiment
-experiment_name: wgan-spotify
+experiment_name: progan-spotify
+unique_experiment_name: progan-spotify_genteel-object
 
 
 # Data
@@ -12,17 +13,16 @@ image_size: 64
 latent_size: 128
 
 # Training
-batch_size: 64
-train_steps: 200000
-eval_rate: 1666
-warm_start: False
-gen_lr: 0.0002
+batch_size: 16
+train_steps: 50000
+eval_rate: 6666
+warm_start: True
+gen_lr: 0.001
 gen_betas:
-  - 0.5
-  - 0.999
-disc_lr: 0.0002
+  - 0.0
+  - 0.99
+disc_lr: 0.001
 disc_betas:
-  - 0.5
-  - 0.999
-n_critic: 5
+  - 0.0
+  - 0.99
 test_meta_data_path: data/test_data_meta.json

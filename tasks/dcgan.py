@@ -33,7 +33,7 @@ class DCGanTask(CoverGANTask):
         self.loss = nn.BCEWithLogitsLoss()
         self.sigmoid = nn.Sigmoid()
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: Dict, batch_idx: int):
         """
         Trains the GAN on the given batch.
 

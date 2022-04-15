@@ -113,15 +113,21 @@ class SpotifyDataloader:
             self.config.meta_data_path, orient="records", lines=True
         )
 
-    def get_data_generators(self):
+    def get_data_generators(
+        self, image_size: int = None
+    ) -> Dict[str, SpotifyDataGenerator]:
         """
         Returns the dataloader.
+
+        Args:
+            image_size: Size of the images to be returned by the generator.
         """
+        image_size = image_size or self.config.image_size
         return {
             "train": SpotifyDataGenerator(
-                self.meta_df,
-                self.config.batch_size,
-                self.config.image_size,
-                self.config.add_release_year,
+                meta_df=self.meta_df,
+                batch_size=self.config.batch_size,
+                image_size=image_size,
+                add_release_year=self.config.add_release_year,
             )
         }

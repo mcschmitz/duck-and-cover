@@ -106,6 +106,8 @@ class GANTrainConfig(GANConfig):
             tags.append("mnist")
         else:
             tags.append("spotify")
+        if values["add_release_year"]:
+            tags.append("release_year")
         return v or tags
 
     def get_dataloader(self):

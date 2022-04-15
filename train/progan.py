@@ -43,7 +43,9 @@ if __name__ == "__main__":
     while pro_gan_task.block < config.n_blocks:
         block = pro_gan_task.block
         image_size = 2 ** (block + 2)
-        data_generators = dataloader.get_data_generators(image_size=image_size)
+        data_generators = dataloader.get_data_generators(
+            image_size=image_size, return_release_year=config.add_release_year
+        )
         trainer = pl.Trainer(
             gpus=-1,
             max_steps=config.train_steps - (pro_gan_task.phase_steps * 2),

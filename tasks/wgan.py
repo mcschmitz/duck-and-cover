@@ -109,7 +109,9 @@ class WGANTask(DCGanTask):
         )
         random_avg.requires_grad_(True)
         random_avg = random_avg.to(self.device)
-        pred = self.discriminator(random_avg, **kwargs)
+        pred = self.discriminator(
+            images=random_avg, year=real_batch.get("year")
+        )
         grad = torch.autograd.grad(
             outputs=pred,
             inputs=random_avg,

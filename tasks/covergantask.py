@@ -60,6 +60,12 @@ class CoverGANTask(pl.LightningModule):
         model initialization) and a GenerateImages callback to generate
         images at every n steps.
         """
+        train_dataloader = (
+            self.trainer._data_connector._train_dataloader_source.dataloader()
+        )
+        release_year_scaler = getattr(
+            train_dataloader, "release_year_scaler", None
+        )
         return [
             pl.callbacks.ModelCheckpoint(
                 monitor="train/images_shown",
@@ -74,9 +80,9 @@ class CoverGANTask(pl.LightningModule):
             ),
             GenerateImages(
                 meta_data_path=self.config.test_meta_data_path,
-                add_release_year=self.config.add_release_year,
                 every_n_train_steps=self.config.eval_rate,
                 output_dir=self.config.learning_progress_path,
+                release_year_scaler=release_year_scaler,
             ),
         ]
 

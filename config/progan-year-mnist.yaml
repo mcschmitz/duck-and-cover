@@ -1,5 +1,6 @@
 # Experiment
 experiment_name: progan-year-mnist
+unique_experiment_name: progan-year-mnist_average-recurrence
 
 # Data
 dataloader: MNISTDataloader
@@ -13,7 +14,7 @@ add_release_year: True
 # Training
 batch_size: 16
 train_steps: 50000
-eval_rate: 4 # 6666
+eval_rate: 6666
 warm_start: False
 gen_lr: 0.0002
 gen_betas:

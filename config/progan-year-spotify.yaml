@@ -1,0 +1,29 @@
+# Experiment
+experiment_name: progan-year-spotify
+unique_experiment_name: progan-year-spotify_absolute-decay
+
+
+# Data
+dataloader: SpotifyDataloader
+meta_data_path: data/album_data_frame.json
+
+# Model
+channels: 3
+image_size: 64
+latent_size: 128
+add_release_year: True
+
+# Training
+batch_size: 16
+train_steps: 50000
+eval_rate: 6666
+warm_start: True
+gen_lr: 0.001
+gen_betas:
+  - 0.0
+  - 0.99
+disc_lr: 0.001
+disc_betas:
+  - 0.0
+  - 0.99
+test_meta_data_path: data/test_data_meta.json

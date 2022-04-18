@@ -42,12 +42,11 @@ class GenerateImages(Callback):
         self.every_n_train_steps = every_n_train_steps
         self.target_size = target_size
         self.output_dir = output_dir
+        self.data = pd.DataFrame()
         if meta_data_path:
             self.data = pd.read_json(
                 meta_data_path, orient="records", lines=True
             )
-        else:
-            self.data = None
         self.release_year_scaler = release_year_scaler
 
     def on_train_batch_end(
@@ -94,10 +93,10 @@ class GenerateImages(Callback):
             task: The CoverGANTask
             trainer: PTLightning Trainer
         """
-        if self.data:
-            n_imgs = len(self.data)
-        else:
+        if self.data.empty:
             n_imgs = 10
+        else:
+            n_imgs = len(self.data)
         for s in range(n_imgs):
             self.generate_image_set(s, task, trainer)
 
@@ -116,13 +115,11 @@ class GenerateImages(Callback):
         task.generator.eval()
         latent_size = task.generator.latent_size
         scaled_year_vec = None
-        if self.release_year_scaler:
-            if self.data:
-                year = np.array(self.data.loc[s, "album_release"]).reshape(
-                    -1, 1
-                )
-            else:
+        if self.release_year_scaler is not None:
+            if self.data.empty:
                 year = [[s]]
+            else:
+                year = [[(self.data.loc[s, "album_release"])]]
             scaled_year = self.release_year_scaler.transform(year)
             scaled_year_vec = np.repeat(scaled_year, 10).reshape(-1, 1)
             latent_size -= 1
@@ -134,14 +131,14 @@ class GenerateImages(Callback):
         fig = self.create_figure(task, x, scaled_year_vec)
         images_shown = trainer.logged_metrics["train/images_shown"]
         images_shown = str(int(images_shown))
-        if self.data is not None:
+        if self.data.empty:
+            caption = f"Seed {s}"
+        else:
             year = str(self.data.loc[s, "album_release"])
             artist_name = str(self.data.loc[s, "artist_name"])
             album_name = str(self.data.loc[s, "album_name"])
             genre = ", ".join(eval(str(self.data.loc[s, "artist_genre"])))
             caption = f"{artist_name} - {album_name} ({genre}) [{year}]"
-        else:
-            caption = f"Seed {s}"
         if trainer.logger:
             trainer.logger.log_image(
                 key=caption, images=[fig], caption=[caption]

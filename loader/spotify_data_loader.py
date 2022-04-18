@@ -17,7 +17,7 @@ class SpotifyDataGenerator:
         meta_df: pd.DataFrame,
         batch_size: int,
         image_size: int,
-        add_release_year: bool,
+        return_release_year: bool,
     ):
         """
         Training datagenerator for the Spotify dataset.
@@ -26,19 +26,21 @@ class SpotifyDataGenerator:
             meta_df: Meta data Dataframe
             batch_size: Batch size
             image_size: Image size
-            add_release_year: Boolean flag to add release year to the batch
+            return_release_year: Boolean flag to add release year to the batch
         """
         self.meta_df = meta_df
         self.meta_df = self.meta_df.dropna(
             subset=["file_path_64", "file_path_300"]
         )
-        self.add_release_year = add_release_year
-        if self.add_release_year:
+        self.image_size = image_size
+        self.batch_size = batch_size
+
+        self.release_year_scaler = None
+        if return_release_year:
             self.meta_df = self.meta_df.dropna(subset=["album_release"])
             self.release_year_scaler = StandardScaler().fit(
                 self.meta_df["album_release"].values.reshape(-1, 1)
             )
-        self.image_size = image_size
         self.files = (
             self.meta_df["file_path_64"]
             if self.image_size <= 64
@@ -46,7 +48,6 @@ class SpotifyDataGenerator:
         )
         self.files = self.files.to_list()
         self.n_images = len(self.meta_df)
-        self.batch_size = batch_size
         self._iterator_i = 0
 
     def __iter__(self):
@@ -59,21 +60,17 @@ class SpotifyDataGenerator:
         batch_x = np.zeros(
             (self.batch_size, 3, self.image_size, self.image_size)
         )
-        year_x = [] if self.add_release_year else None
+        year_x = []
+
         batch_idx = self._get_batch_idx()
         for i, b_idx in enumerate(batch_idx):
             file_path = self.files[b_idx]
-            try:
-                img = imread(file_path)
-            except FileNotFoundError as err:
-                logger.error(f"Unable to load {file_path}. Error: {err}")
+            img = imread(file_path)
             img = np.moveaxis(img, -1, 0)
             img = resize(img, (3, self.image_size, self.image_size))
             batch_x[i] = img
-            if self.add_release_year:
-                year = np.array(self.meta_df["album_release"][b_idx]).reshape(
-                    -1, 1
-                )
+            if self.release_year_scaler is not None:
+                year = [[self.meta_df["album_release"][b_idx]]]
                 year = self.release_year_scaler.transform(year)
                 year_x.append(year.flatten())
         self._iterator_i = batch_idx[-1]
@@ -128,6 +125,6 @@ class SpotifyDataloader:
                 meta_df=self.meta_df,
                 batch_size=self.config.batch_size,
                 image_size=image_size,
-                add_release_year=self.config.add_release_year,
+                return_release_year=self.config.add_release_year,
             )
         }

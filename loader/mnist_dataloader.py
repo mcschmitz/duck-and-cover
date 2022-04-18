@@ -33,8 +33,8 @@ class MNISTTrainGenerator:
         self.image_size = image_size
         self.channels = channels
 
-        self.return_release_year = return_release_year
-        if self.return_release_year:
+        self.release_year_scaler = None
+        if return_release_year:
             unique_years = {sample["label"] for sample in self.data}
             self.release_year_scaler = StandardScaler().fit(
                 np.array(list(unique_years)).reshape(-1, 1)
@@ -62,7 +62,7 @@ class MNISTTrainGenerator:
             img = img.reshape(1, img.shape[0], img.shape[1])
             img = resize(img, (1, self.image_size, self.image_size))
             batch_x[i] = img
-            if self.return_release_year:
+            if self.release_year_scaler is not None:
                 year = np.array(sample["label"]).reshape(-1, 1)
                 year = self.release_year_scaler.transform(year)
                 year_x.append(year.flatten())
@@ -94,15 +94,12 @@ class MNISTDataloader:
         self.config = config
         self.dataset = load_dataset("mnist")
 
-    def get_data_generators(
-        self, image_size: int = None, return_release_year: bool = False
-    ) -> Dict:
+    def get_data_generators(self, image_size: int = None) -> Dict:
         """
         Returns the MNIST training generator.
 
         Args:
             image_size: Size of the images to be returned by the generator.
-            return_release_year: Whether to return the release year.
         """
         image_size = image_size or self.config.image_size
         return {
@@ -111,6 +108,6 @@ class MNISTDataloader:
                 batch_size=self.config.batch_size,
                 image_size=image_size,
                 channels=1,
-                return_release_year=return_release_year,
+                return_release_year=self.config.add_release_year,
             )
         }

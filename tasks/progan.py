@@ -47,14 +47,15 @@ class ProGANTask(WGANTask):
         super().on_fit_start()
         img_resolution = 2 ** (self.block + 2)
         if self.phase == "fade_in":
+            remaining_gan_steps = int(
+                self.trainer.max_steps / (1 + 1 / self.config.n_critic)
+            )
             if not self._alphas:
-                self._alphas = np.linspace(
-                    0,
-                    1,
-                    int(
-                        self.trainer.max_steps / (1 + 1 / self.config.n_critic)
-                    ),
-                ).tolist()
+                self._alphas = np.linspace(0, 1, remaining_gan_steps).tolist()
+            elif len(self._alphas) != remaining_gan_steps:
+                raise ValueError(
+                    "alpha weights are not initialized correctly. Please check the number of steps and the number of alpha weights."
+                )
             logger.info(f"Phase: Fade in for resolution {img_resolution}")
         else:
             logger.info(f"Phase: Burn in for resolution {img_resolution}")

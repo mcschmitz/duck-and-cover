@@ -2,7 +2,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 
 class MinibatchStdDev(nn.Module):
@@ -199,3 +199,46 @@ class PixelwiseNorm(nn.Module):
         y = x.pow(2.0).mean(dim=1, keepdim=True).add(alpha).sqrt()  # [N1HW]
         y = x / y  # normalize the input x volume
         return y
+
+
+class Truncation(nn.Module):
+    def __init__(self, avg_latent, max_layer=8, threshold=0.7, beta=0.995):
+        """
+        Applies the Truncation trick as described in the paper `A Style-Based
+        Generator Architecture for Generative Adversarial Networks`
+
+        Args:
+            avg_latent: Average latent vector from the mapping network
+            max_layer: Maximum number of layers to apply the truncation
+            threshold: Truncation threshold
+            beta: Weighting factor for the average latent vector calculation
+        """
+
+        super().__init__()
+        self.max_layer = max_layer
+        self.threshold = threshold
+        self.beta = beta
+        self.register_buffer("avg_latent", avg_latent)
+
+    def update(self, last_avg: Tensor):
+        """
+        Updates the average latent vector with the last latent vector.
+
+        Args:
+            last_avg: Last average latent vector
+        """
+        self.avg_latent.copy_(
+            self.beta * self.avg_latent + (1.0 - self.beta) * last_avg
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Applies the truncation trick to the input tensor.
+
+        Args:
+            x: Input tensor
+        """
+        interpolation = torch.lerp(self.avg_latent, x, self.threshold)
+        layer_is_valid = torch.arange(x.size(1)) < self.max_layer
+        layer_is_valid = layer_is_valid.view(1, -1, 1).to(x.device)
+        return torch.where(layer_is_valid, interpolation, x)

@@ -2,7 +2,12 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 
-from networks.utils.layers import PixelwiseNorm, ScaledConv2d, ScaledDense
+from networks.utils.layers import (
+    PixelwiseNorm,
+    ScaledConv2d,
+    ScaledConv2dTranspose,
+    ScaledDense,
+)
 
 
 class StyleGANMappingNetwork(nn.Module):
@@ -150,7 +155,9 @@ class StyleGANGenInitialBlock(nn.Module):
         self.bias = nn.Parameter(torch.ones(n_channels))
 
         self.epilogue_1 = Epilogue(n_channels, latent_size)
-        self.conv = ScaledConv2d(n_channels, n_channels, 3)
+        self.conv = ScaledConv2dTranspose(
+            n_channels, n_channels, kernel_size=3, padding=1
+        )
         self.epilogue_2 = Epilogue(n_channels, latent_size)
 
     def forward(self, w: Tensor) -> Tensor:
@@ -184,9 +191,13 @@ class StyleGANGenGeneralConvBlock(nn.Module):
         """
         super().__init__()
 
-        self.conv_1 = ScaledConv2d(in_channels, out_channels, kernel_size=3)
+        self.conv_1 = ScaledConv2d(
+            in_channels, out_channels, kernel_size=3, padding=1
+        )
         self.epilogue_1 = Epilogue(out_channels, latent_size)
-        self.conv_2 = ScaledConv2d(in_channels, out_channels, kernel_size=3)
+        self.conv_2 = ScaledConv2d(
+            out_channels, out_channels, kernel_size=3, padding=1
+        )
         self.epilogue_2 = Epilogue(out_channels, latent_size)
 
     def forward(self, x: Tensor, w: Tensor) -> Tensor:
@@ -207,26 +218,3 @@ class StyleGANGenGeneralConvBlock(nn.Module):
         x = self.epilogue_1(x, w[:, 0])
         x = self.conv_2(x)
         return self.epilogue_2(x, w[:, 1])
-
-
-class Truncation(nn.Module):
-    def __init__(self, avg_latent, max_layer=8, threshold=0.7, beta=0.995):
-        super().__init__()
-        self.max_layer = max_layer
-        self.threshold = threshold
-        self.beta = beta
-        self.register_buffer("avg_latent", avg_latent)
-
-    def update(self, last_avg):
-        self.avg_latent.copy_(
-            self.beta * self.avg_latent + (1.0 - self.beta) * last_avg
-        )
-
-    def forward(self, x):
-        interp = torch.lerp(self.avg_latent, x, self.threshold)
-        do_trunc = (
-            (torch.arange(x.size(1)) < self.max_layer)
-            .view(1, -1, 1)
-            .to(x.device)
-        )
-        return torch.where(do_trunc, interp, x)

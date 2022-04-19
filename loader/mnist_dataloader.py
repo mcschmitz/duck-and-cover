@@ -4,12 +4,20 @@ import numpy as np
 import torch
 from datasets import load_dataset
 from skimage.transform import resize
+from sklearn.preprocessing import StandardScaler
 
 from config import GANTrainConfig
 
 
 class MNISTTrainGenerator:
-    def __init__(self, data, batch_size: int, image_size: int, channels: int):
+    def __init__(
+        self,
+        data,
+        batch_size: int,
+        image_size: int,
+        channels: int,
+        return_release_year: bool = False,
+    ):
         """
         Training dataloader for the MNIST dataset.
 
@@ -18,11 +26,20 @@ class MNISTTrainGenerator:
             batch_size: Training batch size.
             image_size: Image size.
             channels: Number of channels.
+            return_release_year: Whether to return the release year.
         """
         self.data = list(data)
         self.batch_size = batch_size
         self.image_size = image_size
         self.channels = channels
+
+        self.release_year_scaler = None
+        if return_release_year:
+            unique_years = {sample["label"] for sample in self.data}
+            self.release_year_scaler = StandardScaler().fit(
+                np.array(list(unique_years)).reshape(-1, 1)
+            )
+
         self._iterator_i = 0
 
     def __len__(self):
@@ -35,17 +52,27 @@ class MNISTTrainGenerator:
         batch_x = np.zeros(
             (self.batch_size, self.channels, self.image_size, self.image_size)
         )
+        year_x = []
+
         batch_idx = self._get_batch_idx()
         for i, b_idx in enumerate(batch_idx):
-            img = self.data[b_idx]["image"]
+            sample = self.data[b_idx]
+            img = sample["image"]
             img = np.array(img)
             img = img.reshape(1, img.shape[0], img.shape[1])
             img = resize(img, (1, self.image_size, self.image_size))
             batch_x[i] = img
+            if self.release_year_scaler is not None:
+                year = np.array(sample["label"]).reshape(-1, 1)
+                year = self.release_year_scaler.transform(year)
+                year_x.append(year.flatten())
+
         batch_x = (batch_x + 1) / 2
         self._iterator_i = batch_idx[-1]
+
         images = torch.Tensor(batch_x)
-        return {"images": images}
+        year = torch.Tensor(np.array(year_x)) if year_x else None
+        return {"images": images, "year": year}
 
     def _get_batch_idx(self):
         positions = np.arange(
@@ -69,7 +96,7 @@ class MNISTDataloader:
 
     def get_data_generators(self, image_size: int = None) -> Dict:
         """
-        Returns the training and validation data generator.
+        Returns the MNIST training generator.
 
         Args:
             image_size: Size of the images to be returned by the generator.
@@ -81,5 +108,6 @@ class MNISTDataloader:
                 batch_size=self.config.batch_size,
                 image_size=image_size,
                 channels=1,
+                return_release_year=self.config.add_release_year,
             )
         }

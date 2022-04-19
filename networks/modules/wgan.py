@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 from networks.utils import clip_channels
 from networks.utils.layers import MinibatchStdDev
@@ -52,21 +52,22 @@ class WGANDiscriminator(nn.Module):
         self.final_linear = nn.Linear(final_linear_input_dim, 1)
         nn.init.kaiming_normal_(self.final_linear.weight)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, images: Tensor, **kwargs) -> Tensor:
         """
         Forward method of the discriminator.
 
         Args:
-            x: Tensor to pass through the model
+            images: Tensor to pass through the model
+            kwargs: Keyword Arguments that can be used by child classes
         """
-        x = self.init_conv2d(x)
+        images = self.init_conv2d(images)
         for conv2d_layer in self.conv2d_layers:
-            x = conv2d_layer(x)
-            x = nn.LeakyReLU(negative_slope=0.3)(x)
+            images = conv2d_layer(images)
+            images = nn.LeakyReLU(negative_slope=0.3)(images)
 
-        x = MinibatchStdDev()(x)
-        x = nn.Flatten()(x)
-        return self.final_linear(x)
+        images = MinibatchStdDev()(images)
+        images = nn.Flatten()(images)
+        return self.final_linear(images)
 
 
 class WGANGenerator(nn.Module):
@@ -125,7 +126,7 @@ class WGANGenerator(nn.Module):
         )
         nn.init.xavier_uniform_(self.final_conv2d.weight)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass of the generator.
 

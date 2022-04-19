@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 from networks.utils import calc_channels_at_stage
 from networks.utils.layers import (
@@ -51,9 +51,7 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
         )
         self.dense = ScaledDense(out_channels, 1, bias=True, gain=1)
 
-    def forward(
-        self, images: torch.Tensor, year: torch.Tensor = None
-    ) -> torch.Tensor:
+    def forward(self, images: Tensor, year: Tensor = None) -> Tensor:
         """
         Forward pass of the module.
 
@@ -103,7 +101,7 @@ class ProGANDiscriminatorGeneralBlock(nn.Module):
             use_dynamic_wscale=True,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass of the general block.
 
@@ -139,7 +137,6 @@ class ProGANDiscriminator(nn.Module):
             - Progressive Growing of GANs for Improved Quality, Stability, and Variation: https://arxiv.org/abs/1710.10196
         """
         super().__init__()
-        self.add_release_year = add_release_year
         self.n_blocks = n_blocks
         self.num_channels = n_channels
         self.latent_size = latent_size
@@ -176,17 +173,17 @@ class ProGANDiscriminator(nn.Module):
 
     def forward(
         self,
-        images: torch.Tensor,
-        year: torch.Tensor = None,
+        images: Tensor,
+        year: Tensor = None,
         block: int = 0,
         alpha: float = 1.0,
-    ) -> torch.Tensor:
+    ) -> Tensor:
         """
         Forward pass of the ProGAN discriminator.
 
         Args:
             images: Input tensor of images
-            year: Standaize Input tensor of the release year
+            year: Standardized input tensor of the release year
             block: Output block
             alpha: Weight for average with the next block
         """
@@ -249,7 +246,7 @@ class GenInitialBlock(nn.Module):
             use_dynamic_wscale=True,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass for the initial generator block.
 
@@ -293,7 +290,7 @@ class GenGeneralConvBlock(nn.Module):
             use_dynamic_wscale=True,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         """
         Forward pass of the general generator block.
 
@@ -327,7 +324,6 @@ class ProGANGenerator(nn.Module):
             add_release_year: Boolean indicating whether to add release year
         """
         super().__init__()
-        self.add_release_year = add_release_year
         if add_release_year:
             latent_size += 1
 
@@ -372,8 +368,12 @@ class ProGANGenerator(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, block: int, alpha: float
-    ) -> torch.Tensor:
+        self,
+        x: Tensor,
+        year: Tensor = None,
+        block: int = 0,
+        alpha: float = 1.0,
+    ) -> Tensor:
         """
         Forward pass of the Generator.
 
@@ -381,8 +381,10 @@ class ProGANGenerator(nn.Module):
             x: input latent noise
             block: depth from where the network's output is required
             alpha: value of alpha for fade-in effect
+            year: Standardized release year
         """
-
+        if year is not None:
+            x = torch.cat([x, year], dim=1)
         if block > self.n_blocks:
             raise ValueError(
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"

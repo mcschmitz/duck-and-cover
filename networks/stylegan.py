@@ -9,11 +9,10 @@ from networks.modules.stylegan import (
     StyleGANGenGeneralConvBlock,
     StyleGANGenInitialBlock,
     StyleGANMappingNetwork,
-    Truncation,
 )
 from networks.progan import ProGAN
 from networks.utils import calc_channels_at_stage
-from networks.utils.layers import ScaledConv2d
+from networks.utils.layers import ScaledConv2d, Truncation
 
 
 class StyleGANSynthesis(nn.Module):
@@ -26,8 +25,6 @@ class StyleGANSynthesis(nn.Module):
         super().__init__()
 
         self.n_blocks = n_blocks
-        self.latent_size = latent_size
-        self.n_channels = n_channels
 
         self.layers = nn.ModuleList()
         self.layers.append(
@@ -60,14 +57,15 @@ class StyleGANSynthesis(nn.Module):
             raise ValueError(
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
             )
+        x = self.layers[0](w[:, 0:2])
         if block == 0:
-            return self.rgb_converters[0](self.layers[0](w[:, 0:2]))
-        for layer_block in self.layers[:block]:
-            x = layer_block(w)
+            return self.rgb_converters[0](x)
+        for i, layer_block in enumerate(self.layers[:block][1:]):
+            x = layer_block(x, w[:, (i + 1) : (i + 3)])
         residual = nn.functional.interpolate(
             self.rgb_converters[block - 1](x), scale_factor=2
         )
-        straight = self.rgb_converters[block](self.layers[block](x))
+        straight = self.rgb_converters[block](self.layers[block](x, w))
         return (alpha * straight) + ((1 - alpha) * residual)
 
 
@@ -81,8 +79,11 @@ class StyleGANGenerator(nn.Module):
     ):
         super(StyleGANGenerator, self).__init__()
 
-        self.style_mixing_prob = style_mixing_prob
         self.n_blocks = n_blocks
+        self.latent_size = latent_size
+        self.n_channels = n_channels
+
+        self.style_mixing_prob = style_mixing_prob
         self.truncation = Truncation(
             avg_latent=torch.zeros(latent_size),
             max_layer=8,
@@ -91,7 +92,7 @@ class StyleGANGenerator(nn.Module):
         )
 
         self.g_mapping = StyleGANMappingNetwork(
-            latent_size, 8, n_blocks=self.n_blocks
+            latent_size, 8, n_blocks=self.n_blocks + 1
         )
         self.g_synthesis = StyleGANSynthesis(
             n_blocks=n_blocks, latent_size=latent_size, n_channels=n_channels
@@ -110,7 +111,7 @@ class StyleGANGenerator(nn.Module):
             x_rand = torch.randn(x.shape).to(x.device)
             w_rand = self.g_mapping(x_rand)
             layer_idx = torch.from_numpy(
-                np.arange(self.n_blocks)[np.newaxis, :, np.newaxis]
+                np.arange(self.g_mapping.n_blocks)[np.newaxis, :, np.newaxis]
             ).to(x.device)
             cur_layers = 2 * (block + 1)
             mixing_cutoff = (

@@ -1,0 +1,25 @@
+# Experiment
+experiment_name: stylegan-mnist
+
+# Data
+dataloader: MNISTDataloader
+
+# Model
+channels: 1
+image_size: 32
+latent_size: 64
+
+# Training
+batch_size: 16
+train_steps: 10 #50000
+eval_rate: 6666
+warm_start: False
+gen_lr: 0.0002
+gen_betas:
+  - 0.5
+  - 0.999
+disc_lr: 0.0002
+disc_betas:
+  - 0.5
+  - 0.999
+

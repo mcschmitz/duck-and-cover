@@ -68,6 +68,7 @@ class GANTrainConfig(GANConfig):
     gradient_penalty_weight: Optional[float] = 10.0
     train_steps: int
     eval_rate: Optional[int]
+    ema_beta: float = 0.999
 
     @validator("meta_data_path", always=True)
     def meta_data_path_validator(cls, v, values):  # noqa: D102, N805

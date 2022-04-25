@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Dict
 
 import numpy as np
@@ -38,6 +39,7 @@ class ProGANTask(WGANTask):
         self.alpha = 1
         self.automatic_optimization = False
         self._alphas = None
+        self.ema_generator = deepcopy(self.generator)
 
     def on_fit_start(self):
         """
@@ -175,6 +177,7 @@ class ProGANTask(WGANTask):
         self.manual_backward(g_loss)
         generator_optimizer.step()
         self.log("train/generator_loss", g_loss)
+        self.update_ema_generator()
 
     def on_save_checkpoint(self, checkpoint):
         """
@@ -220,3 +223,21 @@ class ProGANTask(WGANTask):
         elif self.phase == "fade_in":
             self.phase = "burn_in"
         self.phase_steps = 0
+
+    def update_ema_generator(self):
+        """
+        After every weight update of the generator this method updates the
+        Exponential Moving Average of the generator weights and stores them as
+        a separate Generator model.
+
+        This separate model shall be used for image generation.
+        """
+        with torch.no_grad():
+            generator_weights = dict(self.generator.named_parameters())
+            ema_weights = self.ema_generator.named_parameters()
+            for (w_name, w_ema_generator) in ema_weights:
+                w_generator = generator_weights[w_name]
+                w_ema_generator.copy_(
+                    self.config.ema_beta * w_ema_generator
+                    + (1.0 - self.config.ema_beta) * w_generator
+                )

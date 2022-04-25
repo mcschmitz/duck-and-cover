@@ -14,7 +14,7 @@ latent_size: 64
 batch_size: 16
 train_steps: 50000
 eval_rate: 6666
-warm_start: True
+warm_start: False
 gen_lr: 0.0002
 gen_betas:
   - 0.5

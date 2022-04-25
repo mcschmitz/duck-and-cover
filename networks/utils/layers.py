@@ -39,6 +39,7 @@ class ScaledDense(nn.Linear):
         bias=True,
         gain: float = None,
         use_dynamic_wscale: bool = True,
+        learning_rate_multiplier: float = 1.0,
     ):
         """
         Dense layer with weight scaling.
@@ -51,8 +52,8 @@ class ScaledDense(nn.Linear):
         super().__init__(in_features, out_features, bias)
         self.use_dynamic_wscale = use_dynamic_wscale
         self.gain = gain if gain else np.sqrt(2)
+        self.learning_rate_multiplier = learning_rate_multiplier
 
-        torch.nn.init.kaiming_normal_(self.weight)
         if bias:
             torch.nn.init.zeros_(self.bias)
 
@@ -62,9 +63,11 @@ class ScaledDense(nn.Linear):
             self.gain = gain / np.sqrt(max(1.0, fan_in))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        bias = self.bias * self.learning_rate_multiplier
+        weights = self.weight * self.learning_rate_multiplier
         if self.use_dynamic_wscale:
-            return nn.functional.linear(x, self.weight * self.gain, self.bias)
-        return nn.functional.linear(x, self.weight, self.bias)
+            return nn.functional.linear(x, weights * self.gain, self.bias)
+        return nn.functional.linear(x, weights, bias)
 
 
 class ScaledConv2dTranspose(nn.ConvTranspose2d):

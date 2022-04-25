@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from torch import Tensor
 
 from networks.modules.progan import ProGANGenerator
+from networks.modules.stylegan import StyleGANGenerator
 
 
 class GenerateImages(Callback):
@@ -167,8 +168,16 @@ class GenerateImages(Callback):
         fig = plt.figure(figsize=figsize, dpi=300)
         with torch.no_grad():
             if isinstance(task.generator, ProGANGenerator):
-                output = task.generator(
+                output = task.ema_generator(
                     x, year=year, block=task.block, alpha=task.alpha
+                )
+            elif isinstance(task.generator, StyleGANGenerator):
+                output = task.ema_generator(
+                    x,
+                    year=year,
+                    block=task.block,
+                    alpha=task.alpha,
+                    freeze_noise=True,
                 )
             else:
                 output = task.generator(x)

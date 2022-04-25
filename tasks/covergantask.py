@@ -99,7 +99,7 @@ class CoverGANTask(pl.LightningModule):
         if hasattr(self, "logger"):
             if isinstance(self.logger, pl.loggers.WandbLogger):
                 try:
-                    self.logger.watch(self)
+                    self.logger.watch(self, log="all")
                 except ValueError:
                     logger.info("The model is already on the watchlist")
                 self.wandb_run_id = self.logger.experiment.id

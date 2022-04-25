@@ -18,6 +18,8 @@ class GANConfig(BaseModel, extra=Extra.forbid):
     latent_size: int
     add_release_year: bool = False
     n_blocks: Optional[int] = None
+    n_mapping: Optional[int] = None
+    style_mixing_prob: float = 0.9
 
     # Tracking
     use_wandb: bool = False

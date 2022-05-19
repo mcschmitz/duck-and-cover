@@ -42,14 +42,10 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
-        self.conv_2 = ScaledConv2d(
-            in_channels,
-            out_channels,
-            kernel_size=4,
-            bias=True,
-            use_dynamic_wscale=True,
+        self.dense_1 = ScaledDense(
+            in_channels * 4**2, in_channels, bias=True
         )
-        self.dense = ScaledDense(out_channels, 1, bias=True, gain=1)
+        self.dense_2 = ScaledDense(in_channels, 1, bias=True, gain=1)
 
     def forward(self, images: Tensor, year: Tensor = None) -> Tensor:
         """
@@ -67,10 +63,10 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             x = torch.cat([x, year_channel], 1)
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
-        x = self.conv_2(x)
-        x = nn.LeakyReLU(0.2)(x)
         x = nn.Flatten()(x)
-        return self.dense(x)
+        x = self.dense_1(x)
+        x = nn.LeakyReLU(0.2)(x)
+        return self.dense_2(x)
 
 
 class ProGANDiscriminatorGeneralBlock(nn.Module):
@@ -100,6 +96,7 @@ class ProGANDiscriminatorGeneralBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
+        self.downsample = nn.UpsamplingBilinear2d(scale_factor=0.5)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -111,8 +108,8 @@ class ProGANDiscriminatorGeneralBlock(nn.Module):
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
         x = self.conv_2(x)
-        x = nn.LeakyReLU(0.2)(x)
-        return nn.AvgPool2d(2)(x)
+        x = self.downsample(x)
+        return nn.LeakyReLU(0.2)(x)
 
 
 class ProGANDiscriminator(nn.Module):
@@ -162,14 +159,16 @@ class ProGANDiscriminator(nn.Module):
                 nn.Sequential(
                     ScaledConv2d(
                         n_channels,
-                        calc_channels_at_stage(stage),
+                        calc_channels_at_stage(stage - 1),
                         kernel_size=1,
+                        padding="same",
                     ),
                     nn.LeakyReLU(0.2),
                 )
                 for stage in range(0, n_blocks)
             ]
         )
+        self.downsample = nn.UpsamplingBilinear2d(scale_factor=0.5)
 
     def forward(
         self,
@@ -194,9 +193,7 @@ class ProGANDiscriminator(nn.Module):
         if block == 0:
             x = self.from_rgb[0](images)
         else:
-            residual = self.from_rgb[block - 1](
-                nn.functional.avg_pool2d(images, kernel_size=2, stride=2)
-            )
+            residual = self.from_rgb[block - 1](self.downsample(images))
             straight = self.layers[block - 1](self.from_rgb[block](images))
             x = (alpha * straight) + ((1 - alpha) * residual)
 
@@ -289,6 +286,7 @@ class GenGeneralConvBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
+        self.upsample = nn.UpsamplingNearest2d(scale_factor=2)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -297,7 +295,7 @@ class GenGeneralConvBlock(nn.Module):
         Args:
             x: Input tensor
         """
-        x = nn.functional.interpolate(x, scale_factor=2)
+        x = self.upsample(x, scale_factor=2)
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
         x = PixelwiseNorm()(x)
@@ -366,6 +364,7 @@ class ProGANGenerator(nn.Module):
                 for stage in range(0, n_blocks)
             ]
         )
+        self.upsample = nn.UpsamplingNearest2d(scale_factor=2.0)
 
     def forward(
         self,
@@ -394,9 +393,7 @@ class ProGANGenerator(nn.Module):
             return self.rgb_converters[0](self.layers[0](x))
         for layer_block in self.layers[:block]:
             x = layer_block(x)
-        residual = nn.functional.interpolate(
-            self.rgb_converters[block - 1](x), scale_factor=2
-        )
+        residual = self.upsample(self.rgb_converters[block - 1](x))
         straight = self.rgb_converters[block](self.layers[block](x))
         return (alpha * straight) + ((1 - alpha) * residual)
 

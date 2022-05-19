@@ -1,6 +1,5 @@
 # Experiment
 experiment_name: stylegan-mnist
-unique_experiment_name: stylegan-mnist_late-kitchen
 
 # Data
 dataloader: MNISTDataloader
@@ -12,10 +11,14 @@ latent_size: 64
 n_mapping: 4
 
 # Training
-batch_size: 16
-train_steps: 50000
-eval_rate: 6666
-warm_start: True
+batch_size:
+  4: 128
+  8: 128
+  16: 128
+  32: 64
+n_evals: 10
+train_imgs: 21250000
+warm_start: False
 gen_lr: 0.001
 gen_betas:
   - 0.1

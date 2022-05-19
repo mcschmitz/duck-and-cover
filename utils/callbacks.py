@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from PIL import Image
 from pytorch_lightning.callbacks import Callback
 from sklearn.preprocessing import StandardScaler
-from torch import Tensor
+from torch import Tensor, nn
 
 from networks.modules.progan import ProGANGenerator
 from networks.modules.stylegan import StyleGANGenerator
@@ -49,6 +49,7 @@ class GenerateImages(Callback):
                 meta_data_path, orient="records", lines=True
             )
         self.release_year_scaler = release_year_scaler
+        self.upsample = nn.UpsamplingNearest2d(scale_factor=2)
 
     def on_train_batch_end(
         self,
@@ -98,8 +99,19 @@ class GenerateImages(Callback):
             n_imgs = 10
         else:
             n_imgs = len(self.data)
+        figs = []
+        captions = []
         for s in range(n_imgs):
-            self.generate_image_set(s, task, trainer)
+            r = self.generate_image_set(s, task, trainer)
+            figs.append(r[0])
+            captions.append(r[1])
+        if trainer.logger:
+            trainer.logger.log_image(
+                key="test/examples",
+                images=figs,
+                caption=captions,
+                step=task.images_shown,
+            )
 
     def generate_image_set(
         self, s: int, task: pl.LightningModule, trainer: pl.Trainer
@@ -129,7 +141,7 @@ class GenerateImages(Callback):
         x = np.linspace(x0, x1, 10)
         x = Tensor(x)
         x = x.to(task.device)
-        fig = self.create_figure(task, x, scaled_year_vec)
+        fig = self.create_figure(task, x, scaled_year_vec, seed=s)
         images_shown = trainer.logged_metrics["train/images_shown"]
         images_shown = str(int(images_shown))
         if self.data.empty:
@@ -140,17 +152,18 @@ class GenerateImages(Callback):
             album_name = str(self.data.loc[s, "album_name"])
             genre = ", ".join(eval(str(self.data.loc[s, "artist_genre"])))
             caption = f"{artist_name} - {album_name} ({genre}) [{year}]"
-        if trainer.logger:
-            trainer.logger.log_image(
-                key=caption, images=[fig], caption=[caption]
-            )
         caption = f"{caption} (step {images_shown})"
         img_path = os.path.join(self.output_dir, f"{caption}.png")
         plt.savefig(img_path)
         plt.close()
+        return fig, caption
 
     def create_figure(
-        self, task: pl.LightningModule, x: Tensor, year: np.array = None
+        self,
+        task: pl.LightningModule,
+        x: Tensor,
+        year: np.array = None,
+        seed: int = None,
     ) -> plt.Figure:
         """
         Creates a matplotlib figure of generated album covers.
@@ -168,26 +181,31 @@ class GenerateImages(Callback):
         fig = plt.figure(figsize=figsize, dpi=300)
         with torch.no_grad():
             if isinstance(task.generator, ProGANGenerator):
+                task.ema_generator.eval()
                 output = task.ema_generator(
                     x, year=year, block=task.block, alpha=task.alpha
                 )
             elif isinstance(task.generator, StyleGANGenerator):
+                task.ema_generator.eval()
                 output = task.ema_generator(
                     x,
                     year=year,
                     block=task.block,
                     alpha=task.alpha,
-                    freeze_noise=True,
+                    seed=seed,
                 )
             else:
                 output = task.generator(x)
-        generated_images = output.detach().cpu().numpy()
-        generated_images = np.moveaxis(generated_images, 1, -1)
+        generated_images = output.detach().cpu()
         for img in generated_images:
+            img = torch.unsqueeze(img, 0)
+            while img.shape[-1] != self.target_size[0]:
+                img = self.upsample(img)
+            img = torch.movedim(img, 1, -1)
+            img = torch.squeeze(img, dim=0)
             if img.shape[-1] == 1:
-                img = np.tile(img, (1, 1, 3))
-            img = array_to_img(img, scale=True)
-            img = img.resize(size=self.target_size)
+                img = torch.tile(img, (1, 1, 3))
+            img = array_to_img(img.numpy(), scale=True)
             plt.subplot(1, 10, idx)
             plt.axis("off")
             plt.imshow(img)

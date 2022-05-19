@@ -38,8 +38,9 @@ class ProGANTask(WGANTask):
         self.phase = "burn_in"
         self.alpha = 1
         self.automatic_optimization = False
-        self._alphas = None
+        self.alpha_tick = None
         self.ema_generator = deepcopy(self.generator)
+        self.update_ema_generator(0.0)
 
     def on_fit_start(self):
         """
@@ -49,15 +50,8 @@ class ProGANTask(WGANTask):
         super().on_fit_start()
         img_resolution = 2 ** (self.block + 2)
         if self.phase == "fade_in":
-            remaining_gan_steps = int(
-                self.trainer.max_steps / (1 + 1 / self.config.n_critic)
-            )
-            if not self._alphas:
-                self._alphas = np.linspace(0, 1, remaining_gan_steps).tolist()
-            elif len(self._alphas) != remaining_gan_steps:
-                raise ValueError(
-                    "alpha weights are not initialized correctly. Please check the number of steps and the number of alpha weights."
-                )
+            if self.alpha_tick is None:
+                self.alpha_tick = 1 / (self.trainer.max_steps / 2)
             logger.info(f"Phase: Fade in for resolution {img_resolution}")
         else:
             logger.info(f"Phase: Burn in for resolution {img_resolution}")
@@ -65,14 +59,18 @@ class ProGANTask(WGANTask):
     def training_step(self, batch: Dict, batch_idx: int):
         """
         Trains the ProGAN on a single batch of data. Obtains the phase (`burn-
-        in` or `phade-in`) and trains the GAN accordingly.
+        in` or `fade-in`) and trains the GAN accordingly.
 
         Args:
             batch: Batch to train on
             batch_idx: Incremental batch index
         """
+        self.logger.log_metrics(
+            {"trainer/alpha": self.alpha}, step=self.images_shown
+        )
         if self.phase == "fade_in":
-            self.alpha = self._alphas.pop(0)
+            self.alpha += self.alpha_tick
+            self.alpha = np.clip(self.alpha, 0, 1)
         self.train_on_batch(batch=batch, batch_idx=batch_idx)
         if self.phase == "fade_in":
             self.fade_in_images_shown += len(batch.get("images"))
@@ -96,9 +94,13 @@ class ProGANTask(WGANTask):
             mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)
         )
         noise = noise.to(self.device)
-        generated_images = self.generator(
-            x=noise, year=batch.get("year"), block=self.block, alpha=self.alpha
-        )
+        with torch.no_grad():
+            generated_images = self.generator(
+                x=noise,
+                year=batch.get("year"),
+                block=self.block,
+                alpha=self.alpha,
+            )
         self.train_discriminator(batch, generated_images)
         if batch_idx % self.config.n_critic == 0:
             self.train_generator(batch=batch, noise=noise)
@@ -146,8 +148,13 @@ class ProGANTask(WGANTask):
         discriminator_acc = (correct_real + correct_fake) / (
             self.config.batch_size * 2
         )
-        self.log("train/discriminator_loss", loss)
-        self.log("train/discriminator_accuracy", discriminator_acc)
+        self.logger.log_metrics(
+            {
+                "train/discriminator_loss": loss,
+                "train/discriminator_acc": discriminator_acc,
+            },
+            step=self.images_shown,
+        )
 
     def train_generator(
         self, batch: Dict[str, torch.Tensor], noise: torch.Tensor
@@ -176,8 +183,17 @@ class ProGANTask(WGANTask):
         )
         self.manual_backward(g_loss)
         generator_optimizer.step()
-        self.log("train/generator_loss", g_loss)
-        self.update_ema_generator()
+        self.logger.log_metrics(
+            {"train/generator_loss": g_loss}, step=self.images_shown
+        )
+        self.update_ema_generator(self.config.ema_beta)
+
+    def on_train_batch_end(
+        self, outputs, batch, batch_idx: int, unused: int = 0
+    ) -> None:
+        self.trainer._data_connector._train_dataloader_source.dataloader().alpha = (
+            self.alpha
+        )
 
     def on_save_checkpoint(self, checkpoint):
         """
@@ -192,7 +208,7 @@ class ProGANTask(WGANTask):
         checkpoint["burn_in_images_shown"] = self.burn_in_images_shown
         checkpoint["fade_in_images_shown"] = self.fade_in_images_shown
         checkpoint["alpha"] = self.alpha
-        checkpoint["_alphas"] = self._alphas
+        checkpoint["alpha_tick"] = self.alpha_tick
         checkpoint["phase_steps"] = self.phase_steps
 
     def on_load_checkpoint(self, checkpoint):
@@ -208,7 +224,7 @@ class ProGANTask(WGANTask):
         self.burn_in_images_shown = checkpoint["burn_in_images_shown"]
         self.fade_in_images_shown = checkpoint["fade_in_images_shown"]
         self.alpha = checkpoint["alpha"]
-        self._alphas = checkpoint["_alphas"]
+        self.alpha_tick = None  # checkpoint["alpha_tick"]
         self.phase_steps = checkpoint["phase_steps"]
 
     def on_fit_end(self):
@@ -220,11 +236,15 @@ class ProGANTask(WGANTask):
         if self.phase == "burn_in":
             self.phase = "fade_in"
             self.block += 1
+            self.alpha = 0
+            self.trainer.optimizers = self.configure_optimizers()
         elif self.phase == "fade_in":
             self.phase = "burn_in"
+            self.alpha_tick = None
+            self.alpha = 1
         self.phase_steps = 0
 
-    def update_ema_generator(self):
+    def update_ema_generator(self, beta):
         """
         After every weight update of the generator this method updates the
         Exponential Moving Average of the generator weights and stores them as
@@ -232,12 +252,22 @@ class ProGANTask(WGANTask):
 
         This separate model shall be used for image generation.
         """
-        with torch.no_grad():
-            generator_weights = dict(self.generator.named_parameters())
-            ema_weights = self.ema_generator.named_parameters()
-            for (w_name, w_ema_generator) in ema_weights:
-                w_generator = generator_weights[w_name]
-                w_ema_generator.copy_(
-                    self.config.ema_beta * w_ema_generator
-                    + (1.0 - self.config.ema_beta) * w_generator
-                )
+
+        def toggle_grad(model, requires_grad):
+            for p in model.parameters():
+                p.requires_grad_(requires_grad)
+
+        # turn off gradient calculation
+        toggle_grad(self.ema_generator, False)
+        toggle_grad(self.generator, False)
+
+        param_dict_src = dict(self.generator.named_parameters())
+
+        for p_name, p_tgt in self.ema_generator.named_parameters():
+            p_src = param_dict_src[p_name]
+            assert p_src is not p_tgt
+            p_tgt.copy_(beta * p_tgt + (1.0 - beta) * p_src)
+
+        # turn back on the gradient calculation
+        toggle_grad(self.ema_generator, True)
+        toggle_grad(self.generator, True)

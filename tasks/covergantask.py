@@ -34,6 +34,7 @@ class CoverGANTask(pl.LightningModule):
         self.wandb_run_id = None
         self.wandb_run_name = None
         self.automatic_optimization = False
+        self.current_resolution = self.config.image_size
 
     def configure_optimizers(self):
         """
@@ -66,6 +67,10 @@ class CoverGANTask(pl.LightningModule):
         release_year_scaler = getattr(
             train_dataloader, "release_year_scaler", None
         )
+        every_n_train_steps = (
+            self.config.train_steps[self.current_resolution]
+            // self.config.n_evals
+        )
         return [
             pl.callbacks.ModelCheckpoint(
                 monitor="train/images_shown",
@@ -74,15 +79,16 @@ class CoverGANTask(pl.LightningModule):
                 mode="max",
                 verbose=True,
                 save_last=True,
-                every_n_train_steps=self.config.eval_rate,
+                every_n_train_steps=every_n_train_steps,
                 every_n_epochs=0,
                 save_on_train_epoch_end=False,
             ),
             GenerateImages(
                 meta_data_path=self.config.test_meta_data_path,
-                every_n_train_steps=self.config.eval_rate,
+                every_n_train_steps=every_n_train_steps,
                 output_dir=self.config.learning_progress_path,
                 release_year_scaler=release_year_scaler,
+                target_size=(self.config.image_size, self.config.image_size),
             ),
         ]
 

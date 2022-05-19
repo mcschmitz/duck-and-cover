@@ -3,7 +3,6 @@ from typing import Tuple
 import torch
 from torch import Tensor, nn
 
-from networks.utils import clip_channels
 from networks.utils.layers import MinibatchStdDev
 
 

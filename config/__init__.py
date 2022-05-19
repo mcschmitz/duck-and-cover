@@ -56,7 +56,7 @@ class GANTrainConfig(GANConfig):
     meta_data_path: Optional[str]
 
     # Training:
-    batch_size: Union[int, List[int]]
+    batch_size: Union[int, Dict[int, int]]
     gen_lr: float
     gen_betas: Tuple[float, float]
     disc_lr: float
@@ -68,8 +68,9 @@ class GANTrainConfig(GANConfig):
     test_meta_data_path: Optional[str] = None
     n_critic: Optional[int] = 1
     gradient_penalty_weight: Optional[float] = 10.0
-    train_steps: int
-    eval_rate: Optional[int]
+    train_imgs: int
+    train_steps: Optional[Dict[int, int]]
+    n_evals: Optional[int] = 10
     ema_beta: float = 0.999
 
     @validator("meta_data_path", always=True)
@@ -86,10 +87,6 @@ class GANTrainConfig(GANConfig):
             "learning_progress", values["unique_experiment_name"]
         )
 
-    @validator("eval_rate", always=True)
-    def default_eval_rate(cls, v, values):  # noqa: D102, N805
-        return v or values["train_steps"] // 32
-
     @validator("train_steps", always=True)
     def default_train_steps(cls, v, values):  # noqa: D102, N805
         """
@@ -100,6 +97,15 @@ class GANTrainConfig(GANConfig):
             v: Number of steps.
             values: Values of the config.
         """
+        if len(values["batch_size"]) > 1:
+            n_phases = len(values["batch_size"]) * 2 - 1
+            imgs_per_phase = values["train_imgs"] // n_phases
+            return {
+                resolution: int(
+                    imgs_per_phase // bs * (1 + 1 / values["n_critic"])
+                )
+                for resolution, bs in values["batch_size"].items()
+            }
         return int(v * (1 + 1 / values["n_critic"]))
 
     @validator("wandb_tags", always=True)

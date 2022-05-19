@@ -43,15 +43,22 @@ if __name__ == "__main__":
     while style_gan_task.block < config.n_blocks:
         block = style_gan_task.block
         image_size = 2 ** (block + 2)
-        data_generators = dataloader.get_data_generators(image_size=image_size)
+        data_generators = dataloader.get_data_generators(
+            image_size=image_size, alpha=style_gan_task.alpha
+        )
+        print(
+            f"Training this phase for {config.train_steps[image_size]} steps"
+        )
         trainer = pl.Trainer(
             gpus=-1,
-            max_steps=config.train_steps - (style_gan_task.phase_steps * 2),
+            max_steps=config.train_steps[image_size]
+            - (style_gan_task.phase_steps * 2),
             enable_checkpointing=True,
             logger=logger,
             precision=config.precision,
             enable_progress_bar=False,
         )
+        trainer.num_training_batches = len(data_generators["train"])
         trainer.fit(
             style_gan_task,
             train_dataloaders=data_generators.get("train"),

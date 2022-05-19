@@ -3,8 +3,6 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from networks.utils import clip_channels
-
 
 class DCDiscrimininator(nn.Module):
     def __init__(self, img_shape: Tuple[int, int, int]):

@@ -71,11 +71,9 @@ class Epilogue(nn.Module):
         self.noise_mix_in = NoiseMixIn()
         self.lrealu = nn.LeakyReLU(0.2)
         self.instance_norm = nn.InstanceNorm2d(n_channels)
-        self.ada_in = AdaIn(latent_size, n_channels)
+        self.style_mix_in = StyleMixIn(latent_size, n_channels)
 
-    def forward(
-        self, x: Tensor, w: Tensor, freeze_noise: bool = False
-    ) -> Tensor:
+    def forward(self, x: Tensor, w: Tensor, seed: int = None) -> Tensor:
         """
         Passes the input tensor through the layers and mixes in the latent
         vector w form the mapping network.
@@ -83,13 +81,11 @@ class Epilogue(nn.Module):
         Args:
             x: Input tensor from the last Conv2d layer
             w: Latent vector from the mapping network
-            freeze_noise: Whether to freeze the noise in the Noise Mixin Layer.
         """
-        x = self.noise_mix_in(x, freeze_noise=freeze_noise)
+        x = self.noise_mix_in(x, seed=seed)
         x = self.lrealu(x)
         x = self.instance_norm(x)
-        x = self.ada_in(x, w)
-        return self.ada_in(x, w)
+        return self.style_mix_in(x, w)
 
 
 class NoiseMixIn(nn.Module):
@@ -99,30 +95,29 @@ class NoiseMixIn(nn.Module):
         """
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(1))
-        self.noise = None
+        self.bias = nn.Parameter(torch.zeros(1))
 
-    def forward(self, x: Tensor, freeze_noise: bool = False) -> Tensor:
+    def forward(self, x: Tensor, seed: int = None) -> Tensor:
         """
         Randomly generates noise and mixes it with the input tensor.
 
         Args:
             x: Input tensor
-            freeze_noise: Whether to freeze the noise input. If so, the noise of
-                the first forward pass is will be used.
         """
+        if seed is not None:
+            torch.manual_seed(seed)
         noise = torch.randn(
             x.size(0), 1, x.size(2), x.size(3), device=x.device, dtype=x.dtype
         )
-        if self.noise is None:
-            self.noise = noise[0]
-        if freeze_noise:
-            noise = self.noise.to(x.device)
-            noise = noise.expand(x.size(0), 1, x.size(2), x.size(3))
-        x = x + self.weight.view(1, -1, 1, 1) * noise
-        return x
+        noise = noise.expand(x.size(0), 1, x.size(2), x.size(3))
+        return (
+            x
+            + self.weight.view(1, -1, 1, 1) * noise
+            + self.bias.view(1, -1, 1, 1)
+        )
 
 
-class AdaIn(nn.Module):
+class StyleMixIn(nn.Module):
     def __init__(self, latent_size: int, n_channels: int):
         """
         StyleGAN adaptive instance normalization.
@@ -131,7 +126,7 @@ class AdaIn(nn.Module):
             latent_size: Size of the latent space
             n_channels: Number of channels
         """
-        super(AdaIn, self).__init__()
+        super(StyleMixIn, self).__init__()
         self.dense = ScaledDense(latent_size, n_channels * 2, gain=1.0)
 
     def forward(self, x: Tensor, w: Tensor) -> Tensor:
@@ -162,10 +157,9 @@ class StyleGANGenInitialBlock(nn.Module):
         self.n_channels = n_channels
 
         self.const = nn.Parameter(torch.ones(1, n_channels, 4, 4))
-        self.bias = nn.Parameter(torch.ones(n_channels))
 
         self.epilogue_1 = Epilogue(n_channels, latent_size)
-        self.conv = ScaledConv2dTranspose(
+        self.conv = ScaledConv2d(
             n_channels,
             n_channels,
             kernel_size=3,
@@ -174,7 +168,7 @@ class StyleGANGenInitialBlock(nn.Module):
         )
         self.epilogue_2 = Epilogue(n_channels, latent_size)
 
-    def forward(self, w: Tensor, freeze_noise: bool = False) -> Tensor:
+    def forward(self, w: Tensor, seed: int = None) -> Tensor:
         """
         Passes the latent vector w through the initial block of the generator.
         Specifically, the latent vector is mixed with the noise, normalized and
@@ -184,14 +178,12 @@ class StyleGANGenInitialBlock(nn.Module):
 
         Args:
             w: Latent vector from the mapping network
-            freeze_noise: Whether to freeze the noise in the Noise Mixin Layer.
         """
         batch_size = w.size(0)
         x = self.const.expand(batch_size, -1, -1, -1)
-        x = x + self.bias.view(1, -1, 1, 1)
-        x = self.epilogue_1(x, w[:, 0], freeze_noise=freeze_noise)
+        x = self.epilogue_1(x, w[:, 0], seed=seed)
         x = self.conv(x)
-        return self.epilogue_2(x, w[:, 1], freeze_noise=freeze_noise)
+        return self.epilogue_2(x, w[:, 1], seed=seed)
 
 
 class StyleGANGenGeneralConvBlock(nn.Module):
@@ -206,7 +198,7 @@ class StyleGANGenGeneralConvBlock(nn.Module):
         """
         super().__init__()
 
-        self.conv_1 = ScaledConv2d(
+        self.conv_1 = ScaledConv2dTranspose(
             in_channels,
             out_channels,
             kernel_size=3,
@@ -222,10 +214,9 @@ class StyleGANGenGeneralConvBlock(nn.Module):
             use_dynamic_wscale=True,
         )
         self.epilogue_2 = Epilogue(out_channels, latent_size)
+        self.upsample = nn.UpsamplingBilinear2d(scale_factor=2.0)
 
-    def forward(
-        self, x: Tensor, w: Tensor, freeze_noise: bool = False
-    ) -> Tensor:
+    def forward(self, x: Tensor, w: Tensor, seed: int = None) -> Tensor:
         """
         Forward pass of the general convolution block. Specifically, scales the
         input tensor up by a factor of 2, applies the first ScaledConv2d and
@@ -237,13 +228,12 @@ class StyleGANGenGeneralConvBlock(nn.Module):
         Args:
             x: Output of the previous block
             w: Latent vector from the mapping network
-            freeze_noise: Weather to freeze the noise in the Noise Mixin Layer.
         """
-        x = nn.UpsamplingBilinear2d(scale_factor=2)(x)
+        x = self.upsample(x)
         x = self.conv_1(x)
-        x = self.epilogue_1(x, w[:, 0], freeze_noise=freeze_noise)
+        x = self.epilogue_1(x, w[:, 0], seed=seed)
         x = self.conv_2(x)
-        return self.epilogue_2(x, w[:, 1], freeze_noise=freeze_noise)
+        return self.epilogue_2(x, w[:, 1], seed=seed)
 
 
 class StyleGANSynthesis(nn.Module):
@@ -272,6 +262,7 @@ class StyleGANSynthesis(nn.Module):
         self.layers.append(
             StyleGANGenInitialBlock(calc_channels_at_stage(0), latent_size)
         )
+        self.upsample = nn.UpsamplingBilinear2d(scale_factor=2.0)
 
         for block in range(0, n_blocks):
             self.layers.append(
@@ -300,22 +291,18 @@ class StyleGANSynthesis(nn.Module):
         w: Tensor,
         block: int = 0,
         alpha: float = 0.0,
-        freeze_noise: bool = False,
+        seed: int = None,
     ) -> Tensor:
         if block == 0:
-            return self.rgb_converters[0](
-                self.layers[0](w[:, 0:2], freeze_noise=freeze_noise)
-            )
+            return self.rgb_converters[0](self.layers[0](w[:, 0:2], seed=seed))
         for i, layer in enumerate(self.layers[:block]):
             if i == 0:
-                x = layer(w[:, 2 * i : 2 * i + 2])
+                x = layer(w[:, 2 * i : 2 * i + 2], seed=seed)
             else:
-                x = layer(x, w[:, 2 * i : 2 * i + 2])
-        residual = nn.UpsamplingBilinear2d(scale_factor=2)(
-            self.rgb_converters[block - 1](x)
-        )
+                x = layer(x, w[:, 2 * i : 2 * i + 2], seed=seed)
+        residual = self.upsample(self.rgb_converters[block - 1](x))
         straight = self.rgb_converters[block](
-            self.layers[block](x, w, freeze_noise=freeze_noise)
+            self.layers[block](x, w, seed=seed)
         )
         return (alpha * straight) + ((1 - alpha) * residual)
 
@@ -356,7 +343,7 @@ class StyleGANGenerator(nn.Module):
         year: Tensor = None,
         block: int = 0,
         alpha: float = 1.0,
-        freeze_noise: bool = False,
+        seed: int = None,
     ):
         w_orig = self.g_mapping(x)
 
@@ -377,6 +364,4 @@ class StyleGANGenerator(nn.Module):
 
             w_orig = self.truncation(w_orig)
 
-        return self.g_synthesis(
-            w_orig, block, alpha, freeze_noise=freeze_noise
-        )
+        return self.g_synthesis(w_orig, block, alpha, seed=seed)

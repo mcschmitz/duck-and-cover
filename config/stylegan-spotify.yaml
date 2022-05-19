@@ -1,0 +1,31 @@
+# Experiment
+experiment_name: stylegan-spotify
+
+# Data
+dataloader: SpotifyDataloader
+meta_data_path: data/album_data_frame.json
+
+# Model
+channels: 3
+image_size: 64
+latent_size: 512
+n_mapping: 8
+
+# Training
+batch_size:
+  8: 128
+  16: 128
+  32: 64
+  64: 16
+n_evals: 10
+train_imgs: 4200000
+warm_start: False
+gen_lr: 0.0015
+gen_betas:
+  - 0.0
+  - 0.99
+disc_lr: 0.0015
+disc_betas:
+  - 0.0
+  - 0.99
+test_meta_data_path: data/test_data_meta.json

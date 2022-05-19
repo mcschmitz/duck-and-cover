@@ -14,21 +14,37 @@ class MinibatchStdDev(nn.Module):
     (same size as the input map) to the input
     """
 
-    def __init__(self):
+    def __init__(self, group_size: int = 4, num_new_features: int = 1):
         super(MinibatchStdDev, self).__init__()
+        self.group_size = group_size
+        self.num_new_features = num_new_features
 
     def forward(self, x):
-        mean = torch.mean(x, dim=0, keepdim=True)
-        squared_diff = torch.square(x - mean)
-        avg_squared_diff = torch.mean(squared_diff, dim=0, keepdim=True)
-        avg_squared_diff += 1e-8
-        sd = torch.sqrt(avg_squared_diff)
-        avg_sd = torch.mean(sd)
-        shape = x.shape
-        ones = torch.ones((shape[0], 1, shape[2], shape[3])).to(avg_sd.device)
-        output = ones * avg_sd
-        combined = torch.cat([x, output], dim=1)
-        return combined
+        b, c, h, w = x.shape
+        group_size = min(self.group_size, b)
+        y = x.reshape(
+            [
+                group_size,
+                -1,
+                self.num_new_features,
+                c // self.num_new_features,
+                h,
+                w,
+            ]
+        )
+        y = y - y.mean(0, keepdim=True)
+        y = (y**2).mean(0, keepdim=True)
+        y = (y + 1e-8) ** 0.5
+        y = y.mean([3, 4, 5], keepdim=True).squeeze(
+            3
+        )  # don't keep the meaned-out channels
+        y = (
+            y.expand(group_size, -1, -1, h, w)
+            .clone()
+            .reshape(b, self.num_new_features, h, w)
+        )
+        z = torch.cat([x, y], dim=1)
+        return z
 
 
 class ScaledDense(nn.Linear):
@@ -51,14 +67,14 @@ class ScaledDense(nn.Linear):
         """
         super().__init__(in_features, out_features, bias)
         self.use_dynamic_wscale = use_dynamic_wscale
-        self.gain = gain if gain else np.sqrt(2)
         self.learning_rate_multiplier = learning_rate_multiplier
 
+        torch.nn.init.normal_(self.weight)
         if bias:
             torch.nn.init.zeros_(self.bias)
 
         if self.use_dynamic_wscale:
-            self.gain = gain if gain else np.sqrt(2)
+            gain = gain if gain else np.sqrt(2)
             fan_in = self.in_features
             self.gain = gain / np.sqrt(max(1.0, fan_in))
 
@@ -104,9 +120,9 @@ class ScaledConv2dTranspose(nn.ConvTranspose2d):
 
         self.use_dynamic_wscale = use_dynamic_wscale
         if self.use_dynamic_wscale:
-            self.gain = gain if gain else np.sqrt(2)
+            gain = gain if gain else np.sqrt(2)
             fan_in = np.prod(self.kernel_size) * self.in_channels
-            self.gain = self.gain / np.sqrt(max(1.0, fan_in))
+            self.gain = gain / np.sqrt(max(1.0, fan_in))
 
     def forward(
         self, x: torch.Tensor, output_size: Any = None
@@ -174,9 +190,9 @@ class ScaledConv2d(nn.Conv2d):
 
         self.use_dynamic_wscale = use_dynamic_wscale
         if self.use_dynamic_wscale:
-            self.gain = gain if gain else np.sqrt(2)
+            gain = gain if gain else np.sqrt(2)
             fan_in = np.prod(self.kernel_size) * self.in_channels
-            self.gain = self.gain / np.sqrt(max(1.0, fan_in))
+            self.gain = gain / np.sqrt(max(1.0, fan_in))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         weight = (

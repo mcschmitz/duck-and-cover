@@ -56,7 +56,7 @@ class GANTrainConfig(GANConfig):
     meta_data_path: Optional[str]
 
     # Training:
-    batch_size: Union[int, Dict[int, int]]
+    batch_size: int
     gen_lr: float
     gen_betas: Tuple[float, float]
     disc_lr: float
@@ -66,10 +66,6 @@ class GANTrainConfig(GANConfig):
     warm_start: Optional[bool] = False
     wandb_tags: Optional[List[str]]
     test_meta_data_path: Optional[str] = None
-    n_critic: Optional[int] = 1
-    gradient_penalty_weight: Optional[float] = 10.0
-    train_imgs: int
-    train_steps: Optional[Dict[int, int]]
     n_evals: Optional[int] = 10
     ema_beta: float = 0.999
 
@@ -86,27 +82,6 @@ class GANTrainConfig(GANConfig):
         return v or os.path.join(
             "learning_progress", values["unique_experiment_name"]
         )
-
-    @validator("train_steps", always=True)
-    def default_train_steps(cls, v, values):  # noqa: D102, N805
-        """
-        Increments the step size as discriminator step and generator step are
-        seen as one step each.
-
-        Args:
-            v: Number of steps.
-            values: Values of the config.
-        """
-        if len(values["batch_size"]) > 1:
-            n_phases = len(values["batch_size"]) * 2 - 1
-            imgs_per_phase = values["train_imgs"] // n_phases
-            return {
-                resolution: int(
-                    imgs_per_phase // bs * (1 + 1 / values["n_critic"])
-                )
-                for resolution, bs in values["batch_size"].items()
-            }
-        return int(v * (1 + 1 / values["n_critic"]))
 
     @validator("wandb_tags", always=True)
     def default_wandb_tags(cls, v, values):  # noqa: D102, N805
@@ -132,3 +107,21 @@ class GANTrainConfig(GANConfig):
         raise ValueError(
             "dataloader has to be either MNISTDataloader or DataLoader"
         )
+
+
+class ProGANTrainConfig(GANTrainConfig):
+    batch_size: Dict[int, int]
+    n_critic: Optional[int] = 1
+    gradient_penalty_weight: Optional[float] = 10.0
+    fade_in_imgs: int
+    burn_in_imgs: int
+
+    @validator("fade_in_imgs", "burn_in_imgs", always=True)
+    def default_fadeburn_in_imgs(cls, v, values):  # noqa: D102, N805
+        """
+        Increases the number of fade-in & burn-in images to see as PyTorch
+        Lightning assigns a single step to every Generator & Discriminator
+        update and the total number of updates is calculated using the desired
+        images
+        """
+        return int(v * (1 + 1 / values["n_critic"]))

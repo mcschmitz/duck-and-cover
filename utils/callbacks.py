@@ -13,6 +13,7 @@ from torch import Tensor, nn
 
 from networks.modules.progan import ProGANGenerator
 from networks.modules.stylegan import StyleGANGenerator
+from utils.image_operations import adjust_dynamic_range
 
 
 class GenerateImages(Callback):
@@ -182,7 +183,7 @@ class GenerateImages(Callback):
         with torch.no_grad():
             if isinstance(task.generator, ProGANGenerator):
                 task.ema_generator.eval()
-                output = task.ema_generator(
+                output = task.generator(
                     x, year=year, block=task.block, alpha=task.alpha
                 )
             elif isinstance(task.generator, StyleGANGenerator):
@@ -196,8 +197,7 @@ class GenerateImages(Callback):
                 )
             else:
                 output = task.generator(x)
-        generated_images = output.detach().cpu()
-        for img in generated_images:
+        for img in output:
             img = torch.unsqueeze(img, 0)
             while img.shape[-1] != self.target_size[0]:
                 img = self.upsample(img)
@@ -205,7 +205,10 @@ class GenerateImages(Callback):
             img = torch.squeeze(img, dim=0)
             if img.shape[-1] == 1:
                 img = torch.tile(img, (1, 1, 3))
-            img = array_to_img(img.numpy(), scale=True)
+            scale = 255 / 2
+            img = img * scale + (0.5 + scale)
+            img = np.clip(img.cpu().numpy(), 0, 255)
+            img = Image.fromarray(img.astype(np.int8), "RGB")
             plt.subplot(1, 10, idx)
             plt.axis("off")
             plt.imshow(img)
@@ -214,24 +217,3 @@ class GenerateImages(Callback):
                 left=0, bottom=0, right=1, top=1, wspace=0, hspace=0.1
             )
         return fig
-
-
-def array_to_img(x: np.ndarray, scale=True) -> Image:
-    """
-    Converts a 3D Numpy array to a PIL Image instance.
-
-    Args:
-        x: Input data, in any form that can be converted to a Numpy array.
-            "channels_last". Defaults to `None`, in which case the global
-            setting `tf.keras.backend.image_data_format()` is used (unless you
-            changed it, it defaults to "channels_last").
-        scale: Whether to rescale the image such that minimum and maximum values
-            are 0 and 255 respectively. Defaults to `True`.
-    """
-    if scale:
-        x = x - np.min(x)
-        x_max = np.max(x)
-        if x_max != 0:
-            x /= x_max
-        x *= 255
-    return Image.fromarray(x.astype("uint8"), "RGB")

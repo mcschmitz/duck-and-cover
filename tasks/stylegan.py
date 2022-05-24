@@ -21,11 +21,6 @@ class StyleGANTask(ProGANTask):
         )
         self.block += 1
         self.softplus = nn.Softplus()
-        self.current_resolution = 2 ** (self.block + 2)
-
-    def on_fit_start(self):
-        super().on_fit_start()
-        self.current_resolution = 2 ** (self.block + 2)
 
     def train_on_batch(self, batch: Dict[str, Tensor], batch_idx: int):
         """

@@ -3,7 +3,7 @@ import os
 
 import pytorch_lightning as pl
 
-from config import GANTrainConfig
+from config import ProGANTrainConfig
 from networks import ProGAN
 from tasks.progan import ProGANTask
 from utils.image_operations import create_final_gif
@@ -13,7 +13,7 @@ parser.add_argument("--config_file", type=str)
 args = parser.parse_args()
 
 if __name__ == "__main__":
-    config = GANTrainConfig(args.config_file)
+    config = ProGANTrainConfig(args.config_file)
     dataloader = config.get_dataloader()
 
     pro_gan = ProGAN(config)
@@ -42,11 +42,13 @@ if __name__ == "__main__":
     )
     while pro_gan_task.block < config.n_blocks:
         block = pro_gan_task.block
-        image_size = 2 ** (block + 2)
-        data_generators = dataloader.get_data_generators(image_size=image_size)
+        resolution = 2 ** (block + 2)
+        data_generators = dataloader.get_data_generators(image_size=resolution)
+        train_imgs = config.fade_in_imgs if pro_gan_task.phase == "fade_in" else config.burn_in_imgs
+        train_steps = train_imgs // data_generators["train"].batch_size
         trainer = pl.Trainer(
             gpus=-1,
-            max_steps=config.train_steps - (pro_gan_task.phase_steps * 2),
+            max_steps=train_steps - (pro_gan_task.phase_steps * 2),
             enable_checkpointing=True,
             logger=logger,
             precision=config.precision,

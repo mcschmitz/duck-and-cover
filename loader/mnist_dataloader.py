@@ -96,9 +96,7 @@ class MNISTDataloader:
         self.config = config
         self.dataset = load_dataset("mnist")
 
-    def get_data_generators(
-        self, image_size: int = None, transition: bool = False
-    ) -> Dict:
+    def get_data_generators(self, image_size: int = None) -> Dict:
         """
         Returns the MNIST training generator.
 
@@ -113,6 +111,5 @@ class MNISTDataloader:
                 image_size=image_size,
                 channels=1,
                 return_release_year=self.config.add_release_year,
-                transition=transition,
             )
         }

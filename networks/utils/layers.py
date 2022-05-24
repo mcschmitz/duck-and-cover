@@ -212,12 +212,11 @@ class ScaledConv2d(nn.Conv2d):
 class PixelwiseNorm(nn.Module):
     def __init__(self):
         super(PixelwiseNorm, self).__init__()
+        self.alpha = 1e-8
 
-    @staticmethod
-    def forward(x: torch.Tensor, alpha: float = 1e-8) -> torch.Tensor:
-        y = x.pow(2.0).mean(dim=1, keepdim=True).add(alpha).sqrt()  # [N1HW]
-        y = x / y  # normalize the input x volume
-        return y
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.alpha)
+        return x / y
 
 
 class Truncation(nn.Module):

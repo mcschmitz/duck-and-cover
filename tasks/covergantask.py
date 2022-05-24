@@ -52,7 +52,7 @@ class CoverGANTask(pl.LightningModule):
         )
         return generator_optimizer, discriminator_optimizer
 
-    def configure_callbacks(self) -> List[pl.Callback]:
+    def _configure_callbacks(self, every_n_train_steps: int) -> List[pl.Callback]:
         """
         Creates the callbacks for the training.
 
@@ -66,10 +66,6 @@ class CoverGANTask(pl.LightningModule):
         )
         release_year_scaler = getattr(
             train_dataloader, "release_year_scaler", None
-        )
-        every_n_train_steps = (
-            self.config.train_steps[self.current_resolution]
-            // self.config.n_evals
         )
         return [
             pl.callbacks.ModelCheckpoint(

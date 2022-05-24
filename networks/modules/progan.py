@@ -42,10 +42,22 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
-        self.dense_1 = ScaledDense(
-            in_channels * 4**2, in_channels, bias=True
+        self.conv_2 = ScaledConv2d(
+            in_channels,
+            in_channels,
+            kernel_size=4,
+            padding=0,
+            bias=True,
+            use_dynamic_wscale=True,
         )
-        self.dense_2 = ScaledDense(in_channels, 1, bias=True, gain=1)
+        self.conv_3 = ScaledConv2d(
+            in_channels,
+            1,
+            kernel_size=1,
+            padding=0,
+            bias=True,
+            use_dynamic_wscale=True,
+        )
 
     def forward(self, images: Tensor, year: Tensor = None) -> Tensor:
         """
@@ -63,10 +75,9 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             x = torch.cat([x, year_channel], 1)
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
-        x = nn.Flatten()(x)
-        x = self.dense_1(x)
+        x = self.conv_2(x)
         x = nn.LeakyReLU(0.2)(x)
-        return self.dense_2(x)
+        return self.conv_3(x).squeeze()
 
 
 class ProGANDiscriminatorGeneralBlock(nn.Module):
@@ -96,7 +107,7 @@ class ProGANDiscriminatorGeneralBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
-        self.downsample = nn.UpsamplingBilinear2d(scale_factor=0.5)
+        self.downsample = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -168,7 +179,7 @@ class ProGANDiscriminator(nn.Module):
                 for stage in range(0, n_blocks)
             ]
         )
-        self.downsample = nn.UpsamplingBilinear2d(scale_factor=0.5)
+        self.downsample = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(
         self,
@@ -251,9 +262,9 @@ class GenInitialBlock(nn.Module):
             x: Input Tensor
         """
         x = torch.unsqueeze(torch.unsqueeze(x, -1), -1)
+        x = PixelwiseNorm()(x)
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
-        x = PixelwiseNorm()(x)
         x = self.conv_2(x)
         x = nn.LeakyReLU(0.2)(x)
         return PixelwiseNorm()(x)
@@ -269,7 +280,6 @@ class GenGeneralConvBlock(nn.Module):
             out_channels: Number of output channels required
         """
         super(GenGeneralConvBlock, self).__init__()
-
         self.conv_1 = ScaledConv2d(
             in_channels,
             out_channels,
@@ -286,7 +296,6 @@ class GenGeneralConvBlock(nn.Module):
             bias=True,
             use_dynamic_wscale=True,
         )
-        self.upsample = nn.UpsamplingNearest2d(scale_factor=2)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -295,7 +304,6 @@ class GenGeneralConvBlock(nn.Module):
         Args:
             x: Input tensor
         """
-        x = self.upsample(x, scale_factor=2)
         x = self.conv_1(x)
         x = nn.LeakyReLU(0.2)(x)
         x = PixelwiseNorm()(x)
@@ -328,41 +336,34 @@ class ProGANGenerator(nn.Module):
         self.n_blocks = n_blocks
         self.latent_size = latent_size
         self.n_channels = n_channels
-
-        self.layers = nn.ModuleList()
-        self.layers.append(
-            GenInitialBlock(
+        self.initial_block = GenInitialBlock(
                 latent_size,
                 calc_channels_at_stage(0),
             )
-        )
+
+        self.pro_blocks = nn.ModuleList()
+        self.to_rgb = nn.ModuleList()
 
         for block in range(0, n_blocks):
-            self.layers.append(
+            self.pro_blocks.append(
                 GenGeneralConvBlock(
                     calc_channels_at_stage(block),
                     calc_channels_at_stage(block + 1),
                 )
             )
+            self.to_rgb.append(ScaledConv2d(
+                    calc_channels_at_stage(block),
+                    n_channels,
+                    kernel_size=1
+                ))
 
-        self.layers.append(
+        self.pro_blocks.append(
             ScaledConv2d(
                 calc_channels_at_stage(n_blocks),
                 n_channels,
-                kernel_size=(1, 1),
+                kernel_size=1,
                 gain=1,
             )
-        )
-
-        self.rgb_converters = nn.ModuleList(
-            [
-                ScaledConv2d(
-                    calc_channels_at_stage(stage),
-                    n_channels,
-                    kernel_size=(1, 1),
-                )
-                for stage in range(0, n_blocks)
-            ]
         )
         self.upsample = nn.UpsamplingNearest2d(scale_factor=2.0)
 
@@ -388,13 +389,14 @@ class ProGANGenerator(nn.Module):
             raise ValueError(
                 f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
             )
-
+        x = self.initial_block(x)
         if block == 0:
-            return self.rgb_converters[0](self.layers[0](x))
-        for layer_block in self.layers[:block]:
-            x = layer_block(x)
-        residual = self.upsample(self.rgb_converters[block - 1](x))
-        straight = self.rgb_converters[block](self.layers[block](x))
+            return self.to_rgb[0](x)
+        for pro_block in self.pro_blocks[:block]:
+            upscaled = self.upsample(x)
+            x = pro_block(upscaled)
+        residual = self.to_rgb[block - 1](upscaled)
+        straight = self.to_rgb[block](x)
         return (alpha * straight) + ((1 - alpha) * residual)
 
     def get_save_info(self) -> Dict[str, Any]:

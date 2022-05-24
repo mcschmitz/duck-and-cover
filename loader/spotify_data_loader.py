@@ -6,10 +6,10 @@ import torch
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import StandardScaler
-from torch import nn
 
 from config import GANTrainConfig
 from utils import logger
+from utils.image_operations import adjust_dynamic_range
 
 
 class SpotifyDataGenerator:
@@ -48,8 +48,6 @@ class SpotifyDataGenerator:
         self.files = self.meta_df[f"file_path_{self.source_size}"]
         self.files = self.files.to_list()
         self.n_images = len(self.meta_df)
-        self.downscale = nn.UpsamplingBilinear2d(scale_factor=0.5)
-        self.upscale = nn.UpsamplingNearest2d(scale_factor=2)
         self._iterator_i = 0
 
     def __iter__(self):
@@ -67,7 +65,7 @@ class SpotifyDataGenerator:
             file_path = self.files[b_idx]
             img = imread(file_path)
             img = np.moveaxis(img, -1, 0)
-            img = resize(img, (3, self.source_size, self.source_size))
+            img = resize(img, (3, self.source_size, self.source_size), preserve_range=True)
             batch_x.append(img)
             if self.release_year_scaler is not None:
                 year = [[self.meta_df["album_release"][b_idx]]]
@@ -75,11 +73,7 @@ class SpotifyDataGenerator:
                 year_x.append(year.flatten())
         self._iterator_i = batch_idx[-1]
         images = torch.Tensor(np.array(batch_x))
-        while images.shape[-1] != self.image_size:
-            images = self.downscale(images)
-        images_lowres = self.upscale(self.downscale(images))
-        images = images * self.alpha + images_lowres * (1 - self.alpha)
-        images = (images + 1) / 2
+        images = adjust_dynamic_range(images, drange_in=(0, 255), drange_out=(-1, 1))
         year = torch.Tensor(np.array(year_x)) if year_x else None
         return {"images": images, "year": year}
 
@@ -115,9 +109,7 @@ class SpotifyDataloader:
             self.config.meta_data_path, orient="records", lines=True
         )
 
-    def get_data_generators(
-        self, image_size: int = None, alpha: float = 1.0
-    ) -> Dict[str, SpotifyDataGenerator]:
+    def get_data_generators(self, image_size: int = None) -> Dict[str, SpotifyDataGenerator]:
         """
         Returns the dataloader.
 
@@ -131,6 +123,5 @@ class SpotifyDataloader:
                 batch_size=self.config.batch_size[image_size],
                 image_size=image_size,
                 return_release_year=self.config.add_release_year,
-                alpha=alpha,
             )
         }

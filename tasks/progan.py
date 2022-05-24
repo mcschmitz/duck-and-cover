@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -8,6 +8,7 @@ from torch import Tensor, nn
 from config import GANTrainConfig
 from tasks.wgan import WGANTask
 from utils import logger
+import pytorch_lightning as pl
 
 
 class ProGANTask(WGANTask):
@@ -41,6 +42,10 @@ class ProGANTask(WGANTask):
         self.alpha_tick = None
         self.ema_generator = deepcopy(self.generator)
         self.update_ema_generator(0.0)
+        self.current_resolution = 2 ** (self.block + 2)
+
+        self.upsample = self.generator.upsample
+        self.downsample = self.discriminator.downsample
 
     def on_fit_start(self):
         """
@@ -48,13 +53,26 @@ class ProGANTask(WGANTask):
         fade in phase.
         """
         super().on_fit_start()
-        img_resolution = 2 ** (self.block + 2)
+        self.current_resolution = 2 ** (self.block + 2)
         if self.phase == "fade_in":
             if self.alpha_tick is None:
                 self.alpha_tick = 1 / (self.trainer.max_steps / 2)
-            logger.info(f"Phase: Fade in for resolution {img_resolution}")
+            logger.info(f"Phase: Fade in for resolution {self.current_resolution}")
         else:
-            logger.info(f"Phase: Burn in for resolution {img_resolution}")
+            logger.info(f"Phase: Burn in for resolution {self.current_resolution}")
+
+    def configure_callbacks(self) -> List[pl.Callback]:
+        """
+        Creates the callbacks for the training.
+
+        Will add a ModelCheckpoint Callback to save the model at every n
+        steps (n has to be defined in the config that is passed during
+        model initialization) and a GenerateImages callback to generate
+        images at every n steps.
+        """
+        self.phase_steps = 0
+        every_n_train_steps = (self.trainer.max_steps - (self.phase_steps * 2)) // self.config.n_evals
+        return self._configure_callbacks(every_n_train_steps)
 
     def training_step(self, batch: Dict, batch_idx: int):
         """
@@ -82,6 +100,12 @@ class ProGANTask(WGANTask):
         )
         self.phase_steps += 1
 
+    def downscale_images(self, images: Tensor):
+        while images.shape[-1] != self.current_resolution:
+            images = self.downsample(images)
+        images_lowres = self.upsample(self.downsample(images))
+        return images * self.alpha + images_lowres * (1 - self.alpha)
+
     def train_on_batch(self, batch: Dict[str, Tensor], batch_idx: int):
         """
         Runs a single gradient update on a batch of data.
@@ -90,6 +114,7 @@ class ProGANTask(WGANTask):
             batch: Batch of data to train on
             batch_idx: Incremental batch index
         """
+        batch["images"] = self.downscale_images(batch["images"])
         noise = torch.normal(
             mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)
         )
@@ -139,15 +164,14 @@ class ProGANTask(WGANTask):
         self.manual_backward(loss)
         discriminator_optimizer.step()
 
-        real = torch.zeros((self.config.batch_size, 1)).to(self.device)
-        fake = torch.ones((self.config.batch_size, 1)).to(self.device)
+        batch_size = generated_images.shape[0]
+        real = torch.zeros(batch_size).to(self.device)
+        fake = torch.ones(batch_size).to(self.device)
         fake_pred = self.sigmoid(fake_pred)
         real_pred = self.sigmoid(real_pred)
         correct_fake = torch.sum(torch.round(fake_pred) == fake).cpu().numpy()
         correct_real = torch.sum(torch.round(real_pred) == real).cpu().numpy()
-        discriminator_acc = (correct_real + correct_fake) / (
-            self.config.batch_size * 2
-        )
+        discriminator_acc = (correct_real + correct_fake) / (batch_size * 2)
         self.logger.log_metrics(
             {
                 "train/discriminator_loss": loss,
@@ -187,13 +211,6 @@ class ProGANTask(WGANTask):
             {"train/generator_loss": g_loss}, step=self.images_shown
         )
         self.update_ema_generator(self.config.ema_beta)
-
-    def on_train_batch_end(
-        self, outputs, batch, batch_idx: int, unused: int = 0
-    ) -> None:
-        self.trainer._data_connector._train_dataloader_source.dataloader().alpha = (
-            self.alpha
-        )
 
     def on_save_checkpoint(self, checkpoint):
         """
@@ -235,11 +252,13 @@ class ProGANTask(WGANTask):
         super().on_fit_end()
         if self.phase == "burn_in":
             self.phase = "fade_in"
+            self.phase_steps = 0
             self.block += 1
             self.alpha = 0
             self.trainer.optimizers = self.configure_optimizers()
         elif self.phase == "fade_in":
             self.phase = "burn_in"
+            self.phase_steps = 0
             self.alpha_tick = None
             self.alpha = 1
         self.phase_steps = 0

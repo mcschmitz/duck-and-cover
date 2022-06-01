@@ -21,7 +21,7 @@ batch_size:
 fade_in_imgs: 800000
 burn_in_imgs: 800000
 n_evals: 10
-warm_start: True
+warm_start: False
 gen_lr: 0.001
 gen_betas:
   - 0.0

@@ -7,7 +7,7 @@ from torch.optim import Adam
 
 from config import GANTrainConfig
 from utils import logger
-from utils.callbacks import GenerateImages
+from utils.callbacks import ComputeFID, GenerateImages
 
 
 class CoverGANTask(pl.LightningModule):
@@ -52,7 +52,9 @@ class CoverGANTask(pl.LightningModule):
         )
         return generator_optimizer, discriminator_optimizer
 
-    def _configure_callbacks(self, every_n_train_steps: int) -> List[pl.Callback]:
+    def _configure_callbacks(
+        self, every_n_train_steps: int
+    ) -> List[pl.Callback]:
         """
         Creates the callbacks for the training.
 
@@ -60,6 +62,11 @@ class CoverGANTask(pl.LightningModule):
         steps (n has to be defined in the config that is passed during
         model initialization) and a GenerateImages callback to generate
         images at every n steps.
+
+        Args:
+            every_n_train_steps: Number of steps between the execution of the
+                two ModelCheckpoints and two GenerateImages callbacks.
+                The FID callback will be executed at the end of every block.
         """
         train_dataloader = (
             self.trainer._data_connector._train_dataloader_source.dataloader()
@@ -85,6 +92,9 @@ class CoverGANTask(pl.LightningModule):
                 output_dir=self.config.learning_progress_path,
                 release_year_scaler=release_year_scaler,
                 target_size=(self.config.image_size, self.config.image_size),
+            ),
+            ComputeFID(
+                release_year_scaler=release_year_scaler,
             ),
         ]
 

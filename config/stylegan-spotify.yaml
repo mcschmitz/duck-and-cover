@@ -18,7 +18,8 @@ batch_size:
   32: 64
   64: 16
 n_evals: 10
-train_imgs: 4200000
+fade_in_imgs: 1600000
+burn_in_imgs: 1600000
 warm_start: False
 gen_lr: 0.0015
 gen_betas:

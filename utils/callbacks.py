@@ -11,9 +11,11 @@ from pytorch_lightning.callbacks import Callback
 from sklearn.preprocessing import StandardScaler
 from torch import Tensor, nn
 from torchmetrics.image.fid import FrechetInceptionDistance
+from tqdm import tqdm
 
 from networks.modules.progan import ProGANGenerator
 from networks.modules.stylegan import StyleGANGenerator
+from utils import logger
 
 
 class GenerateImages(Callback):
@@ -73,16 +75,6 @@ class GenerateImages(Callback):
         """
         if trainer.global_step % self.every_n_train_steps == 0:
             self.generate_images(pl_module, trainer)
-
-    def on_train_end(self, trainer, pl_module):
-        """
-        Plots a final set of images after the training.
-
-        Args:
-            trainer: PTLightning Trainer
-            pl_module: The CoverGANTask
-        """
-        self.generate_images(pl_module, trainer)
 
     def generate_images(self, task: pl.LightningModule, trainer: pl.Trainer):
         """
@@ -231,7 +223,7 @@ class ComputeFID(Callback):
         self.release_year_scaler = release_year_scaler
         self.fid = FrechetInceptionDistance(feature=2048)
 
-    def on_train_end(self, trainer, pl_module):
+    def on_fit_end(self, trainer, pl_module):
         self.compute_fid(pl_module, trainer)
 
     def compute_fid(self, task: pl.LightningModule, trainer: pl.Trainer):
@@ -244,24 +236,33 @@ class ComputeFID(Callback):
             task: The CoverGANTask
             trainer: The PyTorch Lightning Trainer
         """
+        n = 100
+        logger.info("Generate images for FID")
         counter = 0
-        while counter < 50000:
-            fakes = self.generate_images(task)
-            fakes = torch.moveaxis(fakes, -1, 1)
-            fakes = fakes.type(torch.uint8)
-            self.fid.update(fakes, real=False)
-            counter += fakes.shape[0]
+        with tqdm(total=10000) as pbar:
+            for _ in range(10000 // n):
+                fakes = self.generate_images(task, n=n)
+                fakes = torch.moveaxis(fakes, -1, 1)
+                fakes = fakes.type(torch.uint8)
+                self.fid.update(fakes, real=False)
+                counter += fakes.shape[0]
+                pbar.update(n)
+        logger.info("Predict real images for FID")
         counter = 0
-        while counter < 50000:
-            for batch in trainer.train_dataloader.loaders:
+        with tqdm(total=10000) as pbar:
+            for batch in trainer.datamodule.train_dataloader():
                 reals = batch["images"]
-                reals = reals.type(torch.uint8)
+                reals = task.downscale_images(reals)
+                reals = rescale_image(reals)
+                reals = Tensor(reals).type(torch.uint8)
+                reals = torch.moveaxis(reals, -1, 1)
                 self.fid.update(reals, real=True)
                 counter += reals.shape[0]
-                if counter >= 500:
+                if counter >= 10000:
                     break
+                pbar.update(reals.shape[0])
         trainer.logger.log_metrics(
-            {"train/fid50k": self.fid.compute()}, step=task.images_shown
+            {"train/fid10k": self.fid.compute()}, step=task.images_shown
         )
         self.fid.reset()
 

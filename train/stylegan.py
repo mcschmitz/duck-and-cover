@@ -3,7 +3,7 @@ import os
 
 import pytorch_lightning as pl
 
-from config import GANTrainConfig
+from config import StyleGANTrainConfig
 from networks import StyleGAN
 from tasks.stylegan import StyleGANTask
 from utils.image_operations import create_final_gif
@@ -13,7 +13,7 @@ parser.add_argument("--config_file", type=str)
 args = parser.parse_args()
 
 if __name__ == "__main__":
-    config = GANTrainConfig(args.config_file)
+    config = StyleGANTrainConfig(args.config_file)
     dataloader = config.get_dataloader()
 
     style_gan = StyleGAN(config)
@@ -42,26 +42,25 @@ if __name__ == "__main__":
     )
     while style_gan_task.block < config.n_blocks:
         block = style_gan_task.block
-        image_size = 2 ** (block + 2)
-        data_generators = dataloader.get_data_generators(
-            image_size=image_size, alpha=style_gan_task.alpha
+        resolution = 2 ** (block + 2)
+        dataloader.set_image_size(image_size=resolution)
+        total_steps = (
+            config.fade_in_imgs
+            if style_gan_task.phase == "fade_in"
+            else config.burn_in_imgs
         )
-        print(
-            f"Training this phase for {config.train_steps[image_size]} steps"
+        remaining_steps = (
+            total_steps // dataloader.train_dataloader().batch_size
+            - (style_gan_task.phase_steps * 2)
         )
         trainer = pl.Trainer(
             gpus=-1,
-            max_steps=config.train_steps[image_size]
-            - (style_gan_task.phase_steps * 2),
+            max_steps=remaining_steps,
             enable_checkpointing=True,
             logger=logger,
             precision=config.precision,
             enable_progress_bar=False,
         )
-        trainer.num_training_batches = len(data_generators["train"])
-        trainer.fit(
-            style_gan_task,
-            train_dataloaders=data_generators.get("train"),
-            val_dataloaders=data_generators.get("val"),
-        )
+        trainer.num_training_batches = len(dataloader.train_dataloader())
+        trainer.fit(style_gan_task, dataloader)
     create_final_gif(path=config.learning_progress_path)

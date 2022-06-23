@@ -99,7 +99,7 @@ class ScaledConv2dTranspose(nn.ConvTranspose2d):
         bias=True,
         dilation=1,
         padding_mode="zeros",
-        use_dynamic_wscale: bool = False,
+        use_dynamic_wscale: bool = True,
         gain: float = None,
     ) -> None:
         super().__init__(
@@ -157,7 +157,7 @@ class ScaledConv2d(nn.Conv2d):
         groups=1,
         bias=True,
         padding_mode="zeros",
-        use_dynamic_wscale: bool = False,
+        use_dynamic_wscale: bool = True,
         gain: float = None,
     ):
         """
@@ -215,7 +215,7 @@ class PixelwiseNorm(nn.Module):
         self.alpha = 1e-8
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        y = torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.alpha)
+        y = torch.sqrt(torch.mean(x**2, dim=1, keepdim=True) + self.alpha)
         return x / y
 
 

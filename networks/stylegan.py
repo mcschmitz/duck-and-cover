@@ -1,3 +1,5 @@
+from torch import nn
+
 from networks.modules.progan import ProGANDiscriminator
 from networks.modules.stylegan import StyleGANGenerator
 from networks.progan import ProGAN
@@ -13,6 +15,7 @@ class StyleGAN(ProGAN):
             n_channels=self.config.channels,
             latent_size=self.config.latent_size,
             add_release_year=self.config.add_release_year,
+            downsample=nn.UpsamplingBilinear2d(scale_factor=0.5),
         )
 
     def build_generator(self) -> StyleGANGenerator:

@@ -30,11 +30,25 @@ class StyleGANTask(ProGANTask):
             batch: Batch of data to train on
             batch_idx: Incremental batch index
         """
-        self.train_discriminator(batch)
+        batch["images"] = self.downscale_images(batch["images"])
+        noise = torch.normal(
+            mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)
+        )
+        noise = noise.to(self.device)
+        with torch.no_grad():
+            generated_images = self.generator(
+                x=noise,
+                year=batch.get("year"),
+                block=self.block,
+                alpha=self.alpha,
+            )
+        self.train_discriminator(batch, generated_images)
         if batch_idx % self.config.n_critic == 0:
-            self.train_generator(batch=batch)
+            self.train_generator(batch=batch, noise=noise)
 
-    def train_generator(self, batch: Dict[str, torch.Tensor]):
+    def train_generator(
+        self, batch: Dict[str, torch.Tensor], noise: torch.Tensor
+    ):
         """
         Trains the generator on a single batch of data and returns the
         Generator loss.
@@ -44,11 +58,6 @@ class StyleGANTask(ProGANTask):
         """
         generator_optimizer, _ = self.optimizers()
         generator_optimizer.zero_grad()
-
-        noise = torch.normal(
-            mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)
-        )
-        noise = noise.to(self.device)
         generated_images = self.generator(
             x=noise, year=batch.get("year"), block=self.block, alpha=self.alpha
         )
@@ -66,7 +75,9 @@ class StyleGANTask(ProGANTask):
         )
         self.update_ema_generator(self.config.ema_beta)
 
-    def train_discriminator(self, batch: Dict[str, torch.Tensor]):
+    def train_discriminator(
+        self, batch: Dict[str, torch.Tensor], generated_images: Tensor
+    ):
         """
         Runs a single gradient update on a batch of data.
 
@@ -75,18 +86,6 @@ class StyleGANTask(ProGANTask):
         """
         _, discriminator_optimizer = self.optimizers()
         discriminator_optimizer.zero_grad()
-
-        noise = torch.normal(
-            mean=0, std=1, size=(len(batch["images"]), self.config.latent_size)
-        )
-        noise = noise.to(self.device)
-        with torch.no_grad():
-            generated_images = self.generator(
-                x=noise,
-                year=batch.get("year"),
-                block=self.block,
-                alpha=self.alpha,
-            ).detach()
 
         real_imgs = batch["images"]
         real_logits = self.discriminator(

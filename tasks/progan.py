@@ -2,13 +2,13 @@ from copy import deepcopy
 from typing import Dict, List
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 from torch import Tensor, nn
 
 from config import GANTrainConfig
 from tasks.wgan import WGANTask
 from utils import logger
-import pytorch_lightning as pl
 
 
 class ProGANTask(WGANTask):
@@ -57,9 +57,13 @@ class ProGANTask(WGANTask):
         if self.phase == "fade_in":
             if self.alpha_tick is None:
                 self.alpha_tick = 1 / (self.trainer.max_steps / 2)
-            logger.info(f"Phase: Fade in for resolution {self.current_resolution}")
+            logger.info(
+                f"Phase: Fade in for resolution {self.current_resolution}"
+            )
         else:
-            logger.info(f"Phase: Burn in for resolution {self.current_resolution}")
+            logger.info(
+                f"Phase: Burn in for resolution {self.current_resolution}"
+            )
 
     def configure_callbacks(self) -> List[pl.Callback]:
         """
@@ -71,7 +75,9 @@ class ProGANTask(WGANTask):
         images at every n steps.
         """
         self.phase_steps = 0
-        every_n_train_steps = (self.trainer.max_steps - (self.phase_steps * 2)) // self.config.n_evals
+        every_n_train_steps = (
+            self.trainer.max_steps - (self.phase_steps * 2)
+        ) // self.config.n_evals
         return self._configure_callbacks(every_n_train_steps)
 
     def training_step(self, batch: Dict, batch_idx: int):
@@ -250,6 +256,9 @@ class ProGANTask(WGANTask):
         phase and resets the phrase steps attribute.
         """
         super().on_fit_end()
+        self.trainer.save_checkpoint(
+            f"{self.config.learning_progress_path}/{self.current_resolution}_{self.phase}"
+        )
         if self.phase == "burn_in":
             self.phase = "fade_in"
             self.phase_steps = 0

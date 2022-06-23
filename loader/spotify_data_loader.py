@@ -2,24 +2,25 @@ from typing import Dict
 
 import numpy as np
 import pandas as pd
+import pytorch_lightning as pl
 import torch
 from skimage.io import imread
 from skimage.transform import resize
 from sklearn.preprocessing import StandardScaler
+from torch.utils.data import IterableDataset
 
 from config import GANTrainConfig
 from utils import logger
 from utils.image_operations import adjust_dynamic_range
 
 
-class SpotifyDataGenerator:
+class SpotifyDataGenerator(IterableDataset):
     def __init__(
         self,
         meta_df: pd.DataFrame,
         batch_size: int,
         image_size: int,
         return_release_year: bool,
-        alpha: float = 1.0,
     ):
         """
         Training datagenerator for the Spotify dataset.
@@ -36,7 +37,6 @@ class SpotifyDataGenerator:
         )
         self.image_size = image_size
         self.batch_size = batch_size
-        self.alpha = alpha
 
         self.release_year_scaler = None
         if return_release_year:
@@ -61,11 +61,15 @@ class SpotifyDataGenerator:
         year_x = []
 
         batch_idx = self._get_batch_idx()
-        for i, b_idx in enumerate(batch_idx):
+        for b_idx in batch_idx:
             file_path = self.files[b_idx]
             img = imread(file_path)
             img = np.moveaxis(img, -1, 0)
-            img = resize(img, (3, self.source_size, self.source_size), preserve_range=True)
+            img = resize(
+                img,
+                (3, self.source_size, self.source_size),
+                preserve_range=True,
+            )
             batch_x.append(img)
             if self.release_year_scaler is not None:
                 year = [[self.meta_df["album_release"][b_idx]]]
@@ -73,7 +77,9 @@ class SpotifyDataGenerator:
                 year_x.append(year.flatten())
         self._iterator_i = batch_idx[-1]
         images = torch.Tensor(np.array(batch_x))
-        images = adjust_dynamic_range(images, drange_in=(0, 255), drange_out=(-1, 1))
+        images = adjust_dynamic_range(
+            images, drange_in=(0, 255), drange_out=(-1, 1)
+        )
         year = torch.Tensor(np.array(year_x)) if year_x else None
         return {"images": images, "year": year}
 
@@ -96,7 +102,7 @@ class SpotifyDataGenerator:
         return batch_idx
 
 
-class SpotifyDataloader:
+class SpotifyDataloader(pl.LightningDataModule):
     def __init__(self, config: GANTrainConfig):
         """
         Dataloader for the Spotify Dataset.
@@ -104,24 +110,23 @@ class SpotifyDataloader:
         Args:
             config: Training configuration.
         """
+        super().__init__()
         self.config = config
         self.meta_df = pd.read_json(
             self.config.meta_data_path, orient="records", lines=True
         )
+        self.spotify_train = None
 
-    def get_data_generators(self, image_size: int = None) -> Dict[str, SpotifyDataGenerator]:
+    def set_image_size(self, image_size: int):
+        self.spotify_train = SpotifyDataGenerator(
+            meta_df=self.meta_df,
+            batch_size=self.config.batch_size[image_size],
+            image_size=image_size,
+            return_release_year=self.config.add_release_year,
+        )
+
+    def train_dataloader(self) -> SpotifyDataGenerator:
         """
         Returns the dataloader.
-
-        Args:
-            image_size: Size of the images to be returned by the generator.
         """
-        image_size = image_size or self.config.image_size
-        return {
-            "train": SpotifyDataGenerator(
-                meta_df=self.meta_df,
-                batch_size=self.config.batch_size[image_size],
-                image_size=image_size,
-                return_release_year=self.config.add_release_year,
-            )
-        }
+        return self.spotify_train

@@ -164,7 +164,6 @@ class StyleGANGenInitialBlock(nn.Module):
             n_channels,
             kernel_size=3,
             padding=1,
-            use_dynamic_wscale=True,
         )
         self.epilogue_2 = Epilogue(n_channels, latent_size)
 
@@ -229,7 +228,6 @@ class StyleGANGenGeneralConvBlock(nn.Module):
             x: Output of the previous block
             w: Latent vector from the mapping network
         """
-        x = self.upsample(x)
         x = self.conv_1(x)
         x = self.epilogue_1(x, w[:, 0], seed=seed)
         x = self.conv_2(x)
@@ -257,34 +255,38 @@ class StyleGANSynthesis(nn.Module):
         super().__init__()
 
         self.n_blocks = n_blocks
-
-        self.layers = nn.ModuleList()
-        self.layers.append(
-            StyleGANGenInitialBlock(calc_channels_at_stage(0), latent_size)
+        self.initial_block = StyleGANGenInitialBlock(
+            calc_channels_at_stage(0), latent_size
         )
-        self.upsample = nn.UpsamplingBilinear2d(scale_factor=2.0)
+
+        self.pro_blocks = nn.ModuleList()
+        self.to_rgb = nn.ModuleList()
 
         for block in range(0, n_blocks):
-            self.layers.append(
+            self.pro_blocks.append(
                 StyleGANGenGeneralConvBlock(
                     calc_channels_at_stage(block),
                     calc_channels_at_stage(block + 1),
                     latent_size=latent_size,
                 )
             )
-
-        self.rgb_converters = nn.ModuleList(
-            [
+            self.to_rgb.append(
                 ScaledConv2d(
-                    calc_channels_at_stage(stage),
+                    calc_channels_at_stage(block),
                     n_channels,
                     kernel_size=(1, 1),
                     gain=1.0,
-                    use_dynamic_wscale=True,
                 )
-                for stage in range(0, n_blocks)
-            ]
+            )
+        self.pro_blocks.append(
+            ScaledConv2d(
+                calc_channels_at_stage(n_blocks),
+                n_channels,
+                kernel_size=1,
+                gain=1,
+            )
         )
+        self.upsample = nn.UpsamplingBilinear2d(scale_factor=2.0)
 
     def forward(
         self,
@@ -293,17 +295,18 @@ class StyleGANSynthesis(nn.Module):
         alpha: float = 0.0,
         seed: int = None,
     ) -> Tensor:
+        if block > self.n_blocks:
+            raise ValueError(
+                f"This model only has {self.n_blocks} blocks. depth parameter has to be <= n_blocks"
+            )
+        x = self.initial_block(w[:, 0:2], seed=seed)
         if block == 0:
-            return self.rgb_converters[0](self.layers[0](w[:, 0:2], seed=seed))
-        for i, layer in enumerate(self.layers[:block]):
-            if i == 0:
-                x = layer(w[:, 2 * i : 2 * i + 2], seed=seed)
-            else:
-                x = layer(x, w[:, 2 * i : 2 * i + 2], seed=seed)
-        residual = self.upsample(self.rgb_converters[block - 1](x))
-        straight = self.rgb_converters[block](
-            self.layers[block](x, w, seed=seed)
-        )
+            return self.to_rgb[0](x)
+        for i, pro_block in enumerate(self.pro_blocks[:block], start=1):
+            upscaled = self.upsample(x)
+            x = pro_block(upscaled, w[:, 2 * i : 2 * i + 2], seed=seed)
+        residual = self.to_rgb[block - 1](upscaled)
+        straight = self.to_rgb[block](x)
         return (alpha * straight) + ((1 - alpha) * residual)
 
 
@@ -336,6 +339,7 @@ class StyleGANGenerator(nn.Module):
         self.g_synthesis = StyleGANSynthesis(
             n_blocks=n_blocks, latent_size=latent_size, n_channels=n_channels
         )
+        self.upsample = self.g_synthesis.upsample
 
     def forward(
         self,

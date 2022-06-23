@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import randomname
@@ -117,11 +117,13 @@ class ProGANTrainConfig(GANTrainConfig):
     burn_in_imgs: int
 
     @validator("fade_in_imgs", "burn_in_imgs", always=True)
-    def default_fadeburn_in_imgs(cls, v, values):  # noqa: D102, N805
+    def default_fadeburn_in_imgs(cls, v, values):  # noqa: D102, N805, D101
         """
-        Increases the number of fade-in & burn-in images to see as PyTorch
-        Lightning assigns a single step to every Generator & Discriminator
-        update and the total number of updates is calculated using the desired
-        images
+        Increases the number of fade-in & burn-in images as PyTorch Lightning
+        assigns a single step to every Generator & Discriminator update and the
+        total number of updates is calculated using the desired images.
         """
         return int(v * (1 + 1 / values["n_critic"]))
+
+
+StyleGANTrainConfig = ProGANTrainConfig

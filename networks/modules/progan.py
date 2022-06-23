@@ -9,7 +9,6 @@ from networks.utils.layers import (
     PixelwiseNorm,
     ScaledConv2d,
     ScaledConv2dTranspose,
-    ScaledDense,
 )
 
 
@@ -40,7 +39,6 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             kernel_size=3,
             padding=1,
             bias=True,
-            use_dynamic_wscale=True,
         )
         self.conv_2 = ScaledConv2d(
             in_channels,
@@ -48,7 +46,6 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             kernel_size=4,
             padding=0,
             bias=True,
-            use_dynamic_wscale=True,
         )
         self.conv_3 = ScaledConv2d(
             in_channels,
@@ -56,7 +53,6 @@ class ProGANDiscriminatorFinalBlock(nn.Module):
             kernel_size=1,
             padding=0,
             bias=True,
-            use_dynamic_wscale=True,
         )
 
     def forward(self, images: Tensor, year: Tensor = None) -> Tensor:
@@ -96,16 +92,12 @@ class ProGANDiscriminatorGeneralBlock(nn.Module):
             in_channels,
             kernel_size=3,
             padding=1,
-            bias=True,
-            use_dynamic_wscale=True,
         )
         self.conv_2 = ScaledConv2d(
             in_channels,
             out_channels,
             kernel_size=3,
             padding=1,
-            bias=True,
-            use_dynamic_wscale=True,
         )
         self.downsample = nn.AvgPool2d(kernel_size=2, stride=2)
 
@@ -130,6 +122,7 @@ class ProGANDiscriminator(nn.Module):
         n_channels: int = 3,
         latent_size: int = 512,
         add_release_year: bool = False,
+        downsample: nn.Module = None,
     ):
         """
         Builds the ProGAN discriminator.
@@ -179,7 +172,9 @@ class ProGANDiscriminator(nn.Module):
                 for stage in range(0, n_blocks)
             ]
         )
-        self.downsample = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.downsample = (
+            downsample if downsample else nn.AvgPool2d(kernel_size=2, stride=2)
+        )
 
     def forward(
         self,
@@ -242,16 +237,12 @@ class GenInitialBlock(nn.Module):
             in_channels,
             out_channels,
             kernel_size=4,
-            bias=True,
-            use_dynamic_wscale=True,
         )
         self.conv_2 = ScaledConv2d(
             out_channels,
             out_channels,
             kernel_size=3,
             padding=1,
-            bias=True,
-            use_dynamic_wscale=True,
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -337,9 +328,9 @@ class ProGANGenerator(nn.Module):
         self.latent_size = latent_size
         self.n_channels = n_channels
         self.initial_block = GenInitialBlock(
-                latent_size,
-                calc_channels_at_stage(0),
-            )
+            latent_size,
+            calc_channels_at_stage(0),
+        )
 
         self.pro_blocks = nn.ModuleList()
         self.to_rgb = nn.ModuleList()
@@ -351,11 +342,11 @@ class ProGANGenerator(nn.Module):
                     calc_channels_at_stage(block + 1),
                 )
             )
-            self.to_rgb.append(ScaledConv2d(
-                    calc_channels_at_stage(block),
-                    n_channels,
-                    kernel_size=1
-                ))
+            self.to_rgb.append(
+                ScaledConv2d(
+                    calc_channels_at_stage(block), n_channels, kernel_size=1
+                )
+            )
 
         self.pro_blocks.append(
             ScaledConv2d(
@@ -398,17 +389,3 @@ class ProGANGenerator(nn.Module):
         residual = self.to_rgb[block - 1](upscaled)
         straight = self.to_rgb[block](x)
         return (alpha * straight) + ((1 - alpha) * residual)
-
-    def get_save_info(self) -> Dict[str, Any]:
-        """
-        Collects info about the Generator when saving it.
-        """
-        return {
-            "conf": {
-                "depth": self.n_blocks,
-                "num_channels": self.n_channels,
-                "latent_size": self.latent_size,
-                "use_eql": self.use_eql,
-            },
-            "state_dict": self.state_dict(),
-        }

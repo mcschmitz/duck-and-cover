@@ -15,7 +15,6 @@ data/celeba/*
 !data/covers300.dvc
 !data/covers64.dvc
 !data/celeba.dvc
-!data/album_data_frame.json.dvc
 !/data/genres.txt
 !/data/test_album_ids.txt
 !/data/test_data_meta.json

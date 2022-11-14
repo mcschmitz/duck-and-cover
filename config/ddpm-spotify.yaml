@@ -7,7 +7,7 @@ dataset_name: mnne/covers64
 meta_data_path: data/album_data_frame.json
 
 # Model
-image_size: 16
+image_size: 64
 latent_size: 128
 
 # Training

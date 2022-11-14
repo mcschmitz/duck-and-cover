@@ -13,7 +13,7 @@ latent_size: 128
 # Training
 output_dir: ddpm-ema-covers64
 batch_size: 16
-num_epochs: 1
+num_epochs: 2
 gradient_accumulation_steps: 1
 gen_lr: 1e-4
 gen_betas:

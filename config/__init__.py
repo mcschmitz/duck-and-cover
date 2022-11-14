@@ -59,8 +59,8 @@ class GANTrainConfig(GANConfig):
     batch_size: int
     gen_lr: float
     gen_betas: Tuple[float, float]
-    disc_lr: float
-    disc_betas: Tuple[float, float]
+    disc_lr: Optional[float]
+    disc_betas: Optional[Tuple[float, float]]
     precision: int = 32
     learning_progress_path: Optional[str]
     warm_start: Optional[bool] = False
@@ -127,3 +127,21 @@ class ProGANTrainConfig(GANTrainConfig):
 
 
 StyleGANTrainConfig = ProGANTrainConfig
+
+
+class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
+    dataset_config_name: str = None
+    overwrite_output_dir: bool = False
+    dataloader_num_workers: int = 0
+    save_images_epochs: int = 10
+    lr_scheduler: str = "cosine"
+    adam_weight_decay: float = 1e-6
+    adam_epsilon: float = 1e-8
+    ema_inv_gamma: float = 1.0
+    ema_power: float = 0.75
+    ema_max_decay: float = 0.9999
+    logging_dir: str = "logs"
+    local_rank: int = 1
+    predict_epsilon: bool = True
+    ddpm_num_steps: int = 1000
+    ddpm_beta_schedule: str = "linear"

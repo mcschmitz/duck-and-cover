@@ -1,0 +1,23 @@
+# Experiment
+experiment_name: ddpm-spotify
+
+# Data
+dataloader: HFDatasets
+dataset_name: mnne/covers64
+meta_data_path: data/album_data_frame.json
+
+# Model
+image_size: 16
+latent_size: 128
+
+# Training
+output_dir: ddpm-ema-covers64
+batch_size: 16
+num_epochs: 1
+gradient_accumulation_steps: 1
+gen_lr: 1e-4
+gen_betas:
+  - 0.95
+  - 0.999
+lr_warmup_steps: 500
+mixed_precision: False

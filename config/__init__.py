@@ -98,14 +98,16 @@ class GANTrainConfig(GANConfig):
         """
         Return the dataloader class based on the dataloader definition.
         """
-        from loader import MNISTDataloader, SpotifyDataloader
+        from loader import HFDataloader, MNISTDataloader, SpotifyDataloader
 
         if self.dataloader == "MNISTDataloader":
             return MNISTDataloader(self)
         elif self.dataloader == "SpotifyDataloader":
             return SpotifyDataloader(self)
+        elif self.dataloader == "HFDatasets":
+            return HFDataloader(self)
         raise ValueError(
-            "dataloader has to be either MNISTDataloader or DataLoader"
+            "dataloader has to be either MNISTDataloader, SpotifyDataloader or HFDatasets"
         )
 
 
@@ -130,9 +132,7 @@ StyleGANTrainConfig = ProGANTrainConfig
 
 
 class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
-    dataset_config_name: str = None
     overwrite_output_dir: bool = False
-    dataloader_num_workers: int = 0
     save_images_epochs: int = 1
     lr_scheduler: str = "cosine"
     adam_weight_decay: float = 1e-6

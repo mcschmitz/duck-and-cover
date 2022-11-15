@@ -7,16 +7,14 @@ import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from datasets import load_dataset
-from packaging import version
-from torchvision.transforms import CenterCrop, Compose, Normalize, ToTensor
-from tqdm.auto import tqdm
-
-from config import DDPMTrainConfig
 from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, __version__
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import deprecate
+from packaging import version
+from tqdm.auto import tqdm
+
+from config import DDPMTrainConfig
 
 logger = get_logger(__name__)
 diffusers_version = version.parse(version.parse(__version__).base_version)
@@ -44,7 +42,7 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
     return res.expand(broadcast_shape)
 
 
-def main(config):
+def main(config, train_dataloader):
     logging_dir = os.path.join(config.output_dir, config.logging_dir)
     accelerator = Accelerator(
         gradient_accumulation_steps=config.gradient_accumulation_steps,
@@ -98,34 +96,6 @@ def main(config):
         betas=config.gen_betas,
         weight_decay=config.adam_weight_decay,
         eps=config.adam_epsilon,
-    )
-
-    augmentations = Compose(
-        [
-            CenterCrop(config.image_size),
-            ToTensor(),
-            Normalize([0.5], [0.5]),
-        ]
-    )
-
-    dataset = load_dataset(
-        config.dataset_name, config.dataset_config_name, split="train"
-    )
-
-    def transforms(examples):
-        images = [
-            augmentations(image.convert("RGB")) for image in examples["image"]
-        ]
-        return {"input": images}
-
-    logger.info(f"Dataset size: {len(dataset)}")
-
-    dataset.set_transform(transforms)
-    train_dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=config.dataloader_num_workers,
     )
 
     lr_scheduler = get_scheduler(
@@ -283,4 +253,7 @@ def main(config):
 
 if __name__ == "__main__":
     config = DDPMTrainConfig(args.config_file)
-    main(config)
+    dataloader = config.get_dataloader()
+
+    train_dataloader = dataloader.train_dataloader()
+    main(config, train_dataloader)

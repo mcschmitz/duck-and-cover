@@ -1,4 +1,5 @@
 from networks.dcgan import DCGAN
+from networks.ddpm import DDPM
 from networks.genre_autoencoder import GenreAutoencoder, GenreDecoder
 from networks.progan import ProGAN
 from networks.stylegan import StyleGAN

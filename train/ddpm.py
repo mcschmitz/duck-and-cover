@@ -1,20 +1,17 @@
 import argparse
-import inspect
-import math
 import os
 
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, __version__
-from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel
+from diffusers import DDPMPipeline, __version__
 from diffusers.utils import deprecate
 from packaging import version
 from tqdm.auto import tqdm
 
 from config import DDPMTrainConfig
+from networks import DDPM
 
 logger = get_logger(__name__)
 diffusers_version = version.parse(version.parse(__version__).base_version)
@@ -43,93 +40,6 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
 
 
 def main(config, train_dataloader):
-    logging_dir = os.path.join(config.output_dir, config.logging_dir)
-    accelerator = Accelerator(
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-        mixed_precision="no" if config.precision == 32 else "fp16",
-        log_with="tensorboard",
-        logging_dir=logging_dir,
-    )
-
-    model = UNet2DModel(
-        sample_size=config.image_size,
-        in_channels=config.channels,
-        out_channels=config.channels,
-        layers_per_block=2,
-        block_out_channels=(128, 128, 256, 256, 512, 512),
-        down_block_types=(
-            "DownBlock2D",
-            "DownBlock2D",
-            "DownBlock2D",
-            "DownBlock2D",
-            "AttnDownBlock2D",
-            "DownBlock2D",
-        ),
-        up_block_types=(
-            "UpBlock2D",
-            "AttnUpBlock2D",
-            "UpBlock2D",
-            "UpBlock2D",
-            "UpBlock2D",
-            "UpBlock2D",
-        ),
-    )
-    accepts_predict_epsilon = "predict_epsilon" in set(
-        inspect.signature(DDPMScheduler.__init__).parameters.keys()
-    )
-
-    if accepts_predict_epsilon:
-        noise_scheduler = DDPMScheduler(
-            num_train_timesteps=config.ddpm_num_steps,
-            beta_schedule=config.ddpm_beta_schedule,
-            predict_epsilon=config.predict_epsilon,
-        )
-    else:
-        noise_scheduler = DDPMScheduler(
-            num_train_timesteps=config.ddpm_num_steps,
-            beta_schedule=config.ddpm_beta_schedule,
-        )
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=config.gen_lr,
-        betas=config.gen_betas,
-        weight_decay=config.adam_weight_decay,
-        eps=config.adam_epsilon,
-    )
-
-    lr_scheduler = get_scheduler(
-        config.lr_scheduler,
-        optimizer=optimizer,
-        num_warmup_steps=config.lr_warmup_steps,
-        num_training_steps=(len(train_dataloader) * config.num_epochs)
-        // config.gradient_accumulation_steps,
-    )
-
-    model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        model, optimizer, train_dataloader, lr_scheduler
-    )
-
-    num_update_steps_per_epoch = math.ceil(
-        len(train_dataloader) / config.gradient_accumulation_steps
-    )
-
-    ema_model = EMAModel(
-        model,
-        inv_gamma=config.ema_inv_gamma,
-        power=config.ema_power,
-        max_value=config.ema_max_decay,
-    )
-
-    # Handle the repository creation
-    if accelerator.is_main_process:
-        if config.output_dir is not None:
-            os.makedirs(config.output_dir, exist_ok=True)
-
-    if accelerator.is_main_process:
-        run = os.path.split(__file__)[-1].split(".")[0]
-        accelerator.init_trackers(run)
-
     global_step = 0
     for epoch in range(config.num_epochs):
         model.train()
@@ -253,7 +163,19 @@ def main(config, train_dataloader):
 
 if __name__ == "__main__":
     config = DDPMTrainConfig(args.config_file)
+
+    logging_dir = os.path.join(config.output_dir, config.logging_dir)
+    accelerator = Accelerator(
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
+        mixed_precision="no" if config.precision == 32 else "fp16",
+        log_with="tensorboard",
+        logging_dir=logging_dir,
+    )
+
     dataloader = config.get_dataloader()
 
+    ddpm_network = DDPM(config)
+
     train_dataloader = dataloader.train_dataloader()
+
     main(config, train_dataloader)

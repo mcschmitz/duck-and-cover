@@ -56,6 +56,7 @@ class GANTrainConfig(GANConfig):
     meta_data_path: Optional[str]
 
     # Training:
+    train_steps: Optional[int]
     batch_size: int
     gen_lr: float
     gen_betas: Tuple[float, float]
@@ -119,7 +120,7 @@ class ProGANTrainConfig(GANTrainConfig):
     burn_in_imgs: int
 
     @validator("fade_in_imgs", "burn_in_imgs", always=True)
-    def default_fadeburn_in_imgs(cls, v, values):  # noqa: D102, N805, D101
+    def default_fadeburn_in_imgs(cls, v, values):  # noqa: D102, N805
         """
         Increases the number of fade-in & burn-in images as PyTorch Lightning
         assigns a single step to every Generator & Discriminator update and the
@@ -132,16 +133,49 @@ StyleGANTrainConfig = ProGANTrainConfig
 
 
 class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
+    # Model
+    downblock_types: List[str]
+    upblock_types: List[str]
+
+    # Training
+    lr_scheduler: str = "cosine"
+    warmup_perc: float = 0.1
+
     overwrite_output_dir: bool = False
     save_images_epochs: int = 1
-    lr_scheduler: str = "cosine"
-    adam_weight_decay: float = 1e-6
-    adam_epsilon: float = 1e-8
     ema_inv_gamma: float = 1.0
     ema_power: float = 0.75
     ema_max_decay: float = 0.9999
     logging_dir: str = "logs"
     local_rank: int = 1
     predict_epsilon: bool = True
-    ddpm_num_steps: int = 1000
     ddpm_beta_schedule: str = "linear"
+
+    @validator("downblock_types", always=True)
+    def down_block_types_validator(cls, v, values):  # noqa: D102, N805
+        """
+        Validataion of the Down Blocks definition.
+
+        Down Blocks should be a list of "DownBlock2D" and
+        "AttnDownBlock2D".
+        """
+        allowed_down_blocks = ("DownBlock2D", "AttnDownBlock2D")
+        if not all(block in allowed_down_blocks for block in v):
+            raise ValueError(
+                f"down_block_types has to be a list of {allowed_down_blocks}"
+            )
+        return v
+
+    @validator("upblock_types", always=True)
+    def up_block_types_validator(cls, v, values):  # noqa: D102, N805
+        """
+        Validataion of the Up Blocks definition.
+
+        Down Blocks should be a list of "UpBlock2D" and "AttnUpBlock2D".
+        """
+        allowed_up_blocks = ("UpBlock2D", "AttnUpBlock2D")
+        if not all(block in allowed_up_blocks for block in v):
+            raise ValueError(
+                f"up_block_types has to be a list of {allowed_up_blocks}"
+            )
+        return v

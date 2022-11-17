@@ -9,15 +9,29 @@ meta_data_path: data/album_data_frame.json
 # Model
 image_size: 64
 latent_size: 128
+downblock_types:
+  - DownBlock2D
+  - DownBlock2D
+  - DownBlock2D
+  - DownBlock2D
+  - AttnDownBlock2D
+  - DownBlock2D
+upblock_types:
+  - UpBlock2D
+  - AttnUpBlock2D
+  - UpBlock2D
+  - UpBlock2D
+  - UpBlock2D
+  - UpBlock2D
 
 # Training
+train_steps: 1000
 output_dir: ddpm-ema-covers64
 batch_size: 16
-num_epochs: 2
 gradient_accumulation_steps: 1
 gen_lr: 1e-4
 gen_betas:
   - 0.95
   - 0.999
-lr_warmup_steps: 500
+warmup_perc: 0.5
 mixed_precision: False

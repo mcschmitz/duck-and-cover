@@ -1,16 +1,21 @@
 import os
 from typing import Dict
-
+import numpy as np
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
-from diffusers import DDPMScheduler, UNet2DModel
+from diffusers import DDPMScheduler, UNet2DModel, __version__
 from diffusers.optimization import get_scheduler
+from diffusers.pipelines import DDPMPipeline
 from diffusers.training_utils import EMAModel
+from diffusers.utils import deprecate
+from packaging import version
 from torch import nn
 from tqdm import tqdm
 
 from config import DDPMTrainConfig
+
+diffusers_version = version.parse(version.parse(__version__).base_version)
 
 
 class DDPM(nn.Module):
@@ -93,21 +98,61 @@ class DDPM(nn.Module):
             total=self.config.train_steps,
             disable=not accelerator.is_local_main_process,
         )
+        evaluate_every_n_steps = self.config.train_steps // self.config.n_evals
         for _step, batch in enumerate(trainset):
-            loss = self.train_step(batch, accelerator=accelerator)
-            # Checks if the accelerator has performed an optimization step behind the scenes
-            if accelerator.sync_gradients:
-                progress_bar.update(1)
-                self.global_step += 1
-                logs = {
-                    "loss": loss.detach().item(),
-                    "lr": self.lr_scheduler.get_last_lr()[0],
-                    "step": self.global_step,
-                }
-                logs["ema_decay"] = self.ema_model.decay
-                progress_bar.set_postfix(**logs)
-                accelerator.log(logs, step=self.global_step)
+            logs = self.train_step(batch, accelerator=accelerator)
+            progress_bar.set_postfix(**logs)
+            accelerator.log(logs, step=self.global_step)
+            if self.global_step % evaluate_every_n_steps == 0:
+                # This needs to be executed before we save a
+                accelerator.wait_for_everyone()
+                if accelerator.is_main_process:
+                    pipeline = DDPMPipeline(
+                        unet=accelerator.unwrap_model(
+                            self.ema_model.averaged_model
+                        ),
+                        scheduler=self.noise_scheduler,
+                    )
+                    images_processed = self.evaluate(pipeline)
+                    # Log images
+                    accelerator.trackers[0].writer.add_images(
+                        "test_samples",
+                        images_processed.transpose(0, 3, 1, 2),
+                        self.global_step,
+                    )
+                pipeline.save_pretrained(self.config.output_dir)
+            progress_bar.update(1)
+            self.global_step += 1
+        accelerator.wait_for_everyone()
+        accelerator.end_training()
         progress_bar.close()
+
+    def evaluate(self, pipeline) -> np.ndarray:
+        """
+        Performs a single evaluation step at the current state of the model
+
+        Args:
+            pipeline: diffusers DDPMPipeline to perfrom inference
+        """
+        deprecate(
+            "todo: remove this check",
+            "0.10.0",
+            "when the most used version is >= 0.8.0",
+        )
+        if diffusers_version < version.parse("0.8.0"):
+            generator = torch.manual_seed(0)
+        else:
+            generator = torch.Generator(device=pipeline.device).manual_seed(0)
+            # run pipeline in inference (sample random noise and denoise)
+        images = pipeline(
+            generator=generator,
+            batch_size=self.config.batch_size,
+            output_type="numpy",
+        ).images
+
+        # denormalize the images
+        images_processed = (images * 255).round().astype("uint8")
+        return images_processed
 
     def train_step(
         self, batch: Dict, accelerator: Accelerator
@@ -148,4 +193,13 @@ class DDPM(nn.Module):
         self.lr_scheduler.step()
         self.ema_model.step(self.model)
         self.optimizer.zero_grad()
-        return loss
+
+        # Checks if the accelerator has performed an optimization step behind the scenes
+        if accelerator.sync_gradients:
+            logs = {
+                "loss": loss.detach().item(),
+                "lr": self.lr_scheduler.get_last_lr()[0],
+                "step": self.global_step,
+                "ema_decay": self.ema_model.decay,
+            }
+        return logs

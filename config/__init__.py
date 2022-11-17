@@ -142,12 +142,10 @@ class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
     warmup_perc: float = 0.1
 
     overwrite_output_dir: bool = False
-    save_images_epochs: int = 1
     ema_inv_gamma: float = 1.0
     ema_power: float = 0.75
     ema_max_decay: float = 0.9999
     logging_dir: str = "logs"
-    local_rank: int = 1
     ddpm_beta_schedule: str = "linear"
 
     @validator("downblock_types", always=True)

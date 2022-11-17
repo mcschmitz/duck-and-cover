@@ -148,7 +148,6 @@ class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
     ema_max_decay: float = 0.9999
     logging_dir: str = "logs"
     local_rank: int = 1
-    predict_epsilon: bool = True
     ddpm_beta_schedule: str = "linear"
 
     @validator("downblock_types", always=True)

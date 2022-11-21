@@ -18,7 +18,7 @@ if __name__ == "__main__":
     config = DDPMTrainConfig(args.config_file)
 
     logging_dir = os.path.join(config.output_dir, config.logging_dir)
-    accelerator = Accelerator(
+    accelerator = Accelerator(  # TODO: Log to wandb
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         mixed_precision="no" if config.precision == 32 else "fp16",
         log_with="tensorboard",
@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     dataloader = config.get_dataloader()
 
-    ddpm_network = DDPM(config, accelerator=accelerator)
+    ddpm_network = DDPM(config)
 
     train_dataloader = dataloader.train_dataloader()
 

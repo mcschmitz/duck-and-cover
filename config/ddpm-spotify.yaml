@@ -8,7 +8,6 @@ meta_data_path: data/album_data_frame.json
 
 # Model
 image_size: 64
-latent_size: 512
 downblock_types:
   - DownBlock2D
   - DownBlock2D
@@ -33,6 +32,6 @@ gen_lr: 1e-4
 gen_betas:
   - 0.95
   - 0.999
-warmup_perc: 0.1
+warmup_perc: 0.01
 mixed_precision: False
-n_evals: 50
+n_evals: 10

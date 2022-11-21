@@ -136,6 +136,7 @@ class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
     # Model
     downblock_types: List[str]
     upblock_types: List[str]
+    latent_size: int = None
 
     # Training
     lr_scheduler: str = "cosine"

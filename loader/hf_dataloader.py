@@ -2,7 +2,14 @@ from typing import Dict
 
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-from torchvision.transforms import CenterCrop, Compose, Normalize, ToTensor
+from torchvision.transforms import (
+    CenterCrop,
+    Compose,
+    InterpolationMode,
+    Normalize,
+    Resize,
+    ToTensor,
+)
 
 from config import GANTrainConfig
 
@@ -25,6 +32,10 @@ class HFDataloader:
     def _transforms(self, examples) -> Dict:
         augmentations = Compose(
             [
+                Resize(
+                    self.config.image_size,
+                    interpolation=InterpolationMode.BILINEAR,
+                ),
                 CenterCrop(self.config.image_size),
                 ToTensor(),
                 Normalize([0.5], [0.5]),

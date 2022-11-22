@@ -146,7 +146,6 @@ class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
     ema_inv_gamma: float = 1.0
     ema_power: float = 0.75
     ema_max_decay: float = 0.9999
-    logging_dir: str = "logs"
     ddpm_beta_schedule: str = "linear"
 
     @validator("downblock_types", always=True)

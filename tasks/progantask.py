@@ -7,7 +7,7 @@ import torch
 from torch import Tensor, nn
 
 from config import GANTrainConfig
-from tasks.wgan import WGANTask
+from tasks.wgantask import WGANTask
 from utils import logger
 
 

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 
 from config import GANTrainConfig
-from tasks.dcgan import DCGanTask
+from tasks.dcgantask import DCGanTask
 
 
 class WGANTask(DCGanTask):

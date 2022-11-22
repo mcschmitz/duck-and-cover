@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 
 from config import GANTrainConfig
-from tasks.progan import ProGANTask
+from tasks.progantask import ProGANTask
 
 
 class StyleGANTask(ProGANTask):

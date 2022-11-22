@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 from typing import Dict
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
@@ -11,6 +13,7 @@ from diffusers.pipelines import DDPMPipeline
 from diffusers.training_utils import EMAModel
 from diffusers.utils import deprecate
 from packaging import version
+from PIL import Image
 from torch import nn
 from tqdm import tqdm
 
@@ -47,9 +50,18 @@ class DDPM(nn.Module):
         self.optimizer = None
         self.lr_scheduler = None
 
+        self.logger = None
+        self.wandb_run_id = None
+        self.wandb_run_name = None
+
         self.global_step = 0
 
-    def train(self, trainset, accelerator: Accelerator):
+    def train(
+        self,
+        trainset,
+        accelerator: Accelerator,
+        logger: pl.loggers.WandbLogger,
+    ):
         """
         Trains the model to generate images.
 
@@ -57,6 +69,8 @@ class DDPM(nn.Module):
             trainset: Torch Dataset
             accelerator: Diffusors Accelerator to train on multiple devices
         """
+        self.on_fit_start()
+        self.logger = logger
         self.noise_scheduler = DDPMScheduler(
             num_train_timesteps=1000,
             beta_schedule=self.config.ddpm_beta_schedule,
@@ -104,7 +118,7 @@ class DDPM(nn.Module):
             batch = next(iter(trainset))
             logs = self.train_step(batch, accelerator=accelerator)
             progress_bar.set_postfix(**logs)
-            accelerator.log(logs, step=self.global_step)
+            self.logger.log_metrics(logs, step=self.global_step)
             if self.global_step % evaluate_every_n_steps == 0:
                 # This needs to be executed before we save a
                 accelerator.wait_for_everyone()
@@ -116,11 +130,14 @@ class DDPM(nn.Module):
                         scheduler=self.noise_scheduler,
                     )
                     images_processed = self.evaluate(pipeline)
-                    # Log images
-                    accelerator.trackers[0].writer.add_images(
-                        "test_samples",
-                        images_processed.transpose(0, 3, 1, 2),
-                        self.global_step,
+                    images_list = [
+                        Image.fromarray(img.astype(np.int8), "RGB")
+                        for img in images_processed
+                    ]
+                    logger.log_image(
+                        key="test/examples",
+                        images=images_list,
+                        step=self.global_step,
                     )
                 pipeline.save_pretrained(self.config.output_dir)
             progress_bar.update(1)
@@ -198,10 +215,31 @@ class DDPM(nn.Module):
             # run pipeline in inference (sample random noise and denoise)
         images = pipeline(
             generator=generator,
-            batch_size=self.config.batch_size,
+            batch_size=25,
             output_type="numpy",
         ).images
 
         # denormalize the images
         images_processed = (images * 255).round().astype("uint8")
         return images_processed
+
+    def on_fit_start(self):
+        """
+        This method gets executed before a Trainer trains this model.
+
+        It tells the W&B logger to watch the model in order to check the
+        gradients report the gradients if W&B is online.
+        """
+        from utils import logger
+
+        Path(self.config.learning_progress_path).mkdir(
+            parents=True, exist_ok=True
+        )
+        if hasattr(self, "logger"):
+            if isinstance(self.logger, pl.loggers.WandbLogger):
+                try:
+                    self.logger.watch(self, log="all")
+                except ValueError:
+                    logger.info("The model is already on the watchlist")
+                self.wandb_run_id = self.logger.experiment.id
+                self.wandb_run_name = self.logger.experiment.name

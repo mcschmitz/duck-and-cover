@@ -23,3 +23,6 @@ learning_progress/*
 
 # Logs
 /learning_progress
+
+# Experiments
+wandb/*

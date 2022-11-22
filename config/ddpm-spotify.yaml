@@ -25,13 +25,11 @@ upblock_types:
 
 # Training
 train_steps: 80000
-output_dir: ddpm-ema-covers64
 batch_size: 16
-gradient_accumulation_steps: 1
 gen_lr: 1e-4
 gen_betas:
   - 0.95
   - 0.999
 warmup_perc: 0.01
-mixed_precision: False
+precision: 32
 n_evals: 10

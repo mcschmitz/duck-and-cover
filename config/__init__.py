@@ -132,7 +132,10 @@ class ProGANTrainConfig(GANTrainConfig):
 StyleGANTrainConfig = ProGANTrainConfig
 
 
-class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
+class DDPMTrainConfig(GANTrainConfig):
+    # Data
+    dataset_name: str
+
     # Model
     downblock_types: List[str]
     upblock_types: List[str]
@@ -141,8 +144,8 @@ class DDPMTrainConfig(GANTrainConfig, extra=Extra.allow):
     # Training
     lr_scheduler: str = "cosine"
     warmup_perc: float = 0.1
+    gradient_accumulation_steps: int = 1
 
-    overwrite_output_dir: bool = False
     ema_inv_gamma: float = 1.0
     ema_power: float = 0.75
     ema_max_decay: float = 0.9999

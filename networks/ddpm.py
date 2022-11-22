@@ -46,6 +46,13 @@ class DDPM(nn.Module):
             down_block_types=config.downblock_types,
             up_block_types=config.upblock_types,
         )
+        self.ema_model = EMAModel(
+            self.model,
+            inv_gamma=self.config.ema_inv_gamma,
+            power=self.config.ema_power,
+            max_value=self.config.ema_max_decay,
+        )
+
         self.noise_scheduler = None
         self.optimizer = None
         self.lr_scheduler = None
@@ -68,6 +75,7 @@ class DDPM(nn.Module):
         Args:
             trainset: Torch Dataset
             accelerator: Diffusors Accelerator to train on multiple devices
+            logger: Pytorch Lightning W&B Logger.
         """
         self.on_fit_start()
         self.logger = logger
@@ -95,16 +103,6 @@ class DDPM(nn.Module):
         trainset = accelerator.prepare(trainset)
         self.lr_scheduler = accelerator.prepare(self.lr_scheduler)
 
-        self.ema_model = EMAModel(
-            self.model,
-            inv_gamma=self.config.ema_inv_gamma,
-            power=self.config.ema_power,
-            max_value=self.config.ema_max_decay,
-        )
-
-        if self.config.output_dir is not None:  # TODO: Fix outputdir
-            os.makedirs(self.config.output_dir, exist_ok=True)
-
         run = os.path.split(__file__)[-1].split(".")[0]
         accelerator.init_trackers(run)
 
@@ -120,7 +118,6 @@ class DDPM(nn.Module):
             progress_bar.set_postfix(**logs)
             self.logger.log_metrics(logs, step=self.global_step)
             if self.global_step % evaluate_every_n_steps == 0:
-                # This needs to be executed before we save a
                 accelerator.wait_for_everyone()
                 if accelerator.is_main_process:
                     pipeline = DDPMPipeline(
@@ -129,17 +126,8 @@ class DDPM(nn.Module):
                         ),
                         scheduler=self.noise_scheduler,
                     )
-                    images_processed = self.evaluate(pipeline)
-                    images_list = [
-                        Image.fromarray(img.astype(np.int8), "RGB")
-                        for img in images_processed
-                    ]
-                    logger.log_image(
-                        key="test/examples",
-                        images=images_list,
-                        step=self.global_step,
-                    )
-                pipeline.save_pretrained(self.config.output_dir)
+                    self.evaluate(pipeline)
+                pipeline.save_pretrained(self.config.learning_progress_path)
             progress_bar.update(1)
             self.global_step += 1
         accelerator.wait_for_everyone()
@@ -221,6 +209,15 @@ class DDPM(nn.Module):
 
         # denormalize the images
         images_processed = (images * 255).round().astype("uint8")
+        images_list = [
+            Image.fromarray(img.astype(np.int8), "RGB")
+            for img in images_processed
+        ]
+        self.logger.log_image(
+            key="test/examples",
+            images=images_list,
+            step=self.global_step,
+        )
         return images_processed
 
     def on_fit_start(self):

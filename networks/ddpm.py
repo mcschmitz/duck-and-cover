@@ -46,12 +46,6 @@ class DDPM(nn.Module):
             down_block_types=config.downblock_types,
             up_block_types=config.upblock_types,
         )
-        self.ema_model = EMAModel(
-            self.model,
-            inv_gamma=self.config.ema_inv_gamma,
-            power=self.config.ema_power,
-            max_value=self.config.ema_max_decay,
-        )
 
         self.noise_scheduler = None
         self.optimizer = None
@@ -102,6 +96,13 @@ class DDPM(nn.Module):
         self.optimizer = accelerator.prepare(self.optimizer)
         trainset = accelerator.prepare(trainset)
         self.lr_scheduler = accelerator.prepare(self.lr_scheduler)
+
+        self.ema_model = EMAModel(
+            self.model,
+            inv_gamma=self.config.ema_inv_gamma,
+            power=self.config.ema_power,
+            max_value=self.config.ema_max_decay,
+        )
 
         run = os.path.split(__file__)[-1].split(".")[0]
         accelerator.init_trackers(run)

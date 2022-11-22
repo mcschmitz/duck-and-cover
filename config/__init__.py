@@ -84,22 +84,6 @@ class GANTrainConfig(GANConfig):
             "learning_progress", values["unique_experiment_name"]
         )
 
-    @validator("eval_rate", always=True)
-    def default_eval_rate(cls, v, values):  # noqa: D102, N805
-        return v or values["train_steps"] // 32
-
-    @validator("train_steps", always=True)
-    def default_train_steps(cls, v, values):  # noqa: D102, N805
-        """
-        Increments the step size as discriminator step and generator step are
-        seen as one step each.
-
-        Args:
-            v: Number of steps.
-            values: Values of the config.
-        """
-        return int(v * (1 + 1 / values["n_critic"]))
-
     @validator("wandb_tags", always=True)
     def default_wandb_tags(cls, v, values):  # noqa: D102, N805
         tags = []
@@ -123,8 +107,75 @@ class GANTrainConfig(GANConfig):
             return SpotifyDataloader(self)
         elif self.dataloader == "HFDatasets":
             return HFDataloader(self)
-        elif self.dataloader == "HFDatasets":
-            return HFDataloader(self)
         raise ValueError(
-            "dataloader has to be either MNISTDataloader or DataLoader"
+            "dataloader has to be either MNISTDataloader, SpotifyDataloader or HFDatasets"
         )
+
+
+class ProGANTrainConfig(GANTrainConfig):
+    batch_size: Dict[int, int]
+    n_critic: Optional[int] = 1
+    gradient_penalty_weight: Optional[float] = 10.0
+    fade_in_imgs: int
+    burn_in_imgs: int
+
+    @validator("fade_in_imgs", "burn_in_imgs", always=True)
+    def default_fadeburn_in_imgs(cls, v, values):  # noqa: D102, N805
+        """
+        Increases the number of fade-in & burn-in images as PyTorch Lightning
+        assigns a single step to every Generator & Discriminator update and the
+        total number of updates is calculated using the desired images.
+        """
+        return int(v * (1 + 1 / values["n_critic"]))
+
+
+StyleGANTrainConfig = ProGANTrainConfig
+
+
+class DDPMTrainConfig(GANTrainConfig):
+    # Data
+    dataset_name: str
+
+    # Model
+    downblock_types: List[str]
+    upblock_types: List[str]
+    latent_size: int = None
+
+    # Training
+    lr_scheduler: str = "cosine"
+    warmup_perc: float = 0.1
+    gradient_accumulation_steps: int = 1
+
+    ema_inv_gamma: float = 1.0
+    ema_power: float = 0.75
+    ema_max_decay: float = 0.9999
+    ddpm_beta_schedule: str = "linear"
+
+    @validator("downblock_types", always=True)
+    def down_block_types_validator(cls, v, values):  # noqa: D102, N805
+        """
+        Validataion of the Down Blocks definition.
+
+        Down Blocks should be a list of "DownBlock2D" and
+        "AttnDownBlock2D".
+        """
+        allowed_down_blocks = ("DownBlock2D", "AttnDownBlock2D")
+        if not all(block in allowed_down_blocks for block in v):
+            raise ValueError(
+                f"down_block_types has to be a list of {allowed_down_blocks}"
+            )
+        return v
+
+    @validator("upblock_types", always=True)
+    def up_block_types_validator(cls, v, values):  # noqa: D102, N805
+        """
+        Validataion of the Up Blocks definition.
+
+        Down Blocks should be a list of "UpBlock2D" and "AttnUpBlock2D".
+        """
+        allowed_up_blocks = ("UpBlock2D", "AttnUpBlock2D")
+        if not all(block in allowed_up_blocks for block in v):
+            raise ValueError(
+                f"up_block_types has to be a list of {allowed_up_blocks}"
+            )
+        return v

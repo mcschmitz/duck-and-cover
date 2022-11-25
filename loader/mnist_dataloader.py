@@ -5,6 +5,7 @@ import torch
 from datasets import load_dataset
 from skimage.transform import resize
 from sklearn.preprocessing import StandardScaler
+from torch import nn
 
 from config import GANTrainConfig
 
@@ -40,6 +41,7 @@ class MNISTTrainGenerator:
                 np.array(list(unique_years)).reshape(-1, 1)
             )
 
+        self.downscale = nn.UpsamplingBilinear2d(scale_factor=0.5)
         self._iterator_i = 0
 
     def __len__(self):
@@ -49,9 +51,7 @@ class MNISTTrainGenerator:
         yield from (self[batch_id] for batch_id in range(len(self)))
 
     def __getitem__(self, item) -> Dict[str, torch.Tensor]:
-        batch_x = np.zeros(
-            (self.batch_size, self.channels, self.image_size, self.image_size)
-        )
+        batch_x = []
         year_x = []
 
         batch_idx = self._get_batch_idx()
@@ -60,17 +60,19 @@ class MNISTTrainGenerator:
             img = sample["image"]
             img = np.array(img)
             img = img.reshape(1, img.shape[0], img.shape[1])
-            img = resize(img, (1, self.image_size, self.image_size))
-            batch_x[i] = img
+            img = resize(img, (1, 32, 32))
+            batch_x.append(img)
             if self.release_year_scaler is not None:
                 year = np.array(sample["label"]).reshape(-1, 1)
                 year = self.release_year_scaler.transform(year)
                 year_x.append(year.flatten())
 
-        batch_x = (batch_x + 1) / 2
         self._iterator_i = batch_idx[-1]
 
-        images = torch.Tensor(batch_x)
+        images = torch.Tensor(np.array(batch_x))
+        while images.shape[-1] != self.image_size:
+            images = self.downscale(images)
+        images = (images + 1) / 2
         year = torch.Tensor(np.array(year_x)) if year_x else None
         return {"images": images, "year": year}
 
@@ -105,7 +107,7 @@ class MNISTDataloader:
         return {
             "train": MNISTTrainGenerator(
                 data=self.dataset["train"],
-                batch_size=self.config.batch_size,
+                batch_size=self.config.batch_size[image_size],
                 image_size=image_size,
                 channels=1,
                 return_release_year=self.config.add_release_year,

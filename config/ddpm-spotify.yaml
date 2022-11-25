@@ -1,0 +1,35 @@
+# Experiment
+experiment_name: ddpm-spotify
+
+# Data
+dataloader: HFDatasets
+dataset_name: mnne/covers64
+meta_data_path: data/album_data_frame.json
+
+# Model
+image_size: 64
+downblock_types:
+  - DownBlock2D
+  - DownBlock2D
+  - DownBlock2D
+  - DownBlock2D
+  - AttnDownBlock2D
+  - DownBlock2D
+upblock_types:
+  - UpBlock2D
+  - AttnUpBlock2D
+  - UpBlock2D
+  - UpBlock2D
+  - UpBlock2D
+  - UpBlock2D
+
+# Training
+train_steps: 80000
+batch_size: 16
+gen_lr: 1e-4
+gen_betas:
+  - 0.95
+  - 0.999
+warmup_perc: 0.01
+precision: 32
+n_evals: 10

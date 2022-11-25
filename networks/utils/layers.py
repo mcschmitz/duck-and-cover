@@ -2,7 +2,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 
 class MinibatchStdDev(nn.Module):
@@ -14,21 +14,37 @@ class MinibatchStdDev(nn.Module):
     (same size as the input map) to the input
     """
 
-    def __init__(self):
+    def __init__(self, group_size: int = 4, num_new_features: int = 1):
         super(MinibatchStdDev, self).__init__()
+        self.group_size = group_size
+        self.num_new_features = num_new_features
 
     def forward(self, x):
-        mean = torch.mean(x, dim=0, keepdim=True)
-        squared_diff = torch.square(x - mean)
-        avg_squared_diff = torch.mean(squared_diff, dim=0, keepdim=True)
-        avg_squared_diff += 1e-8
-        sd = torch.sqrt(avg_squared_diff)
-        avg_sd = torch.mean(sd)
-        shape = x.shape
-        ones = torch.ones((shape[0], 1, shape[2], shape[3])).to(avg_sd.device)
-        output = ones * avg_sd
-        combined = torch.cat([x, output], dim=1)
-        return combined
+        b, c, h, w = x.shape
+        group_size = min(self.group_size, b)
+        y = x.reshape(
+            [
+                group_size,
+                -1,
+                self.num_new_features,
+                c // self.num_new_features,
+                h,
+                w,
+            ]
+        )
+        y = y - y.mean(0, keepdim=True)
+        y = (y**2).mean(0, keepdim=True)
+        y = (y + 1e-8) ** 0.5
+        y = y.mean([3, 4, 5], keepdim=True).squeeze(
+            3
+        )  # don't keep the meaned-out channels
+        y = (
+            y.expand(group_size, -1, -1, h, w)
+            .clone()
+            .reshape(b, self.num_new_features, h, w)
+        )
+        z = torch.cat([x, y], dim=1)
+        return z
 
 
 class ScaledDense(nn.Linear):
@@ -39,6 +55,7 @@ class ScaledDense(nn.Linear):
         bias=True,
         gain: float = None,
         use_dynamic_wscale: bool = True,
+        learning_rate_multiplier: float = 1.0,
     ):
         """
         Dense layer with weight scaling.
@@ -50,21 +67,23 @@ class ScaledDense(nn.Linear):
         """
         super().__init__(in_features, out_features, bias)
         self.use_dynamic_wscale = use_dynamic_wscale
-        self.gain = gain if gain else np.sqrt(2)
+        self.learning_rate_multiplier = learning_rate_multiplier
 
-        torch.nn.init.kaiming_normal_(self.weight)
+        torch.nn.init.normal_(self.weight)
         if bias:
             torch.nn.init.zeros_(self.bias)
 
         if self.use_dynamic_wscale:
-            self.gain = gain if gain else np.sqrt(2)
+            gain = gain if gain else np.sqrt(2)
             fan_in = self.in_features
             self.gain = gain / np.sqrt(max(1.0, fan_in))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        bias = self.bias * self.learning_rate_multiplier
+        weights = self.weight * self.learning_rate_multiplier
         if self.use_dynamic_wscale:
-            return nn.functional.linear(x, self.weight * self.gain, self.bias)
-        return nn.functional.linear(x, self.weight, self.bias)
+            return nn.functional.linear(x, weights * self.gain, self.bias)
+        return nn.functional.linear(x, weights, bias)
 
 
 class ScaledConv2dTranspose(nn.ConvTranspose2d):
@@ -80,7 +99,7 @@ class ScaledConv2dTranspose(nn.ConvTranspose2d):
         bias=True,
         dilation=1,
         padding_mode="zeros",
-        use_dynamic_wscale: bool = False,
+        use_dynamic_wscale: bool = True,
         gain: float = None,
     ) -> None:
         super().__init__(
@@ -101,9 +120,9 @@ class ScaledConv2dTranspose(nn.ConvTranspose2d):
 
         self.use_dynamic_wscale = use_dynamic_wscale
         if self.use_dynamic_wscale:
-            self.gain = gain if gain else np.sqrt(2)
+            gain = gain if gain else np.sqrt(2)
             fan_in = np.prod(self.kernel_size) * self.in_channels
-            self.gain = self.gain / np.sqrt(max(1.0, fan_in))
+            self.gain = gain / np.sqrt(max(1.0, fan_in))
 
     def forward(
         self, x: torch.Tensor, output_size: Any = None
@@ -138,7 +157,7 @@ class ScaledConv2d(nn.Conv2d):
         groups=1,
         bias=True,
         padding_mode="zeros",
-        use_dynamic_wscale: bool = False,
+        use_dynamic_wscale: bool = True,
         gain: float = None,
     ):
         """
@@ -171,9 +190,9 @@ class ScaledConv2d(nn.Conv2d):
 
         self.use_dynamic_wscale = use_dynamic_wscale
         if self.use_dynamic_wscale:
-            self.gain = gain if gain else np.sqrt(2)
+            gain = gain if gain else np.sqrt(2)
             fan_in = np.prod(self.kernel_size) * self.in_channels
-            self.gain = self.gain / np.sqrt(max(1.0, fan_in))
+            self.gain = gain / np.sqrt(max(1.0, fan_in))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         weight = (
@@ -193,9 +212,51 @@ class ScaledConv2d(nn.Conv2d):
 class PixelwiseNorm(nn.Module):
     def __init__(self):
         super(PixelwiseNorm, self).__init__()
+        self.alpha = 1e-8
 
-    @staticmethod
-    def forward(x: torch.Tensor, alpha: float = 1e-8) -> torch.Tensor:
-        y = x.pow(2.0).mean(dim=1, keepdim=True).add(alpha).sqrt()  # [N1HW]
-        y = x / y  # normalize the input x volume
-        return y
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = torch.sqrt(torch.mean(x**2, dim=1, keepdim=True) + self.alpha)
+        return x / y
+
+
+class Truncation(nn.Module):
+    def __init__(self, avg_latent, max_layer=8, threshold=0.7, beta=0.995):
+        """
+        Applies the Truncation trick as described in the paper `A Style-Based
+        Generator Architecture for Generative Adversarial Networks`
+
+        Args:
+            avg_latent: Average latent vector from the mapping network
+            max_layer: Maximum number of layers to apply the truncation
+            threshold: Truncation threshold
+            beta: Weighting factor for the average latent vector calculation
+        """
+
+        super().__init__()
+        self.max_layer = max_layer
+        self.threshold = threshold
+        self.beta = beta
+        self.register_buffer("avg_latent", avg_latent)
+
+    def update(self, last_avg: Tensor):
+        """
+        Updates the average latent vector with the last latent vector.
+
+        Args:
+            last_avg: Last average latent vector
+        """
+        self.avg_latent.copy_(
+            self.beta * self.avg_latent + (1.0 - self.beta) * last_avg
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Applies the truncation trick to the input tensor.
+
+        Args:
+            x: Input tensor
+        """
+        interpolation = torch.lerp(self.avg_latent, x, self.threshold)
+        layer_is_valid = torch.arange(x.size(1)) < self.max_layer
+        layer_is_valid = layer_is_valid.view(1, -1, 1).to(x.device)
+        return torch.where(layer_is_valid, interpolation, x)

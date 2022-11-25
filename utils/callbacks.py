@@ -9,9 +9,13 @@ from matplotlib import pyplot as plt
 from PIL import Image
 from pytorch_lightning.callbacks import Callback
 from sklearn.preprocessing import StandardScaler
-from torch import Tensor
+from torch import Tensor, nn
+from torchmetrics.image.fid import FrechetInceptionDistance
+from tqdm import tqdm
 
 from networks.modules.progan import ProGANGenerator
+from networks.modules.stylegan import StyleGANGenerator
+from utils import logger
 
 
 class GenerateImages(Callback):
@@ -48,6 +52,7 @@ class GenerateImages(Callback):
                 meta_data_path, orient="records", lines=True
             )
         self.release_year_scaler = release_year_scaler
+        self.upsample = nn.UpsamplingNearest2d(scale_factor=2)
 
     def on_train_batch_end(
         self,
@@ -71,16 +76,6 @@ class GenerateImages(Callback):
         if trainer.global_step % self.every_n_train_steps == 0:
             self.generate_images(pl_module, trainer)
 
-    def on_train_end(self, trainer, pl_module):
-        """
-        Plots a final set of images after the training.
-
-        Args:
-            trainer: PTLightning Trainer
-            pl_module: The CoverGANTask
-        """
-        self.generate_images(pl_module, trainer)
-
     def generate_images(self, task: pl.LightningModule, trainer: pl.Trainer):
         """
         Generates a list of images by predicting with the given generator.
@@ -97,8 +92,19 @@ class GenerateImages(Callback):
             n_imgs = 10
         else:
             n_imgs = len(self.data)
+        figs = []
+        captions = []
         for s in range(n_imgs):
-            self.generate_image_set(s, task, trainer)
+            r = self.generate_image_set(s, task, trainer)
+            figs.append(r[0])
+            captions.append(r[1])
+        if trainer.logger:
+            trainer.logger.log_image(
+                key="test/examples",
+                images=figs,
+                caption=captions,
+                step=task.images_shown,
+            )
 
     def generate_image_set(
         self, s: int, task: pl.LightningModule, trainer: pl.Trainer
@@ -128,7 +134,7 @@ class GenerateImages(Callback):
         x = np.linspace(x0, x1, 10)
         x = Tensor(x)
         x = x.to(task.device)
-        fig = self.create_figure(task, x, scaled_year_vec)
+        fig = self.create_figure(task, x, scaled_year_vec, seed=s)
         images_shown = trainer.logged_metrics["train/images_shown"]
         images_shown = str(int(images_shown))
         if self.data.empty:
@@ -139,17 +145,18 @@ class GenerateImages(Callback):
             album_name = str(self.data.loc[s, "album_name"])
             genre = ", ".join(eval(str(self.data.loc[s, "artist_genre"])))
             caption = f"{artist_name} - {album_name} ({genre}) [{year}]"
-        if trainer.logger:
-            trainer.logger.log_image(
-                key=caption, images=[fig], caption=[caption]
-            )
         caption = f"{caption} (step {images_shown})"
         img_path = os.path.join(self.output_dir, f"{caption}.png")
         plt.savefig(img_path)
         plt.close()
+        return fig, caption
 
     def create_figure(
-        self, task: pl.LightningModule, x: Tensor, year: np.array = None
+        self,
+        task: pl.LightningModule,
+        x: Tensor,
+        year: np.array = None,
+        seed: int = None,
     ) -> plt.Figure:
         """
         Creates a matplotlib figure of generated album covers.
@@ -159,6 +166,8 @@ class GenerateImages(Callback):
                 used to generate the images from the latent vectors
             x: Latent vectors
             year: Standardized release year of the artificial album
+            seed: The seed passed to the StyleGan generator to freeze the noise
+                generation to a constant input
         """
         if year is not None:
             year = Tensor(year).to(task.device)
@@ -167,18 +176,27 @@ class GenerateImages(Callback):
         fig = plt.figure(figsize=figsize, dpi=300)
         with torch.no_grad():
             if isinstance(task.generator, ProGANGenerator):
+                task.ema_generator.eval()
                 output = task.generator(
                     x, year=year, block=task.block, alpha=task.alpha
                 )
+            elif isinstance(task.generator, StyleGANGenerator):
+                task.ema_generator.eval()
+                output = task.ema_generator(
+                    x,
+                    year=year,
+                    block=task.block,
+                    alpha=task.alpha,
+                    seed=seed,
+                )
             else:
                 output = task.generator(x)
-        generated_images = output.detach().cpu().numpy()
-        generated_images = np.moveaxis(generated_images, 1, -1)
-        for img in generated_images:
-            if img.shape[-1] == 1:
-                img = np.tile(img, (1, 1, 3))
-            img = array_to_img(img, scale=True)
-            img = img.resize(size=self.target_size)
+        for img in output:
+            img = torch.unsqueeze(img, 0)
+            while img.shape[-1] != self.target_size[0]:
+                img = self.upsample(img)
+            img = rescale_image(img)
+            img = Image.fromarray(img.astype(np.int8), "RGB")
             plt.subplot(1, 10, idx)
             plt.axis("off")
             plt.imshow(img)
@@ -189,22 +207,115 @@ class GenerateImages(Callback):
         return fig
 
 
-def array_to_img(x: np.ndarray, scale=True) -> Image:
-    """
-    Converts a 3D Numpy array to a PIL Image instance.
+class ComputeFID(Callback):
+    def __init__(
+        self,
+        release_year_scaler: StandardScaler = None,
+    ):
+        """
+        Computes the Frechet Inception Distance (FID)
 
-    Args:
-        x: Input data, in any form that can be converted to a Numpy array.
-            "channels_last". Defaults to `None`, in which case the global
-            setting `tf.keras.backend.image_data_format()` is used (unless you
-            changed it, it defaults to "channels_last").
-        scale: Whether to rescale the image such that minimum and maximum values
-            are 0 and 255 respectively. Defaults to `True`.
-    """
-    if scale:
-        x = x - np.min(x)
-        x_max = np.max(x)
-        if x_max != 0:
-            x /= x_max
-        x *= 255
-    return Image.fromarray(x.astype("uint8"), "RGB")
+        Args:
+            release_year_scaler: Standaradscaler that will be used to
+                standardize the release year information
+        """
+        self.data = pd.DataFrame()
+        self.release_year_scaler = release_year_scaler
+        self.fid = FrechetInceptionDistance(feature=2048)
+
+    def on_fit_end(self, trainer, pl_module):
+        self.compute_fid(pl_module, trainer)
+
+    def compute_fid(self, task: pl.LightningModule, trainer: pl.Trainer):
+        """
+        Generates 50K images and updates the FID object with those images.
+        Simultaneously, draws 50K images from the trainset and updates the FID
+        object with those images. Finally, computes the FID.
+
+        Args:
+            task: The CoverGANTask
+            trainer: The PyTorch Lightning Trainer
+        """
+        n = 100
+        logger.info("Generate images for FID")
+        counter = 0
+        with tqdm(total=10000) as pbar:
+            for _ in range(10000 // n):
+                fakes = self.generate_images(task, n=n)
+                fakes = torch.moveaxis(fakes, -1, 1)
+                fakes = fakes.type(torch.uint8)
+                self.fid.update(fakes, real=False)
+                counter += fakes.shape[0]
+                pbar.update(n)
+        logger.info("Predict real images for FID")
+        counter = 0
+        with tqdm(total=10000) as pbar:
+            for batch in trainer.datamodule.train_dataloader():
+                reals = batch["images"]
+                reals = task.downscale_images(reals)
+                reals = rescale_image(reals)
+                reals = Tensor(reals).type(torch.uint8)
+                reals = torch.moveaxis(reals, -1, 1)
+                self.fid.update(reals, real=True)
+                counter += reals.shape[0]
+                if counter >= 10000:
+                    break
+                pbar.update(reals.shape[0])
+        trainer.logger.log_metrics(
+            {"train/fid10k": self.fid.compute()}, step=task.images_shown
+        )
+        self.fid.reset()
+
+    def generate_images(
+        self, task: pl.LightningModule, n: int = 100
+    ) -> Tensor:
+        """
+        Generates a set of images after receiving a certain seed.
+
+        Args:
+            task: The CoverGANTask
+            n: Number of images to generate
+        """
+        task.generator.eval()
+        latent_size = task.generator.latent_size
+        scaled_year_vec = None
+        if self.release_year_scaler is not None:
+            raise NotImplemented("Not implemented")
+        x = torch.rand(n, latent_size, device=task.device)
+        if scaled_year_vec is not None:
+            scaled_year_vec = Tensor(scaled_year_vec).to(task.device)
+        with torch.no_grad():
+            if isinstance(task.generator, ProGANGenerator):
+                task.ema_generator.eval()
+                output = task.generator(
+                    x, year=scaled_year_vec, block=task.block, alpha=task.alpha
+                )
+            elif isinstance(task.generator, StyleGANGenerator):
+                task.ema_generator.eval()
+                output = task.ema_generator(
+                    x,
+                    year=scaled_year_vec,
+                    block=task.block,
+                    alpha=task.alpha,
+                )
+            else:
+                output = task.generator(x)
+        imgs = []
+        for img in output:
+            img = torch.unsqueeze(img, 0)
+            img = rescale_image(img)
+            imgs.append(img)
+        return Tensor(np.array(imgs))
+
+
+def rescale_image(img: Tensor) -> Tensor:
+    img = torch.movedim(img, 1, -1)
+    img = torch.squeeze(img, dim=0)
+    if img.shape[-1] == 1:
+        img = torch.tile(img, (1, 1, 3))
+    scale = 255 / 2
+    img = img * scale
+    img = np.clip(img.cpu().numpy(), np.floor(-scale), np.floor(scale))
+    img = img.astype(np.int8)
+    img = img.astype(float) + np.ceil(scale)
+    return img

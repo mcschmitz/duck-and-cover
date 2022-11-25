@@ -1,2 +1,2 @@
-from tasks.dcgan import DCGanTask
-from tasks.wgan import WGANTask
+from tasks.dcgantask import DCGanTask
+from tasks.wgantask import WGANTask

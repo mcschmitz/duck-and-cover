@@ -1,3 +1,4 @@
 from loader.genre_data_loader import GenreDataLoader
+from loader.hf_dataloader import HFDataloader
 from loader.mnist_dataloader import MNISTDataloader
 from loader.spotify_data_loader import SpotifyDataloader

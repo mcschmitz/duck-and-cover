@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "duck-and-cover"
+version = "0.1.0"
+description = ""
+authors = ["Manuel Schmitz <manuel.schmitz@gmx.net>"]
+readme = "README.md"
+packages = [{include = "duck_and_cover"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+datasets = "^2.13.1"
+transformers = "^4.30.2"
+torch = "<2.0.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,31 +1,35 @@
 # **Duck and Cover**
 
-<div align="center">
-  <img src="http://cbarks.dk/Digital/seraa196208.JPG">
-  <figcaption>Source: http://cbarks.dk/Digital/seraa196208.JPG</figcaption>
-</div>
+`duck_and_cover` allows you to create your own album covers based on additional information like the genre of the LP, the release year and the name and titles of your artificial album.
 
-**Duck and Cover allows you to create your own album covers based on
-additional information like the genre of the LP, the release year and the 
-name and titles of your artificial album..**
+It uses data from more than 600.000 covers of over 120.000 top artists on spotify from 3.254 genres to learn about the structure and appearance of let's say a thrash metal album cover from 1988.
 
-Duck and Cover uses data from more than 600.000 covers of over 120.000
-spotify top artists from 3.254 genres to learn about the structure and
-appearance of let's say a thrash metal album cover from 1988.
+## ⚙️ Setup
+
+The project is built with Python 3.10 and uses `poetry` for dependency management. To install all dependencies simply run:
+
+```shell
+poetry install
+```
 
 ### Data Gathering
+
+As spotify prohibits the publication of their data, you have to gather the data to train the model yourself.
+
 Data gathering consists of two steps:
-1. Create a `.env` file with your `SPOTIPY_CLIENT_ID` and 
-   `SPOTIPY_CLIENT_SECRET` (Spotify API Client ID & Secret). Read more on 
+
+1. Create a `.env` file with your `SPOTIPY_CLIENT_ID` and
+   `SPOTIPY_CLIENT_SECRET` (Spotify API Client ID & Secret). Read more on
    how to get your Spotify client ID and secret [here](https://developer.spotify.com/documentation/general/guides/app-settings/).
-2. Run the [data collection script](data_collection/collect_artist_data.py) 
-   which iteratively collects the top 50 artists for each of the genres 
-   listed in [this file](data/genres.txt) and their related artists whereby 
-   duplicated artists are removed. After this step the script builds a table containing genre and release date of each album released by these artists, the artists and the album name as well as an URL to download a 300x300 as well as a 64x64 image of the cover. Based on this URL the covers are finally downloaded and save to a unified identifiable file structure.
-   
- All of the final and intermediate results of the tasks in steps in 2. are saved in a temporary dictionary to allow splitting the data collection in case of reaching the quota limit of the Spotify API (which is usually not the case) or running into other trouble.
- 
+  
+2. Run the [data collection script](data_collection/collect_artist_data.py) which iteratively collects the top 50 artists for each of the genres listed in [this file](data/genres.txt) and their related artists whereby duplicated artists are removed. This script creates a table containing genre and release date of each album released by these artists, the artists and the album name as well as an URL to download a 300x300 as well as a 64x64 image of the cover. Based on this URL the covers are finally downloaded and save to a unified identifiable file structure. All of the final and intermediate results of the tasks in steps in 2. are saved in a temporary dictionary to allow splitting the data collection in case of reaching the quota limit of the Spotify API (which is usually not the case) or running into other trouble.
+
+3. Once all the data is available you can run the [script](data_collection/add_caption_and_upload_to_hf.py), that adds the captions to the images and uploads them to the HuggingFace dataset hub.
+
+4. Additionally you can run a script that collects example albums based on their album ID and saves them to a folder. This is useful for testing the model on a specific album. The script can be found [here](data_collection/collect_example_albums.py).
+
 ### Networks and results
+
 The first network built is a simple [Deep Convolutional GAN](https://arxiv.org/pdf/1511.06434.pdf). The results aren't really satisfying since a DCGAN is not able to capture
 the manifold variations in an album Cover and collapses pretty early on:
 
@@ -33,8 +37,8 @@ the manifold variations in an album Cover and collapses pretty early on:
   <img src="img/learning_progress_gan.gif">
 </div>
 
-Switching from a normal binary crossentropy loss for both discriminator and 
-the combined model to a [GAN trained with wasserstein loss fused with 
+Switching from a normal binary crossentropy loss for both discriminator and
+the combined model to a [GAN trained with wasserstein loss fused with
 gradient penalty](https://arxiv.org/pdf/1704.00028.pdf) yields much better results than the DCGAN:
 
 <div align="center">
@@ -49,7 +53,8 @@ Now let's have a look at the results of the ProGAN. Clearly once can see how the
   <img src="img/learning_progress_progan.gif">
 </div>
 
-### Next Steps:
+### Next Steps
+
 1. Train ProGan + Genre
 2. Integrate Artist Name
 3. Integrate Album Name
